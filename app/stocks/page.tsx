@@ -1,0 +1,1111 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { formatMoney } from '@/lib/utils'
+import toast, { Toaster } from 'react-hot-toast'
+import { Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe, AlertTriangle, RefreshCw, Filter, Settings, Tags } from 'lucide-react'
+
+type Company = { id: string; name: string; is_personal: boolean }
+type Warehouse = { id: string; name: string; color: string; company_id?: string | null; company?: { name: string; is_personal: boolean } }
+type StockCategory = { id: string; name: string; warehouse_id: string }
+
+type StockItem = {
+  id: string
+  warehouse_id: string
+  name: string
+  sku: string
+  category: string
+  sub_category: string
+  currency: 'TRY' | 'USD' | 'EUR'
+  unit: string
+  quantity: number
+  unit_price: number
+  vat_rate: number
+  stock_color: string
+}
+
+type StockTransaction = {
+  id: string
+  stock_id: string
+  company_id?: string | null
+  tx_date: string
+  description: string
+  tx_type: 'in' | 'out'
+  quantity: number
+  unit_price: number
+  currency: 'TRY' | 'USD' | 'EUR'
+  vat_rate: number
+  company?: { name: string; is_personal: boolean }
+}
+
+type ExchangeRates = { USD: number; EUR: number }
+
+const THEME_COLORS = [
+  { label: 'Gece Mavisi', value: 'from-[#1b253b] to-[#121a2a]' },
+  { label: 'Koyu Grafit', value: 'from-[#27272a] to-[#18181b]' },
+  { label: 'Derin Mor', value: 'from-[#3b1f48] to-[#1a0f24]' },
+  { label: 'Zümrüt Yeşili', value: 'from-[#133e30] to-[#0a221b]' },
+]
+
+function getLocalTodayISO() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+function formatDateTR(dateStr: string) {
+  if (!dateStr) return ''
+  const parts = dateStr.split('-')
+  if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`
+  return dateStr
+}
+
+async function logActivity(module: string, action: string, description: string, recordId: string | null = null, amount: number = 0, currency: string = '', oldData: any = null, newData: any = null, companyId: string | null = null) {
+  try {
+    await supabase.from('audit_logs').insert([{
+      module, action, description, record_id: recordId, amount, currency, old_data: oldData, new_data: newData, company_id: companyId
+    }])
+  } catch (err) {
+    console.error("Log kaydı atılamadı:", err)
+  }
+}
+
+export default function StocksPage() {
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null)
+  
+  const [categories, setCategories] = useState<StockCategory[]>([])
+  const [selectedFilterCategories, setSelectedFilterCategories] = useState<string[]>([])
+  const [searchTerm, setSearchTerm] = useState('')
+
+  const [allStocks, setAllStocks] = useState<StockItem[]>([])
+  const [selectedStockId, setSelectedStockId] = useState<string | null>(null)
+  const [transactions, setTransactions] = useState<StockTransaction[]>([])
+  
+  const [rates, setRates] = useState<ExchangeRates>({ USD: 34.25, EUR: 37.80 })
+
+  const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false)
+  const [editingWhId, setEditingWhId] = useState<string | null>(null)
+  const [whName, setWhName] = useState('')
+  const [whColor, setWhColor] = useState(THEME_COLORS[0].value)
+  const [whCompanyId, setWhCompanyId] = useState('common')
+
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
+  const [isCategoryManageModalOpen, setIsCategoryManageModalOpen] = useState(false)
+  const [editingStockCatId, setEditingStockCatId] = useState<string | null>(null)
+  const [newCategoryName, setNewCategoryName] = useState('')
+
+  const [isStockModalOpen, setIsStockModalOpen] = useState(false)
+  const [editingStockId, setEditingStockId] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [sku, setSku] = useState('')
+  const [category, setCategory] = useState('')
+  const [subCategory, setSubCategory] = useState('')
+  const [currency, setCurrency] = useState<'TRY' | 'USD' | 'EUR'>('TRY')
+  const [unit, setUnit] = useState('Adet')
+  const [quantity, setQuantity] = useState('')
+  const [unitPrice, setUnitPrice] = useState('')
+  const [vatRate, setVatRate] = useState('20')
+  const [stockColor, setStockColor] = useState(THEME_COLORS[0].value)
+
+  const [editingTxId, setEditingTxId] = useState<string | null>(null)
+  const todayISO = getLocalTodayISO()
+  const [txDate, setTxDate] = useState(todayISO)
+  const [txCompanyId, setTxCompanyId] = useState('common')
+  const [txDesc, setTxDesc] = useState('')
+  const [txType, setTxType] = useState<'in' | 'out'>('in')
+  const [txQty, setTxQty] = useState('')
+  const [txPrice, setTxPrice] = useState('')
+  const [txCurrency, setTxCurrency] = useState<'TRY' | 'USD' | 'EUR'>('TRY')
+  const [txVatRate, setTxVatRate] = useState('20')
+
+  const [quickSearchTerm, setQuickSearchTerm] = useState('')
+  const [isQuickActionActive, setIsQuickActionActive] = useState(false)
+
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean; title: string; message: string; confirmText: string; cancelText: string; isDanger: boolean; onConfirm: () => void;
+  }>({ isOpen: false, title: '', message: '', confirmText: '', cancelText: '', isDanger: false, onConfirm: () => {} })
+
+  useEffect(() => {
+    fetchExchangeRates()
+    fetchCompanies()
+    fetchWarehouses()
+    fetchAllStocks()
+  }, [])
+
+  useEffect(() => {
+    if (selectedWarehouseId) {
+      fetchCategories(selectedWarehouseId)
+      setSelectedStockId(null)
+      setSelectedFilterCategories([])
+      setSearchTerm('')
+    } else {
+      setCategories([])
+    }
+  }, [selectedWarehouseId])
+
+  useEffect(() => {
+    if (selectedStockId) {
+      fetchTransactions(selectedStockId)
+      cancelEditTx()
+    }
+  }, [selectedStockId, allStocks])
+
+  async function fetchExchangeRates() {
+    try {
+      const res = await fetch('https://open.er-api.com/v6/latest/USD')
+      const data = await res.json()
+      if (data && data.rates) {
+        setRates({ USD: Number(data.rates.TRY.toFixed(4)), EUR: Number((data.rates.TRY / data.rates.EUR).toFixed(4)) })
+      }
+    } catch (err) { console.error(err) }
+  }
+
+  async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name', { ascending: true }); setCompanies(data || []) }
+
+  async function fetchWarehouses() {
+    try {
+      const { data, error } = await supabase.from('warehouses').select('*, company:companies(name, is_personal)').order('created_at', { ascending: true })
+      if (error) throw error
+      setWarehouses(data || [])
+      if (data && data.length > 0 && !selectedWarehouseId) setSelectedWarehouseId(data[0].id)
+    } catch (err) { console.error(err) }
+  }
+
+  async function fetchAllStocks() {
+    try {
+      const { data, error } = await supabase.from('stocks').select('*').order('name', { ascending: true })
+      if (error) throw error
+      setAllStocks(data || [])
+    } catch (err) { console.error(err) }
+  }
+
+  async function fetchCategories(whId: string) {
+    try {
+      const { data, error } = await supabase.from('stock_categories').select('*').eq('warehouse_id', whId).order('name', { ascending: true })
+      if (error) throw error
+      setCategories(data || [])
+    } catch (err) { console.error(err) }
+  }
+
+  async function fetchTransactions(stockId: string) {
+    try {
+      const { data, error } = await supabase.from('stock_transactions').select('*, company:companies(name, is_personal)').eq('stock_id', stockId).order('tx_date', { ascending: false })
+      if (error) throw error
+      setTransactions(data || [])
+    } catch (err) { console.error(err) }
+  }
+
+  const getTryEquivalent = (amount: number, curr: string) => {
+    if (curr === 'USD') return amount * rates.USD
+    if (curr === 'EUR') return amount * rates.EUR
+    return amount
+  }
+  const getUsdEquivalent = (amountTry: number) => amountTry / rates.USD
+
+  const getWarehouseTotals = (whId: string) => {
+    const whStocks = allStocks.filter(s => s.warehouse_id === whId)
+    const totalTry = whStocks.reduce((acc, s) => {
+      const vatRate = s.vat_rate || 0
+      const priceWithVat = s.unit_price * (1 + vatRate / 100)
+      return acc + getTryEquivalent(s.quantity * priceWithVat, s.currency)
+    }, 0)
+    const totalUsd = getUsdEquivalent(totalTry)
+    return { totalTry, totalUsd }
+  }
+
+  // =========================================================================================
+  // --- MUTLAK HESAPLAMA MOTORU (ABSOLUTE LEDGER RECALCULATOR) ---
+  // =========================================================================================
+  async function recalculateAbsoluteStock(stockId: string) {
+    const { data: txs } = await supabase.from('stock_transactions').select('quantity, tx_type').eq('stock_id', stockId)
+    let absoluteQty = 0
+    txs?.forEach(t => { absoluteQty += t.tx_type === 'in' ? Number(t.quantity) : -Number(t.quantity) })
+    await supabase.from('stocks').update({ quantity: absoluteQty }).eq('id', stockId)
+  }
+  // =========================================================================================
+
+  async function handleSaveWarehouse(e: React.FormEvent) {
+    e.preventDefault()
+    const finalCompId = whCompanyId === 'common' ? null : whCompanyId
+    const payload = { name: whName, color: whColor, company_id: finalCompId }
+    try {
+      if (editingWhId) {
+        const oldWh = warehouses.find(w => w.id === editingWhId)
+        const { error } = await supabase.from('warehouses').update(payload).eq('id', editingWhId)
+        if (error) throw error
+        await logActivity('warehouse', 'UPDATE', `Depo güncellendi: ${whName}`, editingWhId, 0, '', oldWh, payload, finalCompId)
+        toast.success('Depo başarıyla güncellendi.')
+      } else {
+        const { data, error } = await supabase.from('warehouses').insert([payload]).select().single()
+        if (error) throw error
+        await logActivity('warehouse', 'INSERT', `Yeni depo oluşturuldu: ${whName}`, data.id, 0, '', null, data, finalCompId)
+        toast.success('Yeni depo oluşturuldu.')
+      }
+      setIsWarehouseModalOpen(false); fetchWarehouses()
+    } catch (err: any) { toast.error('İşlem başarısız: ' + err.message) }
+  }
+
+  function handleDeleteWarehouse(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Depoyu Sil',
+      message: 'Bu depoyu silmek istediğinize emin misiniz? İçindeki tüm stok kartları da silinecektir.',
+      confirmText: 'Evet, Sil',
+      cancelText: 'Vazgeç',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+        try {
+          const whToDelete = warehouses.find(w => w.id === id)
+          await supabase.from('warehouses').delete().eq('id', id)
+          await logActivity('warehouse', 'DELETE', `Depo silindi: ${whToDelete?.name}`, id, 0, '', whToDelete, null, whToDelete?.company_id)
+          toast.success('Depo başarıyla silindi.')
+          if (selectedWarehouseId === id) setSelectedWarehouseId(null)
+          fetchWarehouses(); fetchAllStocks()
+        } catch (err: any) { toast.error('Silme başarısız: ' + err.message) }
+      }
+    })
+  }
+
+  async function handleSaveCategory(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newCategoryName || !selectedWarehouseId) return
+    try {
+      if (editingStockCatId) {
+        const oldCat = categories.find(c => c.id === editingStockCatId)
+        const { error } = await supabase.from('stock_categories').update({ name: newCategoryName }).eq('id', editingStockCatId)
+        if (error) throw error
+        
+        if (oldCat && oldCat.name !== newCategoryName) {
+          await supabase.from('stocks').update({ category: newCategoryName }).eq('category', oldCat.name).eq('warehouse_id', selectedWarehouseId)
+        }
+
+        await logActivity('stock_category', 'UPDATE', `Kategori güncellendi: ${newCategoryName}`, editingStockCatId, 0, '', oldCat, { name: newCategoryName }, null)
+        toast.success('Kategori güncellendi.')
+      } else {
+        const { data, error } = await supabase.from('stock_categories').insert([{ name: newCategoryName, warehouse_id: selectedWarehouseId }]).select().single()
+        if (error) throw error
+        await logActivity('stock_category', 'INSERT', `Yeni stok kategorisi eklendi: ${newCategoryName}`, data.id, 0, '', null, data, null)
+        toast.success('Yeni kategori eklendi.')
+      }
+      setCategory(newCategoryName)
+      setIsCategoryModalOpen(false)
+      setNewCategoryName('')
+      setEditingStockCatId(null)
+      setSelectedFilterCategories([]) 
+      fetchCategories(selectedWarehouseId)
+      fetchAllStocks()
+    } catch (err: any) { toast.error('Kategori işlemi başarısız: ' + err.message) }
+  }
+
+  function handleDeleteCategory(id: string, catName: string) {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Kategoriyi Sil',
+      message: `"${catName}" kategorisini silmek istediğinize emin misiniz? Bu kategoriye ait stokların kategorisi "Kategorisiz" olarak güncellenecektir.`,
+      confirmText: 'Evet, Sil',
+      cancelText: 'Vazgeç',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+        try {
+          const catToDelete = categories.find(c => c.id === id)
+          await supabase.from('stocks').update({ category: null }).eq('category', catName).eq('warehouse_id', selectedWarehouseId)
+          await supabase.from('stock_categories').delete().eq('id', id)
+          await logActivity('stock_category', 'DELETE', `Stok kategorisi silindi: ${catToDelete?.name}`, id, 0, '', catToDelete, null, null)
+          
+          toast.success('Kategori silindi.')
+          setSelectedFilterCategories([])
+          fetchCategories(selectedWarehouseId!)
+          fetchAllStocks()
+        } catch (err: any) { toast.error('Silme başarısız: ' + err.message) }
+      }
+    })
+  }
+
+  async function handleSaveStock(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name || !selectedWarehouseId) return
+    const qtyNum = parseFloat(quantity) || 0
+    const priceNum = parseFloat(unitPrice) || 0
+    const vatNum = parseFloat(vatRate) || 0
+
+    try {
+      if (editingStockId) {
+        const payload = { warehouse_id: selectedWarehouseId, name, sku: sku || null, category: category || null, sub_category: subCategory || null, currency, unit, unit_price: priceNum, vat_rate: vatNum, stock_color: stockColor }
+        const oldStock = allStocks.find(s => s.id === editingStockId)
+        
+        const { error } = await supabase.from('stocks').update(payload).eq('id', editingStockId)
+        if (error) throw error
+        
+        await recalculateAbsoluteStock(editingStockId)
+        
+        await logActivity('stock', 'UPDATE', `Stok kartı güncellendi: ${name}`, editingStockId, priceNum, currency, oldStock, payload, null)
+        toast.success('Stok kartı güncellendi.')
+      } else {
+        const payload = { warehouse_id: selectedWarehouseId, name, sku: sku || null, category: category || null, sub_category: subCategory || null, currency, unit, quantity: 0, unit_price: priceNum, vat_rate: vatNum, stock_color: stockColor }
+        const { data, error } = await supabase.from('stocks').insert([payload]).select().single()
+        if (error) throw error
+        await logActivity('stock', 'INSERT', `Yeni stok kartı oluşturuldu: ${name}`, data.id, priceNum, currency, null, data, null)
+
+        if (data && qtyNum > 0) {
+          const txPayload = { stock_id: data.id, tx_date: todayISO, description: 'Açılış Stoğu', tx_type: 'in', quantity: qtyNum, unit_price: priceNum, currency, vat_rate: vatNum, company_id: null }
+          const { data: txData, error: txError } = await supabase.from('stock_transactions').insert([txPayload]).select().single()
+          if (!txError && txData) {
+             await logActivity('stock_tx', 'INSERT', `Açılış Stoğu: ${name}`, txData.id, priceNum, currency, null, txData, null)
+          }
+        }
+        
+        await recalculateAbsoluteStock(data.id)
+        toast.success('Yeni stok kartı oluşturuldu.')
+      }
+      setIsStockModalOpen(false); fetchAllStocks()
+    } catch (err: any) { toast.error('İşlem başarısız: ' + err.message) }
+  }
+
+  function handleDeleteStock(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Stok Kartını Sil',
+      message: 'Bu stok kartını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.',
+      confirmText: 'Evet, Sil',
+      cancelText: 'Vazgeç',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+        try {
+          const stockToDelete = allStocks.find(s => s.id === id)
+          await supabase.from('stocks').delete().eq('id', id)
+          await logActivity('stock', 'DELETE', `Stok kartı silindi: ${stockToDelete?.name}`, id, stockToDelete?.unit_price, stockToDelete?.currency || 'TRY', stockToDelete, null, null)
+          toast.success('Stok kartı başarıyla silindi.')
+          if (selectedStockId === id) setSelectedStockId(null)
+          fetchAllStocks()
+        } catch (err: any) { toast.error('Silme başarısız: ' + err.message) }
+      }
+    })
+  }
+
+  function cancelEditTx() {
+    setEditingTxId(null)
+    setTxDesc('')
+    setTxQty('')
+    setTxPrice('')
+    setTxDate(getLocalTodayISO())
+    setTxCompanyId('common')
+    setQuickSearchTerm('')
+    setIsQuickActionActive(false)
+    const s = allStocks.find(x => x.id === selectedStockId)
+    if (s) {
+      setTxCurrency(s.currency || 'TRY')
+      setTxVatRate(s.vat_rate?.toString() || '20')
+    }
+  }
+
+  function handleEditTx(t: StockTransaction) {
+    setEditingTxId(t.id)
+    setTxDate(t.tx_date)
+    setTxType(t.tx_type)
+    setTxDesc(t.description)
+    setTxQty(t.quantity.toString())
+    setTxPrice(t.unit_price.toString())
+    setTxCurrency(t.currency || 'TRY')
+    setTxVatRate(t.vat_rate?.toString() || '0')
+    setTxCompanyId(t.company_id || 'common')
+  }
+
+  async function handleAddTransaction(e: React.FormEvent) {
+    e.preventDefault()
+    const qtyNum = parseFloat(txQty); const priceNum = parseFloat(txPrice); const vatNum = parseFloat(txVatRate);
+    const currentItem = allStocks.find(s => s.id === selectedStockId)
+    if (!currentItem || !selectedStockId) return
+    const finalCompId = txCompanyId === 'common' ? null : txCompanyId
+
+    const payload = {
+      company_id: finalCompId, tx_date: txDate || todayISO, description: txDesc, 
+      tx_type: txType, quantity: qtyNum, unit_price: priceNum, currency: txCurrency, vat_rate: vatNum
+    }
+
+    try {
+      if (editingTxId) {
+        const oldTx = transactions.find(t => t.id === editingTxId)
+        if (!oldTx) return
+        
+        const { error: updErr } = await supabase.from('stock_transactions').update(payload).eq('id', editingTxId)
+        if (updErr) throw updErr
+        
+        await logActivity('stock_tx', 'UPDATE', `Stok hareketi güncellendi: ${txDesc}`, editingTxId, priceNum, txCurrency, oldTx, payload, finalCompId)
+        toast.success('İşlem güncellendi.')
+      } else {
+        const { data: newTx, error: insErr } = await supabase.from('stock_transactions').insert([{ stock_id: selectedStockId, ...payload }]).select().single()
+        if (insErr) throw insErr
+        
+        await logActivity('stock_tx', 'INSERT', `Stok ${txType === 'in' ? 'Girişi' : 'Çıkışı'}: ${txDesc}`, newTx.id, priceNum, txCurrency, null, newTx, finalCompId)
+        toast.success(txType === 'in' ? 'Stok girişi eklendi.' : 'Stok çıkışı yapıldı.')
+      }
+      
+      await recalculateAbsoluteStock(selectedStockId)
+
+      if (txType === 'in') {
+        let basePrice = priceNum
+        if (txCurrency !== currentItem.currency) {
+          let tryValue = priceNum
+          if (txCurrency === 'USD') tryValue = priceNum * rates.USD
+          if (txCurrency === 'EUR') tryValue = priceNum * rates.EUR
+          if (currentItem.currency === 'USD') basePrice = tryValue / rates.USD
+          else if (currentItem.currency === 'EUR') basePrice = tryValue / rates.EUR
+          else basePrice = tryValue
+        }
+        await supabase.from('stocks').update({ unit_price: basePrice }).eq('id', selectedStockId)
+      }
+
+      cancelEditTx()
+      fetchTransactions(selectedStockId); fetchAllStocks()
+    } catch (err: any) { toast.error('İşlem kaydedilemedi: ' + err.message) }
+  }
+
+  function handleDeleteTransaction(txId: string, qty: number, type: 'in' | 'out') {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'İşlemi Sil',
+      message: 'Bu stok hareketini silmek istediğinize emin misiniz? İşlem miktarı stoka iade edilecektir.',
+      confirmText: 'Evet, Sil',
+      cancelText: 'Vazgeç',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+        try {
+          const oldTx = transactions.find(t => t.id === txId)
+          await supabase.from('stock_transactions').delete().eq('id', txId)
+          
+          if (selectedStockId) {
+             await recalculateAbsoluteStock(selectedStockId)
+          }
+          
+          await logActivity('stock_tx', 'DELETE', `Stok hareketi iptal edildi: ${oldTx?.description}`, txId, oldTx?.unit_price, oldTx?.currency || '', { ...oldTx }, null, oldTx?.company_id)
+
+          toast.success('İşlem silindi ve stok güncellendi.')
+          fetchTransactions(selectedStockId!); fetchAllStocks()
+        } catch (err: any) { toast.error('Silme başarısız: ' + err.message) }
+      }
+    })
+  }
+
+  function openAddWh() { setEditingWhId(null); setWhName(''); setWhColor(THEME_COLORS[0].value); setWhCompanyId('common'); setIsWarehouseModalOpen(true) }
+  
+  function openEditWh(wh: Warehouse, e: React.MouseEvent) {
+    e.stopPropagation()
+    setEditingWhId(wh.id); setWhName(wh.name); setWhColor(wh.color); setWhCompanyId(wh.company_id || 'common'); setIsWarehouseModalOpen(true)
+  }
+
+  function openAddStock() {
+    if (!selectedWarehouseId) { toast.error('Lütfen önce bir depo seçin.'); return }
+    setEditingStockId(null); setName(''); setSku(''); setCategory(''); setSubCategory(''); setQuantity(''); setUnitPrice(''); setVatRate('20'); setIsStockModalOpen(true)
+  }
+  
+  function openEditStock(item: StockItem, e: React.MouseEvent) {
+    e.stopPropagation()
+    setEditingStockId(item.id); setName(item.name); setSku(item.sku || ''); setCategory(item.category || ''); setSubCategory(item.sub_category || ''); setCurrency(item.currency || 'TRY'); setUnit(item.unit || 'Adet'); setQuantity(item.quantity.toString()); setUnitPrice(item.unit_price.toString()); setVatRate(item.vat_rate?.toString() || '0'); setStockColor(item.stock_color || THEME_COLORS[0].value)
+    setIsStockModalOpen(true)
+  }
+
+  const warehouseStocks = allStocks.filter(s => s.warehouse_id === selectedWarehouseId)
+  
+  const filteredStocks = warehouseStocks.filter(s => {
+    const catMatch = selectedFilterCategories.length === 0 || selectedFilterCategories.includes(s.category || 'Kategorisiz')
+    const searchStr = searchTerm.toLowerCase()
+    const searchMatch = !searchTerm || s.name.toLowerCase().includes(searchStr) || (s.sku && s.sku.toLowerCase().includes(searchStr))
+    return catMatch && searchMatch
+  })
+
+  const quickSearchStocks = warehouseStocks.filter(s => 
+    quickSearchTerm.length > 1 && 
+    (s.name.toLowerCase().includes(quickSearchTerm.toLowerCase()) || (s.sku && s.sku.toLowerCase().includes(quickSearchTerm.toLowerCase())))
+  )
+
+  const groupedStocks = filteredStocks.reduce((acc, stock) => {
+    const cat = stock.category || 'Kategorisiz'; if (!acc[cat]) acc[cat] = []; acc[cat].push(stock); return acc
+  }, {} as Record<string, StockItem[]>)
+
+  const selectedStock = allStocks.find(s => s.id === selectedStockId)
+  const activeWarehouse = warehouses.find(w => w.id === selectedWarehouseId)
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-32px)] relative">
+      <Toaster position="top-right" toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px', zIndex: 99999 } }} />
+      
+      {/* Üst Bar */}
+      <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex items-center justify-between gap-4 bg-[#0d1322] border border-slate-800/80 p-3 rounded-xl shadow-md shrink-0 mb-4 transition-colors">
+        <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar flex-1">
+          <Package className="text-indigo-400 mr-2 shrink-0" size={20} />
+          {warehouses.map((wh, index) => {
+            const totals = getWarehouseTotals(wh.id)
+            const isSelected = selectedWarehouseId === wh.id
+            return (
+              <div 
+                key={wh.id} 
+                onClick={() => setSelectedWarehouseId(wh.id)} 
+                style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.1 + (index * 0.05)}s` }}
+                className={`flex flex-col px-3 py-1.5 rounded-lg cursor-pointer transition-all border whitespace-nowrap bg-gradient-to-r group ${wh.color} ${isSelected ? 'border-indigo-400 ring-1 ring-indigo-400/50 shadow-inner -translate-y-0.5' : 'border-slate-800/80 opacity-60 hover:opacity-100 hover:-translate-y-0.5'}`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-bold text-white">{wh.name}</span>
+                  {isSelected && (
+                    <div className="flex items-center gap-1 bg-black/30 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={(e) => openEditWh(wh, e)} className="text-slate-300 hover:text-indigo-400"><Edit3 size={10} /></button>
+                      <button onClick={(e) => handleDeleteWarehouse(wh.id, e)} className="text-slate-300 hover:text-rose-400"><Trash2 size={10} /></button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col mt-1">
+                  <span className="text-xs font-mono font-semibold text-slate-200 opacity-90 tracking-tight">
+                    {formatMoney(totals.totalUsd, 'USD').formatted} / {formatMoney(totals.totalTry, 'TRY').formatted}
+                  </span>
+                  <span className="text-[8px] text-slate-300/70 font-sans uppercase tracking-wider mt-0.5">KDV Dahil Değer</span>
+                </div>
+              </div>
+            )
+          })}
+          <button style={{ animation: 'fadeInUp 0.3s both 0.3s' }} onClick={openAddWh} className="p-2 rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 hover:bg-slate-800/50 shrink-0 transition-all active:scale-95"><Plus size={16} /></button>
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
+        {/* SOL SÜTUN */}
+        <div style={{ animation: 'fadeInUp 0.4s both 0.1s' }} className="w-full lg:w-[450px] bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col shrink-0 shadow-lg">
+          <div className="p-3 border-b border-slate-800/80 bg-[#0a0f1d] rounded-t-xl flex flex-col gap-3 shrink-0">
+            <div className="flex justify-between items-start">
+              <div>
+                 <span className="text-xs font-bold text-slate-300">Stok Kartları</span>
+                 <div className="text-[9px] text-slate-500 mt-1 flex items-center gap-1">
+                    {activeWarehouse?.company ? (activeWarehouse.company.is_personal ? <Home size={10} className="text-slate-400"/> : <Building size={10} className="text-indigo-400"/>) : <Globe size={10} className="text-emerald-500/70"/>}
+                    Sahiplik: {activeWarehouse?.company ? activeWarehouse.company.name : 'Ortak / Bağımsız Depo'}
+                 </div>
+              </div>
+              <button onClick={openAddStock} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95"><Plus size={14} /> Ürün Ekle</button>
+            </div>
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input type="text" placeholder="Stoklarda ürün veya SKU ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" />
+            </div>
+          </div>
+
+          {categories.length > 0 && (
+            <div className="px-2 py-1.5 border-b border-slate-800/50 bg-[#070b14] flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar flex-1">
+                <Filter size={12} className="text-slate-500 shrink-0 mx-1" />
+                {categories.map(c => {
+                  const isActive = selectedFilterCategories.includes(c.name)
+                  return (
+                    <button key={c.id} onClick={() => setSelectedFilterCategories(p => p.includes(c.name) ? p.filter(n => n !== c.name) : [...p, c.name])} className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border ${isActive ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-slate-400'}`}>
+                      {c.name}
+                    </button>
+                  )
+                })}
+              </div>
+              <button onClick={() => setIsCategoryManageModalOpen(true)} className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded transition-colors shrink-0 ml-2">
+                <Settings size={12} /> Yönet
+              </button>
+            </div>
+          )}
+          
+          <div className="overflow-y-auto flex-1 custom-scrollbar">
+            {Object.keys(groupedStocks).length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-8 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner mt-4 mx-2">
+                <Package size={32} className="mb-3 opacity-70 text-indigo-400 animate-bounce" />
+                <p className="text-[11px] font-bold text-slate-400">Kriterlere uygun ürün yok</p>
+                <p className="text-[9px] mt-1 text-slate-500">Lütfen arama kelimenizi veya filtrelerinizi değiştirin.</p>
+              </div>
+            ) : (
+              Object.keys(groupedStocks).map((catName) => (
+                <div key={catName}>
+                  <div className="sticky top-0 bg-[#0d1322]/95 backdrop-blur text-[10px] font-bold text-indigo-400 uppercase px-3 py-1.5 border-b border-slate-800/50 z-10 flex items-center gap-1.5">
+                    <Layers size={12} /> {catName}
+                  </div>
+                  <div className="divide-y divide-slate-800/50">
+                    {groupedStocks[catName].map((item, idx) => {
+                      const isSelected = item.id === selectedStockId
+                      const unitTry = getTryEquivalent(item.unit_price, item.currency)
+                      const unitUsd = getUsdEquivalent(unitTry)
+                      const displayUnit = item.unit === 'Adet' ? 'ad.' : item.unit
+                      
+                      return (
+                        <div 
+                          key={item.id} 
+                          onClick={() => setSelectedStockId(item.id)} 
+                          style={{ animation: 'fadeSlideRight 0.3s both', animationDelay: `${0.1 + (idx * 0.03)}s` }}
+                          className={`flex items-center justify-between text-[11px] py-2 px-3 cursor-pointer transition-colors ${isSelected ? 'bg-indigo-900/20' : 'hover:bg-slate-800/30'}`}
+                        >
+                          <div className="font-normal text-slate-300 truncate pr-2 flex-1">{item.name}</div>
+                          <div className="flex items-center gap-4 shrink-0 font-mono">
+                            <div className="text-slate-400 flex items-center">
+                              <span className={item.currency === 'USD' ? 'text-indigo-300 font-semibold' : ''}>{formatMoney(unitUsd, 'USD').formatted}</span>
+                              <span className="mx-1.5 text-slate-600">/</span>
+                              <span className={item.currency === 'TRY' ? 'text-indigo-300 font-semibold' : ''}>{formatMoney(unitTry, 'TRY').formatted}</span>
+                            </div>
+                            <div className="text-emerald-400 font-medium w-16 text-right">
+                              {item.quantity} <span className="text-[9px] text-emerald-400/70">{displayUnit}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* SAĞ SÜTUN */}
+        <div style={{ animation: 'fadeInUp 0.4s both 0.2s' }} className="flex-1 bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col min-w-0 shadow-lg relative">
+          
+          {/* HIZLI ARAMA & FATURA İŞLEMİ (Her Zaman Üstte) */}
+          <div className="p-4 border-b border-slate-800/80 bg-[#0a0f1d] rounded-t-xl shrink-0 z-20">
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5"><Search size={12}/> Hızlı Arama & İşlem Ekleme</label>
+              <div className="relative z-20">
+                <input 
+                  type="text" 
+                  placeholder="Seçili depoda ürün adı veya SKU ara (örn: ekran kartı)..." 
+                  value={quickSearchTerm} 
+                  onChange={(e) => {
+                    setQuickSearchTerm(e.target.value);
+                    if (e.target.value.length < 2) setIsQuickActionActive(false);
+                  }} 
+                  className="w-full bg-[#070b14] border border-indigo-500/30 rounded-lg pl-4 pr-10 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 shadow-inner transition-colors"
+                />
+                <button 
+                  onClick={() => setQuickSearchTerm('')}
+                  className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-opacity ${quickSearchTerm ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                ><X size={14}/></button>
+
+                {/* Arama Sonuçları Dropdown */}
+                {quickSearchTerm.length > 1 && !isQuickActionActive && (
+                  <div className="absolute top-full left-0 right-0 mt-1.5 bg-[#1b253b] border border-indigo-500/50 rounded-lg shadow-2xl overflow-hidden max-h-60 overflow-y-auto custom-scrollbar animate-in slide-in-from-top-2 duration-200">
+                    {quickSearchStocks.length === 0 ? (
+                      <div className="p-3 text-center text-xs text-slate-400">Ürün bulunamadı.</div>
+                    ) : (
+                      quickSearchStocks.map(stock => (
+                        <div 
+                          key={`quick-${stock.id}`} 
+                          onClick={() => {
+                            setSelectedStockId(stock.id);
+                            setIsQuickActionActive(true);
+                            setQuickSearchTerm(stock.name);
+                            setTxDate(getLocalTodayISO());
+                            setTxDesc(''); setTxQty(''); setTxPrice(stock.unit_price.toString());
+                            setTxCurrency(stock.currency as any); setTxVatRate(stock.vat_rate.toString());
+                          }}
+                          className="px-3 py-2.5 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 flex justify-between items-center group"
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-bold text-xs">{stock.name}</span>
+                            <span className="text-[9px] text-slate-400 group-hover:text-indigo-200">{stock.sku || 'SKU Yok'}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] font-mono group-hover:text-indigo-100">{formatMoney(stock.unit_price, stock.currency).formatted}</span>
+                            <span className="bg-slate-900/50 px-2 py-0.5 rounded text-[10px] text-emerald-400 border border-slate-700">Stok: {stock.quantity}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* EĞER BİR ÜRÜN SEÇİLİYSE DETAYLAR VE FORM GÖSTERİLİR */}
+          {selectedStock ? (
+            <div className="flex flex-col flex-1 overflow-hidden z-10">
+              <div className="p-4 border-b border-slate-800/80 bg-gradient-to-r from-[#0a0f1d] to-[#0d1322] flex justify-between items-center shrink-0">
+                <div className="flex-1 min-w-0 pr-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h2 className="text-lg font-bold text-white truncate">{selectedStock.name}</h2>
+                    <span className="bg-slate-800/50 px-1.5 py-0.5 rounded text-[10px] text-slate-400 border border-slate-700 font-mono shrink-0">{selectedStock.sku || 'SKU-YOK'}</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-[11px] font-mono text-slate-400 mt-2">
+                    <div className="bg-emerald-900/20 text-emerald-400 border border-emerald-500/20 px-2 py-1 rounded">
+                      Mevcut: <strong className="text-sm">{selectedStock.quantity}</strong> {selectedStock.unit === 'Adet' ? 'ad.' : selectedStock.unit}
+                    </div>
+                    <div>
+                      <div>Stok Kartı Maliyeti (Net): <strong className="text-white">{formatMoney(selectedStock.unit_price, selectedStock.currency).formatted}</strong></div>
+                      {selectedStock.vat_rate > 0 && (
+                        <div className="text-[10px] text-indigo-300 mt-0.5">
+                          KDV Dahil: {formatMoney(selectedStock.unit_price * (1 + selectedStock.vat_rate / 100), selectedStock.currency).formatted} <span className="text-slate-500">(%{selectedStock.vat_rate})</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800 shrink-0">
+                  <button onClick={(e) => openEditStock(selectedStock, e)} className="text-slate-400 hover:text-indigo-400 p-1.5 transition" title="Stok Kartını Düzenle"><Edit3 size={14} /></button>
+                  <button onClick={(e) => handleDeleteStock(selectedStock.id, e)} className="text-slate-400 hover:text-rose-400 p-1.5 transition" title="Stok Kartını Sil"><Trash2 size={14} /></button>
+                </div>
+              </div>
+
+              <div className="p-4 overflow-y-auto custom-scrollbar flex-1 flex flex-col relative z-0">
+                <form onSubmit={handleAddTransaction} style={{ animation: 'fadeInUp 0.4s both 0.3s' }} className={`grid grid-cols-1 md:grid-cols-11 gap-2 mb-4 p-3 rounded-lg border shrink-0 transition-colors ${isQuickActionActive ? 'bg-indigo-900/10 border-indigo-500/40 shadow-inner shadow-indigo-500/10' : 'bg-[#070b14] border-slate-800'}`}>
+                  <div className="md:col-span-1"><label className="block text-[9px] text-slate-400 mb-0.5">Tarih</label><input type="date" required value={txDate} onChange={(e) => setTxDate(e.target.value)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" /></div>
+                  
+                  <div className="md:col-span-2">
+                     <label className="block text-[9px] text-slate-400 mb-0.5">İlgili Şirket/Merkez *</label>
+                     <select value={txCompanyId} onChange={(e) => setTxCompanyId(e.target.value)} required className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors">
+                       <option value="common">🌍 Ortak İşlem</option>
+                       <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                       <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                     </select>
+                  </div>
+
+                  <div className="md:col-span-1"><label className="block text-[9px] text-slate-400 mb-0.5">İşlem</label><select value={txType} onChange={(e) => setTxType(e.target.value as any)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"><option value="in">Giriş (+)</option><option value="out">Çıkış (-)</option></select></div>
+                  <div className="md:col-span-2"><label className="block text-[9px] text-slate-400 mb-0.5">Açıklama</label><input type="text" required placeholder="Fatura No / Açıklama" value={txDesc} onChange={(e) => setTxDesc(e.target.value)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" /></div>
+                  <div className="md:col-span-1"><label className="block text-[9px] text-slate-400 mb-0.5">Miktar</label><input type="number" step="0.01" required placeholder="0" value={txQty} onChange={(e) => setTxQty(e.target.value)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" /></div>
+                  
+                  <div className="md:col-span-3 flex flex-col gap-0.5">
+                    <div className="flex gap-1">
+                      <div className="flex-1"><label className="block text-[9px] text-slate-400 mb-0.5">Net B.Fiyat</label><input type="number" step="0.01" required placeholder="0.00" value={txPrice} onChange={(e) => setTxPrice(e.target.value)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" /></div>
+                      <div className="w-12"><label className="block text-[9px] text-slate-400 mb-0.5">Kur</label><select value={txCurrency} onChange={(e) => setTxCurrency(e.target.value as any)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-1 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"><option value="TRY">₺</option><option value="USD">$</option><option value="EUR">€</option></select></div>
+                      <div className="w-12"><label className="block text-[9px] text-slate-400 mb-0.5">KDV(%)</label><select value={txVatRate} onChange={(e) => setTxVatRate(e.target.value)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-1 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"><option value="20">20</option><option value="10">10</option><option value="1">1</option><option value="0">0</option></select></div>
+                    </div>
+                    {txPrice && parseFloat(txVatRate) > 0 && (
+                      <span className="text-[9px] text-indigo-400 pl-1">KDV Dahil: {formatMoney((parseFloat(txPrice) || 0) * (1 + (parseFloat(txVatRate) || 0) / 100), txCurrency).formatted}</span>
+                    )}
+                  </div>
+
+                  <div className="md:col-span-1 flex items-start gap-1 pt-3.5">
+                    {editingTxId && (
+                      <button type="button" onClick={cancelEditTx} className="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1.5 rounded text-[11px] font-bold transition h-[26px]">X</button>
+                    )}
+                    <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1.5 rounded text-[11px] font-bold transition-all active:scale-95 h-[26px]">{editingTxId ? 'Güncelle' : 'Kaydet'}</button>
+                  </div>
+                </form>
+
+                <div className="border border-slate-800/80 rounded-lg overflow-hidden flex-1 flex flex-col">
+                  <table className="w-full text-left text-[11px]">
+                    <thead className="sticky top-0 bg-[#0a0f1d] z-10">
+                      <tr className="border-b border-slate-800/80 text-slate-400">
+                        <th className="p-2.5 font-medium">Tarih</th>
+                        <th className="p-2.5 font-medium">Açıklama & Merkez</th>
+                        <th className="p-2.5 font-medium text-right text-emerald-400">Giriş</th>
+                        <th className="p-2.5 font-medium text-right text-rose-400">Çıkış</th>
+                        <th className="p-2.5 font-medium text-right">Net B.Fiyat</th>
+                        <th className="p-2.5 font-medium text-right">KDV'li B.Fiyat</th>
+                        <th className="p-2.5 font-medium text-right">Toplam Değer (KDV'li)</th>
+                        <th className="p-2.5 font-medium text-center w-12">İşlem</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {transactions.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="p-6 text-center">
+                            <div className="flex flex-col items-center justify-center p-8 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner my-2 mx-2">
+                               <RefreshCw size={32} className="mb-3 opacity-70 text-indigo-400 animate-bounce" />
+                               <p className="text-[11px] font-bold text-slate-400">Henüz hareket bulunmuyor.</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : transactions.map((t, index) => {
+                          const txCurrency = t.currency || 'TRY'
+                          const kdvliBirim = t.unit_price * (1 + (t.vat_rate || 0) / 100)
+                          const toplamKdvli = t.quantity * kdvliBirim
+                          
+                          const tryUnitPrice = getTryEquivalent(t.unit_price, txCurrency)
+                          const tryKdvliBirim = getTryEquivalent(kdvliBirim, txCurrency)
+                          const tryToplamKdvli = getTryEquivalent(toplamKdvli, txCurrency)
+
+                          return (
+                            <tr 
+                              key={t.id} 
+                              style={{ animation: 'fadeSlideRight 0.4s both', animationDelay: `${0.35 + (index * 0.05)}s` }}
+                              className="hover:bg-slate-800/30 font-mono transition-colors"
+                            >
+                              <td className="p-2.5 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
+                              <td className="p-2.5 text-slate-200 font-sans align-top" title={t.description}>
+                                 <div className="mb-1">{t.description}</div>
+                                 <div className="flex items-center gap-1 text-[9px] text-slate-500">
+                                   {t.company ? (t.company.is_personal ? <Home size={10} className="text-slate-400"/> : <Building size={10} className="text-indigo-400"/>) : <Globe size={10} className="text-emerald-500/70"/>}
+                                   {t.company ? t.company.name : 'Ortak İşlem'}
+                                 </div>
+                              </td>
+                              <td className="p-2.5 text-right text-emerald-400 align-top">{t.tx_type === 'in' ? t.quantity : '-'}</td>
+                              <td className="p-2.5 text-right text-rose-400 align-top">{t.tx_type === 'out' ? t.quantity : '-'}</td>
+                              
+                              <td className="p-2.5 text-right text-slate-300 leading-tight align-top">
+                                <div>{formatMoney(t.unit_price, txCurrency).formatted}</div>
+                                {txCurrency !== 'TRY' && (
+                                  <div className="text-[9px] text-slate-500 mt-0.5">{formatMoney(tryUnitPrice, 'TRY').formatted}</div>
+                                )}
+                              </td>
+                              
+                              <td className="p-2.5 text-right text-indigo-300 leading-tight align-top">
+                                {t.vat_rate > 0 ? (
+                                  <>
+                                    <div>{formatMoney(kdvliBirim, txCurrency).formatted}</div>
+                                    {txCurrency !== 'TRY' && (
+                                      <div className="text-[9px] text-indigo-500/70 mt-0.5">{formatMoney(tryKdvliBirim, 'TRY').formatted}</div>
+                                    )}
+                                  </>
+                                ) : '-'}
+                              </td>
+                              
+                              <td className="p-2.5 text-right font-bold text-white leading-tight align-top">
+                                <div>{formatMoney(toplamKdvli, txCurrency).formatted}</div>
+                                {txCurrency !== 'TRY' && (
+                                  <div className="text-[9px] text-slate-400 font-normal mt-0.5">{formatMoney(tryToplamKdvli, 'TRY').formatted}</div>
+                                )}
+                              </td>
+
+                              <td className="p-2.5 text-center align-top">
+                                <div className="flex items-center justify-center gap-2">
+                                  <button onClick={() => handleEditTx(t)} className="text-slate-500 hover:text-indigo-400 transition" title="Düzenle"><Edit3 size={12} /></button>
+                                  <button onClick={() => handleDeleteTransaction(t.id, t.quantity, t.tx_type)} className="text-slate-600 hover:text-rose-400 transition" title="Sil"><Trash2 size={12} /></button>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 m-4 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner z-0">
+              <Package size={48} className="mb-4 opacity-70 text-indigo-400 animate-bounce" />
+              <p className="text-sm font-bold text-slate-400">Lütfen bir ürün seçin veya hızlı arama yapın.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* --- ÖZEL ONAY MODALI --- */}
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 999999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-center">
+            <div className={`mx-auto flex items-center justify-center h-14 w-14 rounded-full mb-5 ${confirmDialog.isDanger ? 'bg-rose-500/10 text-rose-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
+              {confirmDialog.isDanger ? <AlertTriangle size={28} /> : <RefreshCw size={28} />}
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">{confirmDialog.title}</h3>
+            <p className="text-[11px] text-slate-400 mb-6 leading-relaxed px-2">{confirmDialog.message}</p>
+            <div className="flex gap-3 w-full">
+              <button onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))} className="flex-1 px-4 py-2.5 rounded-xl text-slate-300 bg-slate-800 hover:bg-slate-700 font-medium transition-colors text-xs">
+                {confirmDialog.cancelText}
+              </button>
+              <button onClick={confirmDialog.onConfirm} className={`flex-1 px-4 py-2.5 rounded-xl text-white font-bold transition-all active:scale-95 text-xs shadow-lg ${confirmDialog.isDanger ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-900/20' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-900/20'}`}>
+                {confirmDialog.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODALLAR --- */}
+      
+      {/* KATEGORİ YÖNETİM MODALI */}
+      {isCategoryManageModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 10000 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-sm p-5 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[80vh]">
+            <div className="flex justify-between items-center mb-4 shrink-0">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2"><Layers size={16} className="text-indigo-400"/> Kategorileri Yönet</h3>
+              <button onClick={() => setIsCategoryManageModalOpen(false)} className="text-slate-400 hover:text-white transition-colors"><X size={18} /></button>
+            </div>
+            
+            <div className="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-2">
+              {categories.length === 0 ? (
+                <div className="text-center text-slate-500 text-xs py-4">Bu depoda kategori bulunmuyor.</div>
+              ) : categories.map(c => (
+                 <div key={c.id} className="flex items-center justify-between bg-[#070b14] border border-slate-800 p-2.5 rounded-lg">
+                   <span className="text-xs text-slate-200">{c.name}</span>
+                   <div className="flex items-center gap-2">
+                     <button onClick={() => { 
+                       setEditingStockCatId(c.id); 
+                       setNewCategoryName(c.name); 
+                       setIsCategoryModalOpen(true); 
+                       setIsCategoryManageModalOpen(false); 
+                     }} className="text-slate-500 hover:text-indigo-400 transition-colors" title="Düzenle"><Edit3 size={14} /></button>
+                     <button onClick={() => handleDeleteCategory(c.id, c.name)} className="text-slate-500 hover:text-rose-400 transition-colors" title="Sil"><Trash2 size={14} /></button>
+                   </div>
+                 </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* KATEGORİ EKLE/DÜZENLE MODALI */}
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 10000 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-sm p-5 shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-sm font-bold text-white mb-3">{editingStockCatId ? 'Kategoriyi Düzenle' : `Kategori Ekle (${warehouses.find(w=>w.id===selectedWarehouseId)?.name})`}</h3>
+            <form onSubmit={handleSaveCategory} className="space-y-3 text-xs">
+              <input type="text" required placeholder="Kategori Adı" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" />
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => { setIsCategoryModalOpen(false); setEditingStockCatId(null); setNewCategoryName(''); }} className="px-3 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
+                <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded font-medium transition-all active:scale-95 shadow-lg shadow-indigo-900/20">{editingStockCatId ? 'Güncelle' : 'Ekle'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DEPO EKLE/DÜZENLE MODALI */}
+      {isWarehouseModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 9999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-sm p-5 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2"><Package size={16} className="text-indigo-400"/> {editingWhId ? 'Depoyu Düzenle' : 'Yeni Depo Ekle'}</h3>
+              <button onClick={() => setIsWarehouseModalOpen(false)} className="text-slate-400 hover:text-white transition-colors"><X size={18} /></button>
+            </div>
+            <form onSubmit={handleSaveWarehouse} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1 font-bold">Depo Sahibi / Merkez</label>
+                <select value={whCompanyId} onChange={(e) => setWhCompanyId(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors">
+                   <option value="common">🌍 Ortak / Bağımsız Depo</option>
+                   <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                   <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Depo Adı *</label>
+                <input type="text" required placeholder="Örn: Ana Depo, Şube" value={whName} onChange={(e) => setWhName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" />
+              </div>
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Tema Rengi</label>
+                <select value={whColor} onChange={(e) => setWhColor(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors">
+                  {THEME_COLORS.map((col) => <option key={col.value} value={col.value}>{col.label}</option>)}
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button type="button" onClick={() => setIsWarehouseModalOpen(false)} className="px-4 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
+                <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded font-medium transition-all active:scale-95 shadow-lg shadow-indigo-900/20">Kaydet</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* STOK KARTI EKLE/DÜZENLE MODALI */}
+      {isStockModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 9999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-md p-5 shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2"><Package size={16} className="text-indigo-400"/> {editingStockId ? 'Stok Kartını Düzenle' : 'Yeni Stok Kartı Ekle'}</h3>
+            <form onSubmit={handleSaveStock} className="grid grid-cols-2 gap-3 text-[11px]">
+              <div className="col-span-2">
+                <label className="block text-slate-400 mb-1">Ürün Adı *</label>
+                <input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors" />
+              </div>
+              
+              <div className="flex items-end gap-1">
+                <div className="flex-1">
+                  <label className="block text-slate-400 mb-1">Kategori</label>
+                  <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors">
+                    <option value="">Seçiniz</option>
+                    {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                  </select>
+                </div>
+                <button type="button" onClick={() => { setEditingStockCatId(null); setNewCategoryName(''); setIsCategoryModalOpen(true); }} className="bg-slate-800 hover:bg-slate-700 p-2 rounded text-white transition-colors active:scale-95"><Plus size={14}/></button>
+              </div>
+              
+              <div>
+                <label className="block text-slate-400 mb-1">Alt Kategori</label>
+                <input type="text" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors" />
+              </div>
+              
+              <div>
+                <label className="block text-slate-400 mb-1">SKU / Barkod</label>
+                <input type="text" value={sku} onChange={(e) => setSku(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white font-mono focus:outline-none focus:border-indigo-500 transition-colors" />
+              </div>
+              
+              <div>
+                <label className="block text-slate-400 mb-1">Birim</label>
+                <select value={unit} onChange={(e) => setUnit(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors">
+                  <option>Adet</option><option>Kg</option><option>Metre</option><option>Lt</option><option>Paket</option><option>Kutu</option>
+                </select>
+              </div>
+              
+              <div className="col-span-2 mt-2 pt-3 border-t border-slate-800">
+                <label className="block text-slate-400 font-bold mb-2">Açılış Stoğu & Maliyet Tanımlaması</label>
+                <div className="flex flex-col gap-2 bg-[#0a0f1d] p-3 rounded border border-slate-800/80">
+                  <div className="flex gap-2">
+                    <div className="w-24">
+                      <label className="block text-slate-400 mb-1">Miktar</label>
+                      <input type="number" step="0.01" placeholder="0" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500 transition-colors" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-slate-400 mb-1">Net B.Fiyat</label>
+                      <input type="number" step="0.01" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500 transition-colors" />
+                    </div>
+                    <div className="w-16">
+                      <label className="block text-slate-400 mb-1">Kur</label>
+                      <select value={currency} onChange={(e) => setCurrency(e.target.value as any)} className="w-full bg-[#070b14] border border-slate-700 rounded px-1.5 py-1.5 text-white focus:outline-none focus:border-indigo-500 transition-colors">
+                        <option value="TRY">₺</option><option value="USD">$</option><option value="EUR">€</option>
+                      </select>
+                    </div>
+                    <div className="w-20">
+                      <label className="block text-slate-400 mb-1">KDV (%)</label>
+                      <select value={vatRate} onChange={(e) => setVatRate(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-1.5 py-1.5 text-white focus:outline-none focus:border-indigo-500 transition-colors">
+                        <option value="20">20</option><option value="10">10</option><option value="1">1</option><option value="0">0</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  {unitPrice && parseFloat(vatRate) >= 0 && (
+                    <div className="flex justify-between items-center bg-indigo-900/20 border border-indigo-500/30 rounded px-3 py-2 mt-1">
+                      <span className="text-indigo-200">KDV Dahil Satış / Maliyet Fiyatı:</span>
+                      <span className="text-indigo-400 font-bold font-mono text-sm">
+                        {formatMoney((parseFloat(unitPrice) || 0) * (1 + (parseFloat(vatRate) || 0) / 100), currency).formatted}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="col-span-2 flex justify-end gap-2 mt-3 pt-3 border-t border-slate-800">
+                <button type="button" onClick={() => setIsStockModalOpen(false)} className="px-4 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
+                <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded font-medium transition-all active:scale-95 shadow-lg shadow-indigo-900/20">Kaydet</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Global CSS Animasyon Desteği */}
+      <style jsx global>{`
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(15px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes fadeInDown {
+          from {
+            opacity: 0;
+            transform: translateY(-15px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes fadeSlideRight {
+          from {
+            opacity: 0;
+            transform: translateX(-15px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+      `}</style>
+    </div>
+  )
+}
