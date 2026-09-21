@@ -361,11 +361,56 @@ export default function StocksPage() {
         
         const { error } = await supabase.from('stocks').update(payload).eq('id', editingStockId)
         if (error) throw error
-        
+
+        // Açılış Stoğu hareketini kontrol et ve senkronize et
+        const { data: oldTxs } = await supabase
+          .from('stock_transactions')
+          .select('*')
+          .eq('stock_id', editingStockId)
+          .eq('description', 'Açılış Stoğu')
+          .limit(1)
+
+        const oldTx = oldTxs && oldTxs.length > 0 ? oldTxs[0] : null
+
+        if (oldTx) {
+          if (qtyNum === 0) {
+            await supabase.from('stock_transactions').delete().eq('id', oldTx.id)
+            await logActivity('stock_tx', 'DELETE', `Açılış Stoğu Silindi: ${name}`, oldTx.id, oldTx.unit_price, currency, oldTx, null, null)
+          } else {
+            const updatePayload = {
+              quantity: qtyNum,
+              unit_price: priceNum,
+              currency,
+              vat_rate: vatNum
+            }
+            await supabase.from('stock_transactions').update(updatePayload).eq('id', oldTx.id)
+            await logActivity('stock_tx', 'UPDATE', `Açılış Stoğu Güncellendi: ${name} (${qtyNum} ${unit})`, oldTx.id, priceNum, currency, oldTx, updatePayload, null)
+          }
+        } else if (qtyNum > 0) {
+          const txPayload = {
+            stock_id: editingStockId,
+            tx_date: todayISO,
+            description: 'Açılış Stoğu',
+            tx_type: 'in',
+            quantity: qtyNum,
+            unit_price: priceNum,
+            currency,
+            vat_rate: vatNum,
+            company_id: null
+          }
+          const { data: txData, error: txError } = await supabase.from('stock_transactions').insert([txPayload]).select().single()
+          if (!txError && txData) {
+            await logActivity('stock_tx', 'INSERT', `Açılış Stoğu: ${name} (${qtyNum} ${unit})`, txData.id, priceNum, currency, null, txData, null)
+          }
+        }
+
         await recalculateAbsoluteStock(editingStockId)
+        if (selectedStockId === editingStockId) {
+          fetchTransactions(editingStockId)
+        }
         
         await logActivity('stock', 'UPDATE', `Stok kartı güncellendi: ${name}`, editingStockId, priceNum, currency, oldStock, payload, null)
-        toast.success('Stok kartı güncellendi.')
+        toast.success('Stok kartı ve açılış stoğu güncellendi.')
       } else {
         const payload = { warehouse_id: selectedWarehouseId, name, sku: sku || null, category: category || null, sub_category: subCategory || null, currency, unit, quantity: 0, unit_price: priceNum, vat_rate: vatNum, stock_color: stockColor }
         const { data, error } = await supabase.from('stocks').insert([payload]).select().single()
@@ -527,9 +572,32 @@ export default function StocksPage() {
     setEditingStockId(null); setName(''); setSku(''); setCategory(''); setSubCategory(''); setQuantity(''); setUnitPrice(''); setVatRate('20'); setIsStockModalOpen(true)
   }
   
-  function openEditStock(item: StockItem, e: React.MouseEvent) {
+  async function openEditStock(item: StockItem, e: React.MouseEvent) {
     e.stopPropagation()
-    setEditingStockId(item.id); setName(item.name); setSku(item.sku || ''); setCategory(item.category || ''); setSubCategory(item.sub_category || ''); setCurrency(item.currency || 'TRY'); setUnit(item.unit || 'Adet'); setQuantity(item.quantity.toString()); setUnitPrice(item.unit_price.toString()); setVatRate(item.vat_rate?.toString() || '0'); setStockColor(item.stock_color || THEME_COLORS[0].value)
+    setEditingStockId(item.id)
+    if (item.warehouse_id) setSelectedWarehouseId(item.warehouse_id)
+    setName(item.name)
+    setSku(item.sku || '')
+    setCategory(item.category || '')
+    setSubCategory(item.sub_category || '')
+    setCurrency(item.currency || 'TRY')
+    setUnit(item.unit || 'Adet')
+    setUnitPrice(item.unit_price.toString())
+    setVatRate(item.vat_rate?.toString() || '0')
+    setStockColor(item.stock_color || THEME_COLORS[0].value)
+
+    const { data: openTxs } = await supabase
+      .from('stock_transactions')
+      .select('quantity')
+      .eq('stock_id', item.id)
+      .eq('description', 'Açılış Stoğu')
+      .limit(1)
+
+    if (openTxs && openTxs.length > 0) {
+      setQuantity(openTxs[0].quantity.toString())
+    } else {
+      setQuantity('0')
+    }
     setIsStockModalOpen(true)
   }
 
