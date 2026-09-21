@@ -129,6 +129,7 @@ export default function TechnicalServicePage() {
   const [services, setServices] = useState<ServiceItem[]>([])
   const [cashes, setCashes] = useState<CashRegister[]>([])
   const [banks, setBanks] = useState<BankAccount[]>([])
+  const [rates, setRates] = useState<{ USD: number; EUR: number }>({ USD: 34.25, EUR: 37.80 })
   const [loading, setLoading] = useState(true)
   const [tableMissing, setTableMissing] = useState(false)
 
@@ -183,6 +184,7 @@ export default function TechnicalServicePage() {
   const [usedParts, setUsedParts] = useState<UsedPart[]>([])
   const [performedServices, setPerformedServices] = useState<PerformedService[]>([])
   const [selectedStockId, setSelectedStockId] = useState('')
+  const [selectedPartPrice, setSelectedPartPrice] = useState('')
   const [stockQty, setStockQty] = useState('1')
   const [selectedServiceId, setSelectedServiceId] = useState('')
   const [selectedServicePrice, setSelectedServicePrice] = useState('')
@@ -280,6 +282,27 @@ export default function TechnicalServicePage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function fetchExchangeRates() {
+    try {
+      const res = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' })
+      const data = await res.json()
+      if (data && data.rates) {
+        setRates({
+          USD: Number(data.rates.TRY.toFixed(4)),
+          EUR: Number((data.rates.TRY / data.rates.EUR).toFixed(4))
+        })
+      }
+    } catch (err) {
+      console.error('Kurlar çekilemedi:', err)
+    }
+  }
+
+  const getTryPrice = (price: number, curr?: string) => {
+    if (curr === 'USD') return Number((price * (rates.USD || 34.25)).toFixed(2))
+    if (curr === 'EUR') return Number((price * (rates.EUR || 37.80)).toFixed(2))
+    return price
   }
 
   // Tedarikçi Mutlak Bakiyesini Güncelleme Fonksiyonu
@@ -460,6 +483,7 @@ export default function TechnicalServicePage() {
 
   useEffect(() => {
     loadData()
+    fetchExchangeRates()
   }, [])
 
   // Otomatik şirket atama
@@ -702,6 +726,9 @@ export default function TechnicalServicePage() {
     setPaymentTargetId(t.payment_target_id || '')
     setSelectedServiceId('')
     setSelectedServicePrice('')
+    setSelectedStockId('')
+    setSelectedPartPrice('')
+    setStockQty('1')
     setCustomLaborName('')
     setCustomLaborPrice('')
     setIsDetailModalOpen(true)
@@ -730,18 +757,20 @@ export default function TechnicalServicePage() {
     if (!stock) return
 
     const qty = parseInt(stockQty) || 1
-    const total = qty * stock.unit_price
+    const unitPriceTry = selectedPartPrice !== '' ? (parseFloat(selectedPartPrice) || 0) : getTryPrice(stock.unit_price, stock.currency)
+    const total = Number((qty * unitPriceTry).toFixed(2))
 
     const newPart: UsedPart = {
       stock_id: stock.id,
       name: stock.name,
       quantity: qty,
-      unit_price: stock.unit_price,
+      unit_price: unitPriceTry,
       total
     }
 
     setUsedParts(prev => [...prev, newPart])
     setSelectedStockId('')
+    setSelectedPartPrice('')
     setStockQty('1')
   }
 
@@ -1031,26 +1060,58 @@ export default function TechnicalServicePage() {
             updates.payment_status = 'debt_added'
             updates.payment_method = 'customer_debt'
           }
-
-          // Kullanılan parçaları depodan otomatik düş (yalnızca ilk teslimatta)
-          if (deductPartsFromStock && usedParts.length > 0 && isDeliveredNow) {
-            for (const part of usedParts) {
-              if (part.stock_id) {
-                await supabase.from('stock_transactions').insert([{
-                  stock_id: part.stock_id,
-                  company_id: selectedTicket.company_id,
-                  tx_date: new Date().toISOString().substring(0, 10),
-                  description: `Servis Parça Çıkışı: ${selectedTicket.ticket_no} (${part.name})`,
-                  tx_type: 'out',
-                  quantity: part.quantity,
-                  unit_price: part.unit_price,
-                  currency: 'TRY'
-                }])
-              }
-            }
-          }
         }
       }
+
+      // =========================================================================
+      // KULLANILAN YEDEK PARÇALARIN STOK HAREKETİ SENKRONİZASYONU
+      // =========================================================================
+      const stockDescPrefix = `Servis Parça Çıkışı: ${selectedTicket.ticket_no}`
+      const affectedStockIds = new Set<string>()
+
+      // 1. Bu bilet için önceden oluşturulmuş tüm parça çıkış hareketlerini bul
+      const { data: oldStockTxs } = await supabase
+        .from('stock_transactions')
+        .select('id, stock_id')
+        .ilike('description', `${stockDescPrefix}%`)
+
+      if (oldStockTxs && oldStockTxs.length > 0) {
+        for (const ot of oldStockTxs) {
+          if (ot.stock_id) affectedStockIds.add(ot.stock_id)
+        }
+        await supabase.from('stock_transactions').delete().in('id', oldStockTxs.map(ot => ot.id))
+      }
+
+      // 2. Eğer fiş iptal edilmediyse ve parçalar depodan düşülecekse hareketleri ekle
+      if (detailStatus !== 'cancelled' && deductPartsFromStock && usedParts && usedParts.length > 0) {
+        const stockInserts: any[] = []
+        for (const part of usedParts) {
+          if (part.stock_id && Number(part.quantity) > 0) {
+            affectedStockIds.add(part.stock_id)
+            stockInserts.push({
+              stock_id: part.stock_id,
+              company_id: selectedTicket.company_id || null,
+              tx_date: new Date().toISOString().substring(0, 10),
+              description: `${stockDescPrefix} (${part.name})`,
+              tx_type: 'out',
+              quantity: Number(part.quantity),
+              unit_price: Number(part.unit_price) || 0,
+              currency: 'TRY',
+              vat_rate: 0
+            })
+          }
+        }
+        if (stockInserts.length > 0) {
+          const { error: sInsErr } = await supabase.from('stock_transactions').insert(stockInserts)
+          if (sInsErr) console.error("Stok parça çıkış hatası:", sInsErr)
+        }
+      }
+
+      // 3. Etkilenen tüm stokların mutlak bakiyesini hesapla ve güncelle
+      for (const sId of Array.from(affectedStockIds)) {
+        await recalculateAbsoluteStock(sId)
+      }
+      // =========================================================================
 
       let updateRes = await supabase
         .from('technical_service_tickets')
@@ -1098,6 +1159,20 @@ export default function TechnicalServicePage() {
       }
       if (newStatus === 'ready' && !t.completed_at) {
         updates.completed_at = new Date().toISOString()
+      }
+
+      if (newStatus === 'cancelled') {
+        const { data: stockTxs } = await supabase
+          .from('stock_transactions')
+          .select('id, stock_id')
+          .ilike('description', `%${t.ticket_no}%`)
+        if (stockTxs && stockTxs.length > 0) {
+          const stockIds = Array.from(new Set(stockTxs.map(st => st.stock_id).filter(Boolean)))
+          await supabase.from('stock_transactions').delete().in('id', stockTxs.map(st => st.id))
+          for (const sId of stockIds) {
+            await recalculateAbsoluteStock(sId)
+          }
+        }
       }
 
       const { data, error } = await supabase
@@ -2469,14 +2544,47 @@ export default function TechnicalServicePage() {
                     <div className="flex items-center gap-1.5">
                       <select
                         value={selectedStockId}
-                        onChange={(e) => setSelectedStockId(e.target.value)}
-                        className="flex-1 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px]"
+                        onChange={(e) => {
+                          const sid = e.target.value
+                          setSelectedStockId(sid)
+                          const st = stocks.find(s => s.id === sid)
+                          if (st) {
+                            setSelectedPartPrice(getTryPrice(st.unit_price, st.currency).toString())
+                          } else {
+                            setSelectedPartPrice('')
+                          }
+                        }}
+                        className="flex-1 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] focus:outline-none focus:border-purple-500"
                       >
                         <option value="">-- Depodan Parça Seç --</option>
-                        {stocks.map(s => (
-                          <option key={s.id} value={s.id}>{s.name} (Stok: {s.quantity} - {formatMoney(s.unit_price, 'TRY').formatted})</option>
-                        ))}
+                        {stocks.map(s => {
+                          const tryVal = getTryPrice(s.unit_price, s.currency)
+                          return (
+                            <option key={s.id} value={s.id}>
+                              {s.name} (Stok: {s.quantity} - {s.currency && s.currency !== 'TRY' ? `${formatMoney(s.unit_price, s.currency).formatted} ≈ ` : ''}{formatMoney(tryVal, 'TRY').formatted})
+                            </option>
+                          )
+                        })}
                       </select>
+                      {selectedStockId && (
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder="Fiyat ₺"
+                            value={selectedPartPrice}
+                            onChange={(e) => setSelectedPartPrice(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                handleAddPart()
+                              }
+                            }}
+                            className="w-20 px-2 py-1.5 bg-slate-900 border border-purple-500/60 rounded-lg text-white text-[11px] font-mono text-right focus:outline-none focus:border-purple-400 ring-1 ring-purple-500/30"
+                            title="Parça birim satış fiyatı (TL) - Enter ile fişe ekler"
+                          />
+                        </div>
+                      )}
                       <input
                         type="number"
                         min="1"
@@ -2488,7 +2596,7 @@ export default function TechnicalServicePage() {
                             handleAddPart()
                           }
                         }}
-                        className="w-14 px-2 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] font-mono focus:outline-none focus:border-purple-500"
+                        className="w-14 px-2 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] font-mono text-center focus:outline-none focus:border-purple-500"
                         title="Adet (Enter ile listeye ekler)"
                       />
                       <button
@@ -2514,9 +2622,22 @@ export default function TechnicalServicePage() {
                             <span className="text-slate-300 font-medium truncate">{p.name}</span>
                             <span className="text-[9px] text-slate-500 font-mono">({p.quantity} ad.)</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-purple-400">{formatMoney(p.total, 'TRY').formatted}</span>
-                            <button onClick={() => handleRemovePart(idx)} className="text-slate-500 hover:text-rose-400"><X size={12} /></button>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded px-1.5 py-0.5 focus-within:border-purple-500">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={p.total}
+                                onChange={(e) => {
+                                  const newTotal = parseFloat(e.target.value) || 0
+                                  setUsedParts(prev => prev.map((item, i) => i === idx ? { ...item, total: newTotal, unit_price: p.quantity > 0 ? Number((newTotal / p.quantity).toFixed(2)) : newTotal } : item))
+                                }}
+                                className="w-16 bg-transparent text-right font-mono font-bold text-purple-400 text-[11px] focus:outline-none"
+                                title="Parça tutarını doğrudan düzenleyin"
+                              />
+                              <span className="text-[10px] text-slate-500 font-mono ml-0.5">₺</span>
+                            </div>
+                            <button onClick={() => handleRemovePart(idx)} className="text-slate-500 hover:text-rose-400 cursor-pointer p-0.5" title="Parçayı Çıkar"><X size={12} /></button>
                           </div>
                         </div>
                       ))
