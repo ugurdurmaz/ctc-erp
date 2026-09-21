@@ -383,13 +383,28 @@ Varsayılan `max_rows = 1000`. Uygulama `.limit()` kullanmaz; herhangi bir hesab
 
 ---
 
-## 4. Dağıtım (Deploy)
+## 4. Dağıtım (Deploy) ve Canlı Üretim Protokolü
 
-### 4.1 Vercel (önerilen)
-1. Repo'yu Vercel'e bağla; framework "Next.js" otomatik algılanır.
-2. Environment Variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Production + Preview).
+### 4.0 Canlı Üretim (Production) ve Sıfır Veri Kaybı Protokolü (ZORUNLU)
+> 🔴 **Sistem canlıda kullanılmaktadır (GitHub → Vercel CI/CD).**
+> `main` dalına atılan her commit doğrudan Vercel üzerinden anında canlıya dağıtılır. Gerçek stok, cari, kasa ve fiş verileri girilmektedir. **Geri dönüşü olmayan veri kaybına sebep olacak hiçbir işlem yapılamaz.**
+
+- **Kesin Veri Kaybı Yasağı (Zero Data Loss):**
+  - Tabloları sıfırlamak, `DROP TABLE`, `TRUNCATE` veya veri düşüren `ALTER TABLE` çalıştırmak kesinlikle **YASAKTIR**.
+  - Canlı stokları, cari bakiyeleri veya geçmiş hareketleri sıfırlayan veya bozan hiçbir işlem yapılamaz.
+- **Migration & Veri İnceleme Önceliği:**
+  - Veritabanına herhangi bir müdahale öncesinde **MUTLAKA mevcut veriler incelenir** (`SELECT ...`, satır sayıları ve mevcut kolon tipleri kontrol edilir).
+  - Şema güncellemeleri yalnızca geriye dönük uyumlu (additive / backwards compatible) migration dosyaları (`supabase/*.sql`) olarak yazılır (`ADD COLUMN IF NOT EXISTS` vb.).
+- **Supabase Doğrudan Bağlantı & Ajan Özerkliği:**
+  - Ajan, yerel `.env.local` dosyasındaki `SUPABASE_SERVICE_ROLE_KEY` ile veritabanına doğrudan bağlanarak veri doğrulama, okuma, senkronizasyon ve analizleri kendi araçlarıyla yürütür. Kullanıcıya gereksiz yere SQL çalıştırma veya manuel script kopyalama yükü verilmez.
+- **Pre-Push Kapısı (`npm run build`):**
+  - `origin main`'e push yapmadan önce yerelde `npm run build` MUTLAKA çalıştırılmalı ve 0 hata ile derlendiği teyit edilmelidir. Vercel derlemesini bozacak hiçbir commit canlıya atılamaz.
+
+### 4.1 Vercel (Canlı CI/CD)
+1. Repo Vercel'e bağlıdır; `main` branch'ine push yapıldığında otomatik build ve deploy tetiklenir.
+2. Environment Variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (Production + Preview).
 3. Build command `next build`, output varsayılan.
-4. Deploy sonrası `/` açılıp dashboard kartlarının `...` yerine sayı gösterdiğini doğrula (Supabase bağlantısı).
+4. Deploy sonrası `/` açılarak dashboard kartlarının değerleri doğru gösterdiği teyit edilir.
 
 ### 4.2 Kendi sunucusu
 ```bash
@@ -399,13 +414,13 @@ NEXT_PUBLIC_SUPABASE_URL=... NEXT_PUBLIC_SUPABASE_ANON_KEY=... npm start   # :30
 ```
 Ters proxy (nginx/Caddy) ile HTTPS ve **Basic Auth** ekleyin (§3.3).
 
-### 4.3 Sürüm güncelleme
+### 4.3 Sürüm güncelleme ve Migration Sırası
 ```bash
 git pull
 npm ci
 npm run build && npm start   # veya Vercel otomatik deploy
 ```
-Şema değişikliği varsa **önce SQL, sonra deploy** sırası izlenir; kod eski kolonları `undefined` okur, yeni kolon eksikse toplamlar `NaN` olur.
+Şema değişikliği varsa **önce SQL migration (geriye dönük uyumlu), sonra deploy** sırası izlenir; kod eski kolonları `undefined` okur, yeni kolon eksikse toplamlar `NaN` olur.
 
 ---
 

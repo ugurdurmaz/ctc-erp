@@ -45,6 +45,27 @@ Detay `docs/` altında. En yakın konuyu bul, o dosyayı oku; burada tekrar etme
 - **Türkçe küçük harf:** aramalarda `toLocaleLowerCase('tr-TR')` tercih et (mevcut kod bare `.toLowerCase()` kullanıyor; dokunduğun yerde düzelt).
 - **Tarih:** yerel tarih için `getLocalTodayISO()`; `new Date().toISOString().split('T')[0]` UTC kaydırır, yeni kodda kullanma.
 
+## 🚨 CANLI ÜRETİM (PRODUCTION) VE VERİ KORUMA PROTOKOLÜ (ZORUNLU)
+
+> 🔴 **DİKKAT: Sistem GitHub → Vercel CI/CD entegrasyonu ile CANLI KULLANIMA geçmiştir.**
+> `main` dalına atılan her commit/push anında Vercel üzerinden prodüksiyona deploy edilir. Kullanıcı gerçek verilerini (stoklar, kasalar, cariler, servis kayıtları, faturalar vb.) girmeye başlamıştır. **ASLA GERİ DÖNÜŞÜ OLMAYAN VERİ KAYBINA YOL AÇILAMAZ.**
+
+1. **Kesin Veri Kaybı Yasağı (Zero Data Loss):**
+   - Tabloları sıfırlamak, `DROP TABLE`, `TRUNCATE` veya veri düşüren `ALTER TABLE` çalıştırmak kesinlikle **YASAKTIR**.
+   - Stok, bakiye, müşteri veya işlem geçmişini yok eden temizleme scriptleri ASLA yazılamaz veya çalıştırılamaz.
+   - Hiçbir stok, cari veya finansal kayıt test amaçlı bile olsa silinemez/ezilemez.
+
+2. **Veritabanı Ön Kontrolü & Migration Disiplini:**
+   - Veritabanında herhangi bir işlem veya şema değişikliği yapılmadan önce **MUTLAKA mevcut veriler incelenir** (`SELECT ...`, satır sayısı, mevcut kolonlar ve veri durumları).
+   - Şema değişiklikleri yalnızca **geriye dönük uyumlu (additive / backwards compatible)** migration dosyaları (`supabase/*.sql`) olarak yazılır (`ADD COLUMN IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS` vb.).
+
+3. **Supabase'e Doğrudan Bağlantı & Ajan Özerkliği:**
+   - Ajan, yerel `.env.local` dosyasındaki `SUPABASE_SERVICE_ROLE_KEY` ve Supabase API/Node istemcisini doğrudan kullanarak veri okuma, veri doğrulama, bakiye senkronizasyonu ve kontrolleri **kendi araçlarıyla arka planda doğrudan gerçekleştirir**.
+   - Kullanıcıya gereksiz yere "şu scripti çalıştırın", "konsoldan bunu yapın" şeklinde manuel görevler yüklenmez. Ajan tüm kontrolleri ve veri işlemlerini kendisi yürütür.
+
+4. **Pre-Push Güvenlik Kapısı (`npm run build`):**
+   - Canlı ortama (`origin main`) push yapmadan önce yerelde `npm run build` **MUTLAKA 0 hata ile tamamlanmalıdır**. Vercel derlemesini bozacak hiçbir commit canlıya gönderilemez.
+
 ## Çalışma kuralları (ZORUNLU — insan ve ajan için)
 
 1. **Koda dokunmadan önce bu dosya okunur.** Projeye yeni katılan herkes (geliştirici veya yapay zeka ajanı) sırayla `CLAUDE.md` → `docs/HANDBOOK.md §3–6` → ilgili modülün `docs/HANDBOOK.md §7` bölümünü okur. "Şemayı koddan çıkarırım" yaklaşımı yasak; şema ve kurallar dokümanda.
@@ -58,7 +79,7 @@ Detay `docs/` altında. En yakın konuyu bul, o dosyayı oku; burada tekrar etme
    "Dokümanı sonra yazarım" kabul edilmez; dokümansız değişiklik **bitmemiş** sayılır.
 4. **Dokümanla kod çelişirse kod kazanır, ama çelişki aynı gün giderilir:** yanlış olan taraf düzeltilir ve HANDBOOK'un ilgili bölümüne tarih notu düşülür.
 5. **Bulgu bulunca kaydet:** kod okurken yeni bir hata, güvenlik açığı veya tutarsızlık görülürse (düzeltilmese bile) `docs/AUDIT-2026-09-16.md`'ye şiddet + konum ile eklenir.
-6. **Yıkıcı veri işlemi öncesi** `docs/RUNBOOK.md §8.1` yedeği alınır ve kullanıcı onayı beklenir.
+6. **Yıkıcı veri işlemi YASAKTIR.** Bakım veya onarım gerekiyorsa önce `docs/RUNBOOK.md §8.1` yedeği alınır ve kullanıcı onayı beklenir.
 7. **Trivial olmayan her değişiklik önce plan:** etkilenen tablolar, `recalculate*` çağrıları, silme yolu ve dokümanda güncellenecek bölümler listelenir; onaydan sonra kod yazılır.
 
 ## Conventions

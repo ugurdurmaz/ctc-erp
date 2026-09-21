@@ -24,6 +24,7 @@
 .DS_Store
 *.pem
 /scratch
+supabase/.temp
 
 # debug
 npm-debug.log*

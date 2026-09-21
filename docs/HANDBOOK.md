@@ -131,12 +131,12 @@ Toplam ~10.700 satır TypeScript/TSX; **tüm iş mantığı 14 sayfa dosyasında
 
 **Önemli mimari özellikler:**
 
-1. **Sunucu katmanı yok.** Hiçbir API route, server action veya edge function yoktur. Tüm yazma işlemleri tarayıcıdan `anon` anahtarla yapılır. Güvenlik tamamen Supabase RLS politikalarına bağlıdır (repo'da RLS tanımı yok).
-2. **Kimlik doğrulama yok.** TopBar'daki "Erdoğan Durmaz / Yönetici" profili sabit metindir. Uygulama URL'sine erişen herkes tam yetkilidir.
+1. **Canlı Üretim & Vercel CI/CD:** Sistem GitHub `main` branch'i üzerinden Vercel canlı ortamına bağlıdır. Gerçek stok, cari ve kasa verileri tutulmaktadır. **Sıfır veri kaybı (Zero Data Loss)** zorunludur; `DROP TABLE`, `TRUNCATE` veya veri düşüren yıkıcı işlemler kesinlikle yasaktır.
+2. **Kimlik Doğrulama & Rol Bazlı Yetkilendirme:** Supabase Auth ve `user_profiles` tablosu devrededir (`AuthGuard` ve `lib/auth-context.tsx`). Admin, Ön Muhasebe, Kasiyer ve Depo rolleri ile şirket kısıtlamaları uygulanır. Kullanıcı yönetimi `/users` ve sunucu admin API `/api/admin/users` üzerinden `SUPABASE_SERVICE_ROLE_KEY` ile yürütülür.
 3. **Transaction yok.** Çok adımlı işlemler (örn. gider ekle → kasa hareketi ekle → kasa bakiyesi yeniden hesapla → log yaz) ardışık, bağımsız HTTP çağrılarıdır. Ortada hata olursa kısmi kayıt kalır.
 4. **"Mutlak Hesaplama" (Absolute Ledger Recalculator) deseni.** Bakiyeler artımlı (`+=`) güncellenmez; her yazma işleminden sonra ilgili varlığın **tüm hareketleri çekilip toplanır** ve `balance`/`quantity`/`current_debt` alanı üzerine yazılır. Bu, kısmi hata durumunda kendini onaran ancak N hareket için O(N) ağ trafiği üreten bir yaklaşımdır.
 5. **Denormalize bakiye alanları.** `bank_accounts.balance`, `cash_registers.balance`, `credit_cards.current_debt`, `stocks.quantity`, `suppliers.balance`, `customers.balance`, `credit_wallets.balance` alanları hareket tablolarının türevidir; dashboard ve listeler bunları okur.
-6. **Kod tekrarı ile modülerlik.** `logActivity`, `getLocalTodayISO`, `formatDateTR`, `recalculateAbsolute*` fonksiyonları ve onay modalı JSX'i her sayfada kopya olarak bulunur. Ortak `lib/` altında yalnızca `supabase.ts` ve `utils.ts` vardır.
+6. **Kod tekrarı ile modülerlik.** `logActivity`, `getLocalTodayISO`, `formatDateTR`, `recalculateAbsolute*` fonksiyonları ve onay modalı JSX'i her sayfada kopya olarak bulunur. Ortak `lib/` altında `supabase.ts`, `auth-context.tsx`, `supabase-admin.ts` ve `utils.ts` vardır.
 7. **İstemci tarafı durum.** POS ayarları (`ctc_pos_config`) ve kaydedilmemiş gün taslakları (`ctc_pos_draft_<tarih>`) `localStorage`'da tutulur; tarayıcı/cihaz değişince kaybolur.
 
 ### 3.2 Render Modeli
