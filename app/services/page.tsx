@@ -104,7 +104,8 @@ export default function ServicesPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] relative">
-      <Toaster position="top-right" toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px', zIndex: 99999 } }} />
+      {/* TOASTER KONTEYNER Z-INDEX DEĞERİ MAX VE POZİSYONU BOTTOM-RIGHT YAPILDI */}
+      <Toaster position="bottom-right" containerStyle={{ zIndex: 99999999 }} toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px' } }} />
 
       <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex items-center justify-between gap-4 bg-[#0d1322] border border-slate-800/80 p-4 rounded-xl shadow-md shrink-0 mb-4 transition-colors">
         <div className="flex items-center gap-3 text-white"><div className="p-2 bg-cyan-500/10 text-cyan-400 rounded-lg"><Briefcase size={24} /></div><div><h2 className="font-bold text-lg leading-none">Hizmet Kartları</h2><p className="text-[10px] text-slate-400 mt-1">Stok dışı hizmet ve operasyon bedellerinin yönetimi</p></div></div>

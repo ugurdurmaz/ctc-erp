@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/lib/auth-context'
 import { formatMoney } from '@/lib/utils'
-import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, TrendingUp, ChevronDown, ChevronUp, Building, Home as HomeIcon, Filter, BarChart4, ArrowUpRightFromSquare, ArrowDownRightFromSquare, Sparkles, Activity, FileText } from 'lucide-react'
+import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, TrendingUp, ChevronDown, ChevronUp, Building, Home as HomeIcon, Filter, BarChart4, ArrowUpRightFromSquare, ArrowDownRightFromSquare, Sparkles, Activity, FileText, Scale, Users, Building2, Search, X, Lock, Wrench } from 'lucide-react'
 
 type ExchangeRates = { USD: number | null, EUR: number | null }
 
@@ -14,20 +15,21 @@ type CustomerDetail = { id: string; name: string; balance: number; currency: str
 type SupplierDetail = { id: string; company_name: string; balance: number; currency: string }
 type RawStock = { quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
 type Warehouse = { id: string; name: string; company_id: string | null }
-type ExpenseTransaction = { id: string; amount: number; exchange_rate: number; company_id: string | null; date?: string; tx_date?: string; description?: string; created_at: string; category?: { name: string } }
+type ExpenseTransaction = { id: string; amount: number; exchange_rate: number; company_id: string | null; date?: string; tx_date?: string; description?: string; created_at: string; category?: any }
 type Company = { id: string; name: string; is_personal: boolean }
 
-type CustTx = { id: string; tx_date: string; description: string; customer_id: string; tx_type: string; amount: number; exchange_rate: number; company_id: string | null; invoice_lines?: any[]; created_at: string }
-type SuppTx = { id: string; tx_date: string; description: string; supplier_id: string; tx_type: string; amount: number; exchange_rate: number; company_id: string | null; created_at: string }
+type CustTx = { id: string; tx_date: string; description: string; customer_id: string; tx_type: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; invoice_lines?: any[]; created_at: string }
+type SuppTx = { id: string; tx_date: string; description: string; supplier_id: string; tx_type: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; created_at: string }
 type StockTx = { tx_date: string; tx_type: string; quantity: number; unit_price: number; currency: string; company_id: string | null }
 type SubTx = { start_date: string; cost_price: number; sale_price: number; currency: string; company_id: string | null }
 type PosTx = { id: string; date: string; category_id: string; cash: number; card: number; cost: number; stock_id: string | null; company_id: string | null }
+type TechTicket = { id: string; ticket_no: string; brand_model: string; customer_name: string; status: string; total_cost: number; parts_cost: number; labor_cost: number; delivered_at: string | null; company_id: string | null; created_at: string }
 
 type TimelineItem = {
   id: string
   date: string
   sortDate: Date
-  module: 'customer' | 'supplier' | 'expense'
+  module: 'customer' | 'supplier' | 'expense' | 'technical-service'
   description: string
   amountTry: number
   type: 'in' | 'out' | 'expense' | 'debt'
@@ -44,7 +46,17 @@ function formatDateTR(dateStr: string) {
 }
 
 export default function Home() {
+  const { profile, isAdmin } = useAuth()
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('all')
+
+  // Şirket kısıtlaması olan personel için otomatik şirket kilidi
+  useEffect(() => {
+    if (!isAdmin && profile?.allowed_companies && profile.allowed_companies.length > 0) {
+      if (selectedCompanyId === 'all' || selectedCompanyId === 'common' || !profile.allowed_companies.includes(selectedCompanyId)) {
+        setSelectedCompanyId(profile.allowed_companies[0])
+      }
+    }
+  }, [isAdmin, profile?.allowed_companies, selectedCompanyId])
 
   const [rawStocks, setRawStocks] = useState<RawStock[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
@@ -65,10 +77,16 @@ export default function Home() {
   const [stockTxs, setStockTxs] = useState<StockTx[]>([])
   const [subscriptions, setSubscriptions] = useState<SubTx[]>([])
   const [posTxs, setPosTxs] = useState<PosTx[]>([])
+  const [techTickets, setTechTickets] = useState<TechTicket[]>([])
 
   const [openSections, setOpenSections] = useState<{ [key: string]: boolean }>({
     bank: false, cash: false, card: false, customer: false, supplier: false, stock: false, comm: false, pers: false
   })
+
+  // Cari Borç & Alacak Dağılımı ve Geçmiş Dönem Kıyaslama State'leri
+  const [cariTab, setCariTab] = useState<'receivables' | 'payables'>('receivables')
+  const [cariPeriod, setCariPeriod] = useState<'month' | '30days'>('month')
+  const [cariSearch, setCariSearch] = useState<string>('')
 
   const [rates, setRates] = useState<ExchangeRates>({ USD: null, EUR: null })
   const [loading, setLoading] = useState(true)
@@ -136,6 +154,9 @@ export default function Home() {
       const { data: posData } = await supabase.from('pos_transactions').select('id, date, category_id, cash, card, cost, stock_id, company_id')
       setPosTxs(posData || [])
 
+      const { data: srvData } = await supabase.from('technical_service_tickets').select('id, ticket_no, brand_model, customer_name, status, total_cost, parts_cost, labor_cost, delivered_at, company_id, created_at')
+      setTechTickets(srvData || [])
+
     } catch (err) {
       console.error(err)
     } finally {
@@ -151,11 +172,33 @@ export default function Home() {
     return amount
   }
 
+  const isRestricted = !isAdmin && profile?.allowed_companies && profile.allowed_companies.length > 0;
+
+  // Şirket bazlı filtreleme fonksiyonu (İzolasyon koruması)
+  const effectiveCompanyId = isRestricted
+    ? (profile.allowed_companies!.includes(selectedCompanyId) ? selectedCompanyId : profile.allowed_companies![0])
+    : selectedCompanyId;
+
   const isMatch = (compId: string | null) => {
-    if (selectedCompanyId === 'all') return true;
-    if (selectedCompanyId === 'common') return compId === null;
-    return compId === selectedCompanyId;
+    // Personelin şirket kısıtlaması varsa yalnızca o şirketin kayıtları eşleşir
+    if (isRestricted) {
+      if (!compId) return false; // Ortak / sahipsiz veriler gizlenir
+      if (!profile.allowed_companies!.includes(compId)) return false; // Yetkisiz şirket verileri gizlenir
+      return compId === effectiveCompanyId;
+    }
+
+    if (effectiveCompanyId === 'all') return true;
+    if (effectiveCompanyId === 'common') return compId === null;
+    return compId === effectiveCompanyId;
   }
+
+  // Personelin yetkili olduğu şirketler listesi
+  const visibleCompanies = useMemo(() => {
+    if (isRestricted) {
+      return companies.filter(c => profile.allowed_companies!.includes(c.id))
+    }
+    return companies
+  }, [companies, isRestricted, profile?.allowed_companies])
 
   const filteredBanks = banks.filter(b => isMatch(b.company_id))
   const filteredCashes = cashes.filter(c => isMatch(c.company_id))
@@ -165,19 +208,51 @@ export default function Home() {
   const filteredStocks = rawStocks.filter(s => validWhIds.includes(s.warehouse_id))
   const filteredExpenses = expenses.filter(e => isMatch(e.company_id))
 
-  const activeCustomers = selectedCompanyId === 'all' 
+  const activeCustomers = (!isRestricted && effectiveCompanyId === 'all') 
     ? customers.filter(c => Math.abs(c.balance) > 0.01)
     : customers.map(c => {
+        const custCurr = c.currency || 'TRY'
+        const custRate = custCurr === 'USD' ? (rates.USD || 34.25) : custCurr === 'EUR' ? (rates.EUR || 37.80) : 1
         const bal = customerTxs.filter(t => t.customer_id === c.id && isMatch(t.company_id))
-          .reduce((acc, t) => t.tx_type === 'debt' ? acc + (t.amount * (t.exchange_rate||1)) : acc - (t.amount * (t.exchange_rate||1)), 0)
+          .reduce((acc, t) => {
+            let val = Number(t.amount || 0)
+            const txRate = Number(t.exchange_rate) || 1
+            const txCurr = t.currency || 'TRY'
+            if (custCurr === 'USD') {
+              if (txCurr === 'TRY') val = val / (txRate || custRate)
+              else if (txCurr === 'EUR') val = (val * (txRate || rates.EUR || 37.80)) / custRate
+            } else if (custCurr === 'EUR') {
+              if (txCurr === 'TRY') val = val / (txRate || custRate)
+              else if (txCurr === 'USD') val = (val * (txRate || rates.USD || 34.25)) / custRate
+            } else {
+              if (txCurr !== 'TRY') val = val * txRate
+            }
+            return t.tx_type === 'debt' ? acc + val : acc - val
+          }, 0)
         return { ...c, balance: bal }
       }).filter(c => Math.abs(c.balance) > 0.01)
 
-  const activeSuppliers = selectedCompanyId === 'all'
+  const activeSuppliers = (!isRestricted && effectiveCompanyId === 'all')
     ? suppliers.filter(s => Math.abs(s.balance) > 0.01)
     : suppliers.map(s => {
+        const suppCurr = s.currency || 'TRY'
+        const suppRate = suppCurr === 'USD' ? (rates.USD || 34.25) : suppCurr === 'EUR' ? (rates.EUR || 37.80) : 1
         const bal = supplierTxs.filter(t => t.supplier_id === s.id && isMatch(t.company_id))
-          .reduce((acc, t) => t.tx_type === 'debt' ? acc + (t.amount * (t.exchange_rate||1)) : acc - (t.amount * (t.exchange_rate||1)), 0)
+          .reduce((acc, t) => {
+            let val = Number(t.amount || 0)
+            const txRate = Number(t.exchange_rate) || 1
+            const txCurr = t.currency || 'TRY'
+            if (suppCurr === 'USD') {
+              if (txCurr === 'TRY') val = val / (txRate || suppRate)
+              else if (txCurr === 'EUR') val = (val * (txRate || rates.EUR || 37.80)) / suppRate
+            } else if (suppCurr === 'EUR') {
+              if (txCurr === 'TRY') val = val / (txRate || suppRate)
+              else if (txCurr === 'USD') val = (val * (txRate || rates.USD || 34.25)) / suppRate
+            } else {
+              if (txCurr !== 'TRY') val = val * txRate
+            }
+            return t.tx_type === 'debt' ? acc + val : acc - val
+          }, 0)
         return { ...s, balance: bal }
       }).filter(s => Math.abs(s.balance) > 0.01)
 
@@ -185,8 +260,8 @@ export default function Home() {
   const totalCashTry = filteredCashes.reduce((acc, c) => acc + getTryEquivalent(Number(c.balance || 0), c.currency || 'TRY'), 0)
   const totalCreditTry = filteredCards.reduce((acc, c) => acc + Number(c.current_debt || 0), 0)
   const totalStockTry = filteredStocks.reduce((acc, s) => acc + getTryEquivalent(s.quantity * s.unit_price * (1 + (s.vat_rate || 0)/100), s.currency || 'TRY'), 0)
-  const totalCustomerTry = activeCustomers.reduce((acc, c) => acc + Number(c.balance || 0), 0)
-  const totalSupplierTry = activeSuppliers.reduce((acc, s) => acc + Number(s.balance || 0), 0)
+  const totalCustomerTry = activeCustomers.reduce((acc, c) => acc + getTryEquivalent(Number(c.balance || 0), c.currency || 'TRY'), 0)
+  const totalSupplierTry = activeSuppliers.reduce((acc, s) => acc + getTryEquivalent(Number(s.balance || 0), s.currency || 'TRY'), 0)
 
   const warehouseTotals = filteredWarehouses.map(wh => {
     const whStocks = filteredStocks.filter(s => s.warehouse_id === wh.id)
@@ -195,25 +270,25 @@ export default function Home() {
   }).filter(wh => wh.totalValue > 0)
 
   const commercialExpensesList = filteredExpenses.filter(e => e.company_id && !companies.find(c => c.id === e.company_id)?.is_personal)
-  const personalExpensesList = filteredExpenses.filter(e => !e.company_id || companies.find(c => c.id === e.company_id)?.is_personal)
+  const personalExpensesList = isAdmin ? filteredExpenses.filter(e => !e.company_id || companies.find(c => c.id === e.company_id)?.is_personal) : []
   
   // POS (Mağaza) Nakit Giderlerinin Hesaplanması
-  const posExpTotalComm = posTxs.filter(t => t.category_id === 'gider' && (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal)).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0)
-  const posExpTotalPers = posTxs.filter(t => t.category_id === 'gider' && (t.company_id && companies.find(c => c.id === t.company_id)?.is_personal)).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0)
+  const posExpTotalComm = posTxs.filter(t => t.category_id === 'gider' && isMatch(t.company_id) && (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal)).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0)
+  const posExpTotalPers = isAdmin ? posTxs.filter(t => t.category_id === 'gider' && isMatch(t.company_id) && (t.company_id && companies.find(c => c.id === t.company_id)?.is_personal)).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0) : 0
 
   const totalCommExpTry = commercialExpensesList.reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0) + posExpTotalComm
   const totalPersExpTry = personalExpensesList.reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0) + posExpTotalPers
 
-  const commExpBreakdown = companies.filter(c => !c.is_personal).map(c => {
+  const commExpBreakdown = visibleCompanies.filter(c => !c.is_personal).map(c => {
     const expTxsTotal = commercialExpensesList.filter(e => e.company_id === c.id).reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0)
     const posTxsTotal = posTxs.filter(t => t.category_id === 'gider' && t.company_id === c.id).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0)
     return { id: c.id, name: c.name, total: expTxsTotal + posTxsTotal }
   }).filter(c => c.total > 0).sort((a, b) => b.total - a.total)
 
-  const persExpBreakdown = Array.from(new Set(personalExpensesList.map(e => e.category?.name || 'Diğer'))).map(catName => {
+  const persExpBreakdown = isAdmin ? Array.from(new Set(personalExpensesList.map(e => e.category?.name || 'Diğer'))).map(catName => {
     const total = personalExpensesList.filter(e => (e.category?.name || 'Diğer') === catName).reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0)
     return { id: catName, name: catName, total }
-  }).filter(c => c.total > 0).sort((a, b) => b.total - a.total)
+  }).filter(c => c.total > 0).sort((a, b) => b.total - a.total) : []
 
   const netFinancialPosition = totalBankTry + totalCashTry + totalCustomerTry - totalSupplierTry - totalCreditTry
 
@@ -268,10 +343,19 @@ export default function Home() {
          monthsData[mKey].revenue += (Number(tx.cash) + Number(tx.card))
          // ÇİFTE SAYIM KORUMASI: Eğer satır bir stoka bağlıysa, onun maliyeti zaten "stock_transactions" (out) olarak eklendi.
          // Bu yüzden sadece stok dışı, serbest satılan ürün/hizmet maliyetlerini grafiğe dahil ediyoruz.
-         if (!tx.stock_id) {
-             monthsData[mKey].cost += Number(tx.cost)
-         }
+          if (!tx.stock_id) {
+              monthsData[mKey].cost += Number(tx.cost)
+          }
       }
+    }
+  })
+
+  // YENİ: Teknik Servis Teslimat Gelirleri P&L Entegrasyonu
+  techTickets.filter(t => isMatch(t.company_id) && t.status === 'delivered').forEach(ticket => {
+    const dStr = ticket.delivered_at || ticket.created_at
+    const mKey = dStr?.substring(0, 7)
+    if (mKey && monthsData[mKey]) {
+      monthsData[mKey].revenue += Number(ticket.total_cost || 0)
     }
   })
 
@@ -339,8 +423,177 @@ export default function Home() {
       })
   })
 
+  techTickets.filter(t => isMatch(t.company_id) && t.status === 'delivered').forEach(t => {
+      const dStr = t.delivered_at || t.created_at
+      allTimelineItems.push({
+          id: `srv_${t.id}`, date: dStr?.substring(0, 10), sortDate: new Date(dStr),
+          module: 'technical-service', description: `Teknik Servis: ${t.ticket_no} - ${t.brand_model} (${t.customer_name})`,
+          amountTry: Number(t.total_cost || 0),
+          type: 'in', companyId: t.company_id
+      })
+  })
+
   allTimelineItems.sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime())
   const recentTransactions = allTimelineItems.slice(0, 30)
+
+  // =====================================================================
+  // --- CARİ BORÇ & ALACAK VE GEÇMİŞ DÖNEM KIYASLAMA MOTORU ---
+  // =====================================================================
+  const cariCutoffDate = useMemo(() => {
+    const today = new Date()
+    if (cariPeriod === 'month') {
+      const yyyy = today.getFullYear()
+      const mm = String(today.getMonth() + 1).padStart(2, '0')
+      return `${yyyy}-${mm}-01` // Bu ayın başlangıcı (geçen ay sonu eşiği)
+    } else {
+      const d = new Date()
+      d.setDate(d.getDate() - 30)
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      return `${y}-${m}-${day}`
+    }
+  }, [cariPeriod])
+
+  const customerComparisonList = useMemo(() => {
+    return customers.map(c => {
+      const relevantTxs = customerTxs.filter(t => t.customer_id === c.id && isMatch(t.company_id))
+      
+      const custCurr = c.currency || 'TRY'
+      const custRate = custCurr === 'USD' ? (rates.USD || 34.25) : custCurr === 'EUR' ? (rates.EUR || 37.80) : 1
+      const currentBalNative = (!isRestricted && effectiveCompanyId === 'all')
+        ? Number(c.balance || 0)
+        : relevantTxs.reduce((acc, t) => {
+            let val = Number(t.amount || 0)
+            const txRate = Number(t.exchange_rate) || 1
+            const txCurr = t.currency || 'TRY'
+            if (custCurr === 'USD') {
+              if (txCurr === 'TRY') val = val / (txRate || custRate)
+              else if (txCurr === 'EUR') val = (val * (txRate || rates.EUR || 37.80)) / custRate
+            } else if (custCurr === 'EUR') {
+              if (txCurr === 'TRY') val = val / (txRate || custRate)
+              else if (txCurr === 'USD') val = (val * (txRate || rates.USD || 34.25)) / custRate
+            } else {
+              if (txCurr !== 'TRY') val = val * txRate
+            }
+            return t.tx_type === 'debt' ? acc + val : acc - val
+          }, 0)
+
+      const currentBal = getTryEquivalent(currentBalNative, custCurr)
+
+      let periodSales = 0
+      let periodPayments = 0
+
+      relevantTxs.forEach(t => {
+        const txDate = t.tx_date || t.created_at?.substring(0, 10)
+        if (txDate >= cariCutoffDate) {
+          const val = Number(t.amount || 0) * (t.exchange_rate || 1)
+          if (t.tx_type === 'debt') periodSales += val
+          if (t.tx_type === 'payment') periodPayments += val
+        }
+      })
+
+      const previousBal = currentBal - periodSales + periodPayments
+      const diff = currentBal - previousBal
+      const pct = previousBal !== 0 ? ((diff / Math.abs(previousBal)) * 100) : (currentBal !== 0 ? 100 : 0)
+
+      return {
+        id: c.id,
+        name: c.name,
+        currency: c.currency || 'TRY',
+        currentBal,
+        previousBal,
+        diff,
+        pct,
+        periodSales,
+        periodPayments
+      }
+    }).filter(c => Math.abs(c.currentBal) > 0.01 || Math.abs(c.previousBal) > 0.01)
+      .sort((a, b) => b.currentBal - a.currentBal)
+  }, [customers, customerTxs, isRestricted, effectiveCompanyId, cariCutoffDate, isMatch, rates])
+
+  const supplierComparisonList = useMemo(() => {
+    return suppliers.map(s => {
+      const relevantTxs = supplierTxs.filter(t => t.supplier_id === s.id && isMatch(t.company_id))
+      const suppCurr = s.currency || 'TRY'
+      const suppRate = suppCurr === 'USD' ? (rates.USD || 34.25) : suppCurr === 'EUR' ? (rates.EUR || 37.80) : 1
+      
+      const currentBalNative = (!isRestricted && effectiveCompanyId === 'all')
+        ? Number(s.balance || 0)
+        : relevantTxs.reduce((acc, t) => {
+            let val = Number(t.amount || 0)
+            const txRate = Number(t.exchange_rate) || 1
+            const txCurr = t.currency || 'TRY'
+            if (suppCurr === 'USD') {
+              if (txCurr === 'TRY') val = val / (txRate || suppRate)
+              else if (txCurr === 'EUR') val = (val * (txRate || rates.EUR || 37.80)) / suppRate
+            } else if (suppCurr === 'EUR') {
+              if (txCurr === 'TRY') val = val / (txRate || suppRate)
+              else if (txCurr === 'USD') val = (val * (txRate || rates.USD || 34.25)) / suppRate
+            } else {
+              if (txCurr !== 'TRY') val = val * txRate
+            }
+            return t.tx_type === 'debt' ? acc + val : acc - val
+          }, 0)
+
+      const currentBal = getTryEquivalent(currentBalNative, suppCurr)
+
+      let periodPurchases = 0
+      let periodPayments = 0
+
+      relevantTxs.forEach(t => {
+        const txDate = t.tx_date || t.created_at?.substring(0, 10)
+        if (txDate >= cariCutoffDate) {
+          const val = Number(t.amount || 0) * (t.exchange_rate || 1)
+          if (t.tx_type === 'debt') periodPurchases += val
+          if (t.tx_type === 'payment') periodPayments += val
+        }
+      })
+
+      const previousBal = currentBal - periodPurchases + periodPayments
+      const diff = currentBal - previousBal
+      const pct = previousBal !== 0 ? ((diff / Math.abs(previousBal)) * 100) : (currentBal !== 0 ? 100 : 0)
+
+      return {
+        id: s.id,
+        name: s.company_name,
+        currency: s.currency || 'TRY',
+        currentBal,
+        previousBal,
+        diff,
+        pct,
+        periodPurchases,
+        periodPayments
+      }
+    }).filter(s => Math.abs(s.currentBal) > 0.01 || Math.abs(s.previousBal) > 0.01)
+      .sort((a, b) => b.currentBal - a.currentBal)
+  }, [suppliers, supplierTxs, isRestricted, effectiveCompanyId, cariCutoffDate, isMatch, rates])
+
+  const comparisonSummary = useMemo(() => {
+    const totalCustCurr = customerComparisonList.reduce((acc, c) => acc + c.currentBal, 0)
+    const totalCustPrev = customerComparisonList.reduce((acc, c) => acc + c.previousBal, 0)
+    const custDiff = totalCustCurr - totalCustPrev
+    const custPct = totalCustPrev !== 0 ? (custDiff / Math.abs(totalCustPrev)) * 100 : 0
+
+    const totalSuppCurr = supplierComparisonList.reduce((acc, s) => acc + s.currentBal, 0)
+    const totalSuppPrev = supplierComparisonList.reduce((acc, s) => acc + s.previousBal, 0)
+    const suppDiff = totalSuppCurr - totalSuppPrev
+    const suppPct = totalSuppPrev !== 0 ? (suppDiff / Math.abs(totalSuppPrev)) * 100 : 0
+
+    return {
+      cust: { current: totalCustCurr, previous: totalCustPrev, diff: custDiff, pct: custPct },
+      supp: { current: totalSuppCurr, previous: totalSuppPrev, diff: suppDiff, pct: suppPct },
+      netCurrent: totalCustCurr - totalSuppCurr,
+      netPrevious: totalCustPrev - totalSuppPrev
+    }
+  }, [customerComparisonList, supplierComparisonList])
+
+  const filteredCariList = useMemo(() => {
+    const list = cariTab === 'receivables' ? customerComparisonList : supplierComparisonList
+    if (!cariSearch) return list
+    const q = cariSearch.toLowerCase()
+    return list.filter(item => item.name.toLowerCase().includes(q))
+  }, [cariTab, customerComparisonList, supplierComparisonList, cariSearch])
 
   return (
     <div className="space-y-4 pb-8 max-w-[1600px] mx-auto">
@@ -357,12 +610,38 @@ export default function Home() {
           <div className="h-4 w-px bg-slate-800 hidden md:block" />
           <div className="flex items-center gap-2 bg-[#070b14] border border-indigo-500/30 px-2.5 py-1.5 rounded-lg shadow-inner hover:border-indigo-500/60 transition-colors">
             <Filter size={13} className="text-indigo-400 shrink-0" />
-            <select value={selectedCompanyId} onChange={(e) => setSelectedCompanyId(e.target.value)} className="bg-transparent text-white text-xs font-bold focus:outline-none cursor-pointer pr-2">
-              <option value="all" className="bg-[#0f172a] text-white">🌍 Holding (Tüm Sistem Özeti)</option>
-              <option value="common" className="bg-[#0f172a] text-white">🌐 Ortak / Bağımsız Varlıklar</option>
-              {companies.filter(c => !c.is_personal).length > 0 && <optgroup label="Ticari Şirketler" className="bg-[#070b14] text-slate-400 font-bold">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id} className="text-slate-200 font-medium">{c.name}</option>)}</optgroup>}
-              {companies.filter(c => c.is_personal).length > 0 && <optgroup label="Şahsi Merkezler" className="bg-[#070b14] text-slate-400 font-bold">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id} className="text-slate-200 font-medium">{c.name}</option>)}</optgroup>}
-            </select>
+            {(!isAdmin && profile?.allowed_companies && profile.allowed_companies.length === 1) ? (
+              <span className="text-white text-xs font-bold px-1 flex items-center gap-1.5">
+                <Building2 size={13} className="text-indigo-400" />
+                {visibleCompanies[0]?.name || 'Bağlı Şirket'}
+                <span className="text-[9px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/40 flex items-center gap-1">
+                  <Lock size={9} /> Kilitli
+                </span>
+              </span>
+            ) : (
+              <select value={selectedCompanyId} onChange={(e) => setSelectedCompanyId(e.target.value)} className="bg-transparent text-white text-xs font-bold focus:outline-none cursor-pointer pr-2">
+                {isAdmin && (
+                  <>
+                    <option value="all" className="bg-[#0f172a] text-white">🌍 Holding (Tüm Sistem Özeti)</option>
+                    <option value="common" className="bg-[#0f172a] text-white">🌐 Ortak / Bağımsız Varlıklar</option>
+                  </>
+                )}
+                {visibleCompanies.filter(c => !c.is_personal).length > 0 && (
+                  <optgroup label="Ticari Şirketler" className="bg-[#070b14] text-slate-400 font-bold">
+                    {visibleCompanies.filter(c => !c.is_personal).map(c => (
+                      <option key={c.id} value={c.id} className="text-slate-200 font-medium">{c.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {isAdmin && visibleCompanies.filter(c => c.is_personal).length > 0 && (
+                  <optgroup label="Şahsi Merkezler" className="bg-[#070b14] text-slate-400 font-bold">
+                    {visibleCompanies.filter(c => c.is_personal).map(c => (
+                      <option key={c.id} value={c.id} className="text-slate-200 font-medium">{c.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            )}
           </div>
         </div>
 
@@ -379,46 +658,50 @@ export default function Home() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div style={{ animation: 'fadeInUp 0.5s both 0.15s' }} className="lg:col-span-2 bg-[#0d1322] border border-slate-800/80 rounded-xl p-4 shadow-xl relative overflow-hidden flex flex-col h-[340px]">
+          {/* SOL 2 KOLON: P&L VE PERFORMANS ANALİZİ */}
+          <div style={{ animation: 'fadeInUp 0.5s both 0.15s' }} className="lg:col-span-2 bg-[#0d1322] border border-slate-800/80 rounded-xl p-4 shadow-xl relative overflow-hidden flex flex-col h-full min-h-[616px] justify-between">
             <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
             
-            <div className="flex justify-between items-center mb-3 shrink-0">
-              <h3 className="text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2">
-                <BarChart4 size={15} className="text-indigo-400" /> Kâr / Zarar (P&L) ve Performans Analizi
-              </h3>
-              <span className="text-[10px] text-slate-500 font-mono">Son 6 Aylık Trend</span>
+            <div>
+              <div className="flex justify-between items-center mb-3 shrink-0">
+                <h3 className="text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2">
+                  <BarChart4 size={15} className="text-indigo-400" /> Kâr / Zarar (P&L) ve Performans Analizi
+                </h3>
+                <span className="text-[10px] text-slate-500 font-mono">Son 6 Aylık Trend</span>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4 shrink-0">
+                <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Bu Ayki Ciro</p>
+                  <div className="text-sm font-black font-mono text-blue-400">{formatMoney(currData.revenue, 'TRY').formatted}</div>
+                  <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${revenueTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>{revenueTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {revenueTrend.percent.toFixed(1)} {revenueTrend.isUp ? 'Artış' : 'Düşüş'}</div>
+                </div>
+                <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">SMM & Direkt Mlyt.</p>
+                    <div className="text-sm font-black font-mono text-orange-400">{formatMoney(currData.cost, 'TRY').formatted}</div>
+                </div>
+                <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">İşletme Giderleri</p>
+                    <div className="text-sm font-black font-mono text-purple-400">{formatMoney(currData.expense, 'TRY').formatted}</div>
+                </div>
+                
+                {/* YENİ: MAĞAZA POS KARI KARTI */}
+                <div className="bg-cyan-950/20 border border-cyan-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                    <p className="text-[9px] text-cyan-400/90 font-bold uppercase tracking-wider mb-0.5">Mağaza Kârı</p>
+                    <div className="text-sm font-black font-mono text-cyan-400">{formatMoney(currPosProfit, 'TRY').formatted}</div>
+                    <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${posProfitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>{posProfitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {posProfitTrend.percent.toFixed(1)} {posProfitTrend.isUp ? 'Artış' : 'Düşüş'}</div>
+                </div>
+
+                <div className="bg-emerald-950/20 border border-emerald-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                    <p className="text-[9px] text-emerald-400/90 font-bold uppercase tracking-wider mb-0.5">Net Ticari Kâr</p>
+                    <div className={`text-sm font-black font-mono ${currData.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatMoney(currData.profit, 'TRY').formatted}</div>
+                    <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${profitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>{profitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {profitTrend.percent.toFixed(1)} {profitTrend.isUp ? 'Artış' : 'Düşüş'}</div>
+                </div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4 shrink-0">
-              <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Bu Ayki Ciro</p>
-                <div className="text-sm font-black font-mono text-blue-400">{formatMoney(currData.revenue, 'TRY').formatted}</div>
-                <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${revenueTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>{revenueTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {revenueTrend.percent.toFixed(1)} {revenueTrend.isUp ? 'Artış' : 'Düşüş'}</div>
-              </div>
-              <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">SMM & Direkt Mlyt.</p>
-                  <div className="text-sm font-black font-mono text-orange-400">{formatMoney(currData.cost, 'TRY').formatted}</div>
-              </div>
-              <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">İşletme Giderleri</p>
-                  <div className="text-sm font-black font-mono text-purple-400">{formatMoney(currData.expense, 'TRY').formatted}</div>
-              </div>
-              
-              {/* YENİ: MAĞAZA POS KARI KARTI */}
-              <div className="bg-cyan-950/20 border border-cyan-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                  <p className="text-[9px] text-cyan-400/90 font-bold uppercase tracking-wider mb-0.5">Mağaza POS Kârı</p>
-                  <div className="text-sm font-black font-mono text-cyan-400">{formatMoney(currPosProfit, 'TRY').formatted}</div>
-                  <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${posProfitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>{posProfitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {posProfitTrend.percent.toFixed(1)} {posProfitTrend.isUp ? 'Artış' : 'Düşüş'}</div>
-              </div>
-
-              <div className="bg-emerald-950/20 border border-emerald-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                  <p className="text-[9px] text-emerald-400/90 font-bold uppercase tracking-wider mb-0.5">Net Ticari Kâr</p>
-                  <div className={`text-sm font-black font-mono ${currData.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatMoney(currData.profit, 'TRY').formatted}</div>
-                  <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${profitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>{profitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {profitTrend.percent.toFixed(1)} {profitTrend.isUp ? 'Artış' : 'Düşüş'}</div>
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-slate-800/60 flex-1 flex items-end min-h-0">
+            {/* ORTA: 6 AYLIK ÇUBUK GRAFİĞİ */}
+            <div className="pt-3 border-t border-slate-800/60 flex-1 flex items-end min-h-[160px] pb-2">
               <div className="flex items-end gap-2 h-full w-full">
                 {last6MonthKeys.map((key) => {
                   const m = monthsData[key]
@@ -427,16 +710,45 @@ export default function Home() {
                   const outHeight = Math.max((totalOut / maxChartValue) * 100, 2)
                   return (
                     <div key={key} className="flex-1 flex flex-col justify-end items-center gap-1 group relative h-full">
-                        <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#070b14] border border-slate-700 rounded-lg p-2 text-[10px] font-mono shadow-2xl z-20 w-32 pointer-events-none">
+                        <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#070b14] border border-slate-700 rounded-lg p-2 text-[10px] font-mono shadow-2xl z-20 w-36 pointer-events-none">
                           <div className="text-blue-400">Ciro: {formatMoney(m.revenue, 'TRY').formatted}</div>
-                          <div className="text-orange-400 border-b border-slate-700/50 pb-1 mb-1">Gider: {formatMoney(totalOut, 'TRY').formatted}</div>
+                          <div className="text-orange-400 border-b border-slate-700/50 pb-1 mb-1">Maliyet/Gider: {formatMoney(totalOut, 'TRY').formatted}</div>
                           <div className={m.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>Net: {formatMoney(m.profit, 'TRY').formatted}</div>
                         </div>
-                        <div className="w-full flex justify-center gap-1 items-end h-full relative">
-                          <div className="w-1/3 max-w-[20px] bg-blue-500 rounded-t-sm transition-all duration-1000 ease-out shadow-sm" style={{ height: `${revHeight}%` }} />
-                          <div className="w-1/3 max-w-[20px] bg-orange-500 rounded-t-sm transition-all duration-1000 ease-out delay-100 shadow-sm" style={{ height: `${outHeight}%` }} />
+                        <div className="w-full flex justify-center gap-1.5 items-end h-full relative">
+                          <div className="w-1/3 max-w-[24px] bg-blue-500 rounded-t transition-all duration-1000 ease-out shadow-sm" style={{ height: `${revHeight}%` }} />
+                          <div className="w-1/3 max-w-[24px] bg-orange-500 rounded-t transition-all duration-1000 ease-out delay-100 shadow-sm" style={{ height: `${outHeight}%` }} />
                         </div>
-                        <div className="text-[9px] text-slate-500 font-bold mt-1 text-center truncate w-full shrink-0 group-hover:text-slate-300 transition-colors">{m.monthLabel}</div>
+                        <div className="text-[9px] text-slate-500 font-bold mt-1.5 text-center truncate w-full shrink-0 group-hover:text-slate-300 transition-colors">{m.monthLabel}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* ALT: SON 6 AYIN PERFORMANS DAĞILIM TABLOSU */}
+            <div className="pt-2.5 border-t border-slate-800/80 shrink-0">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <FileText size={12} className="text-indigo-400" /> 6 Aylık Finansal Özet Tablosu
+                </span>
+                <span className="text-[9px] text-slate-500 font-mono">Ciro • Net Kâr • Kâr Marjı</span>
+              </div>
+              <div className="grid grid-cols-6 gap-1.5 text-center font-mono">
+                {last6MonthKeys.map((key) => {
+                  const m = monthsData[key]
+                  const marginPct = m.revenue > 0 ? ((m.profit / m.revenue) * 100) : 0
+                  const isCurrent = key === currentMonthKey
+                  return (
+                    <div key={key} className={`p-1.5 rounded-lg border transition-colors ${isCurrent ? 'bg-indigo-950/20 border-indigo-500/40' : 'bg-[#070b14]/70 border-slate-800/70'}`}>
+                      <span className={`text-[8px] font-sans font-bold block truncate ${isCurrent ? 'text-indigo-300' : 'text-slate-400'}`}>{m.monthLabel}</span>
+                      <span className="text-[9px] font-bold text-blue-400 block mt-0.5 truncate">{formatMoney(m.revenue, 'TRY').formatted}</span>
+                      <span className={`text-[9px] font-bold block mt-0.5 truncate ${m.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {m.profit >= 0 ? '+' : ''}{formatMoney(m.profit, 'TRY').formatted}
+                      </span>
+                      <span className={`text-[8px] block mt-0.5 font-sans ${marginPct >= 0 ? 'text-emerald-400/90' : 'text-rose-400/90'}`}>
+                        %{marginPct.toFixed(0)} Marj
+                      </span>
                     </div>
                   )
                 })}
@@ -444,51 +756,245 @@ export default function Home() {
             </div>
           </div>
 
-          {/* SAĞ TARAFTA SON İŞLEMLER AKIŞI */}
-          <div style={{ animation: 'fadeInUp 0.5s both 0.25s' }} className="bg-[#0d1322] border border-slate-800/80 rounded-xl shadow-xl overflow-hidden flex flex-col h-[340px]">
-             <div className="p-3 bg-[#0a0f1d] border-b border-slate-800/80 flex items-center justify-between shrink-0">
-                <h3 className="text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2">
-                  <Activity size={15} className="text-emerald-400" /> Son İşlem Akışı
-                </h3>
-             </div>
-             <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5">
-                {recentTransactions.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center p-6 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner m-2">
-                     <FileText size={28} className="mb-3 opacity-70 text-emerald-400 animate-bounce" />
-                     <span className="text-[11px] font-bold text-slate-400">Son İşlem Yok</span>
-                     <span className="text-[9px] mt-1 text-slate-500">Sistemde henüz bir hareket bulunmuyor.</span>
-                  </div>
-                ) : recentTransactions.map((tx, idx) => {
-                   let icon, colorClass, sign
-                   if (tx.module === 'expense') { icon = <ArrowDownRightFromSquare size={12}/>; colorClass = 'text-purple-400'; sign = '-' }
-                   else if (tx.module === 'customer') {
-                      if (tx.type === 'in') { icon = <ArrowUpRightFromSquare size={12}/>; colorClass = 'text-blue-400'; sign = '+' }
-                      else { icon = <Wallet size={12}/>; colorClass = 'text-emerald-400'; sign = '+' }
-                   }
-                   else if (tx.module === 'supplier') {
-                      if (tx.type === 'debt') { icon = <ArrowDownRightFromSquare size={12}/>; colorClass = 'text-amber-400'; sign = '-' }
-                      else { icon = <Wallet size={12}/>; colorClass = 'text-rose-400'; sign = '-' }
-                   }
+          {/* SAĞ KOLON: 1. SON İŞLEM AKIŞI + 2. CARİ BORÇ & ALACAK KIYASLAMA (ÖNERİ 2) */}
+          <div className="flex flex-col gap-4 lg:col-span-1">
+             
+             {/* 1. SON İŞLEMLER AKIŞI */}
+             <div style={{ animation: 'fadeInUp 0.5s both 0.25s' }} className="bg-[#0d1322] border border-slate-800/80 rounded-xl shadow-xl overflow-hidden flex flex-col h-[270px]">
+                <div className="p-2.5 bg-[#0a0f1d] border-b border-slate-800/80 flex items-center justify-between shrink-0">
+                   <h3 className="text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2">
+                     <Activity size={14} className="text-emerald-400" /> Son İşlem Akışı
+                   </h3>
+                   <span className="text-[9px] text-slate-500 font-mono">Son {recentTransactions.length} Hareket</span>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5">
+                   {recentTransactions.length === 0 ? (
+                     <div className="h-full flex flex-col items-center justify-center p-4 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner m-1">
+                        <FileText size={22} className="mb-2 opacity-70 text-emerald-400 animate-bounce" />
+                        <span className="text-[10px] font-bold text-slate-400">Son İşlem Yok</span>
+                        <span className="text-[8px] mt-0.5 text-slate-500">Sistemde henüz bir hareket bulunmuyor.</span>
+                     </div>
+                   ) : recentTransactions.map((tx, idx) => {
+                      let icon, colorClass, sign
+                      if (tx.module === 'expense') { icon = <ArrowDownRightFromSquare size={11}/>; colorClass = 'text-purple-400'; sign = '-' }
+                      else if (tx.module === 'customer') {
+                         if (tx.type === 'in') { icon = <ArrowUpRightFromSquare size={11}/>; colorClass = 'text-blue-400'; sign = '+' }
+                         else { icon = <Wallet size={11}/>; colorClass = 'text-emerald-400'; sign = '+' }
+                      }
+                      else if (tx.module === 'supplier') {
+                         if (tx.type === 'debt') { icon = <ArrowDownRightFromSquare size={11}/>; colorClass = 'text-amber-400'; sign = '-' }
+                         else { icon = <Wallet size={11}/>; colorClass = 'text-rose-400'; sign = '-' }
+                      }
+                      else if (tx.module === 'technical-service') {
+                         icon = <Wrench size={11}/>; colorClass = 'text-indigo-400'; sign = '+'
+                      }
 
-                   return (
-                     <div 
-                        key={tx.id} 
-                        style={{ animation: 'fadeSlideRight 0.4s both', animationDelay: `${0.3 + (idx * 0.05)}s` }}
-                        className="flex justify-between items-center p-2 rounded-lg bg-[#070b14] border border-slate-800/50 hover:border-slate-600 transition-colors cursor-default"
-                     >
-                        <div className="flex items-start gap-2 min-w-0 pr-2">
-                           <div className={`p-1.5 rounded-md bg-slate-800/50 shrink-0 ${colorClass}`}>{icon}</div>
-                           <div className="flex flex-col min-w-0">
-                              <span className="text-[10px] font-bold text-slate-200 truncate">{tx.description}</span>
-                              <span className="text-[8px] text-slate-500 font-mono">{formatDateTR(tx.date)}</span>
+                      return (
+                        <div 
+                           key={tx.id} 
+                           style={{ animation: 'fadeSlideRight 0.4s both', animationDelay: `${0.2 + (idx * 0.03)}s` }}
+                           className="flex justify-between items-center p-1.5 rounded-lg bg-[#070b14] border border-slate-800/50 hover:border-slate-600 transition-colors cursor-default"
+                        >
+                           <div className="flex items-start gap-2 min-w-0 pr-2">
+                              <div className={`p-1 rounded-md bg-slate-800/50 shrink-0 ${colorClass}`}>{icon}</div>
+                              <div className="flex flex-col min-w-0">
+                                 <span className="text-[10px] font-bold text-slate-200 truncate">{tx.description}</span>
+                                 <span className="text-[8px] text-slate-500 font-mono">{formatDateTR(tx.date)}</span>
+                              </div>
+                           </div>
+                           <div className={`text-[10px] font-mono font-bold shrink-0 ${colorClass}`}>
+                              {sign}{formatMoney(tx.amountTry, 'TRY').formatted}
                            </div>
                         </div>
-                        <div className={`text-[11px] font-mono font-bold shrink-0 ${colorClass}`}>
-                           {sign}{formatMoney(tx.amountTry, 'TRY').formatted}
+                      )
+                   })}
+                </div>
+             </div>
+
+             {/* 2. CARİ BORÇ & ALACAK DAĞILIMI VE GEÇMİŞ DÖNEM KIYASLAMASI (ÖNERİ 2) */}
+             <div style={{ animation: 'fadeInUp 0.5s both 0.3s' }} className="bg-[#0d1322] border border-slate-800/80 rounded-xl shadow-xl overflow-hidden flex flex-col h-[330px]">
+                {/* Kart Üst Başlık & Sekmeler */}
+                <div className="p-2.5 bg-[#0a0f1d] border-b border-slate-800/80 flex flex-col gap-2 shrink-0">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-white font-bold text-xs uppercase tracking-wider flex items-center gap-1.5">
+                      <Scale size={14} className="text-indigo-400" />
+                      Cari Borç & Alacak Kıyas
+                    </h3>
+
+                    {/* Kıyaslama Periyodu Seçici */}
+                    <div className="flex items-center bg-[#070b14] border border-slate-800 rounded p-0.5 text-[9px] font-bold">
+                      <button
+                        onClick={() => setCariPeriod('month')}
+                        className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${cariPeriod === 'month' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        Geçen Ay
+                      </button>
+                      <button
+                        onClick={() => setCariPeriod('30days')}
+                        className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${cariPeriod === '30days' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        30 Gün
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sekmeler: Alacaklar vs. Borçlar */}
+                  <div className="grid grid-cols-2 gap-1.5 text-[10px] font-bold">
+                    <button
+                      onClick={() => setCariTab('receivables')}
+                      className={`py-1 px-2 rounded-lg border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        cariTab === 'receivables'
+                          ? 'bg-blue-500/15 border-blue-500/40 text-blue-400 shadow-xs'
+                          : 'bg-[#070b14] border-slate-800/80 text-slate-400 hover:text-white hover:border-slate-700'
+                      }`}
+                    >
+                      <Users size={11} />
+                      <span>Alacaklar ({customerComparisonList.length})</span>
+                    </button>
+
+                    <button
+                      onClick={() => setCariTab('payables')}
+                      className={`py-1 px-2 rounded-lg border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        cariTab === 'payables'
+                          ? 'bg-amber-500/15 border-amber-500/40 text-amber-400 shadow-xs'
+                          : 'bg-[#070b14] border-slate-800/80 text-slate-400 hover:text-white hover:border-slate-700'
+                      }`}
+                    >
+                      <Building2 size={11} />
+                      <span>Borçlar ({supplierComparisonList.length})</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Mini KPI Özet Şeridi */}
+                <div className="px-3 py-1.5 bg-[#070b14]/70 border-b border-slate-800/60 flex items-center justify-between text-[9px] shrink-0 font-mono">
+                  <div>
+                    <span className="text-slate-400 block font-sans text-[8px] uppercase tracking-wider">
+                      {cariTab === 'receivables' ? 'Toplam Açık Alacak' : 'Toplam Açık Borç'}
+                    </span>
+                    <span className={`text-xs font-black ${cariTab === 'receivables' ? 'text-blue-400' : 'text-amber-400'}`}>
+                      {formatMoney(cariTab === 'receivables' ? comparisonSummary.cust.current : comparisonSummary.supp.current, 'TRY').formatted}
+                    </span>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-slate-400 block font-sans text-[8px] uppercase tracking-wider">
+                      {cariPeriod === 'month' ? 'Geçen Aya Göre' : 'Son 30 Güne Göre'}
+                    </span>
+                    {cariTab === 'receivables' ? (
+                      <span className={`font-bold flex items-center justify-end gap-0.5 ${
+                        comparisonSummary.cust.diff >= 0 ? 'text-blue-400' : 'text-emerald-400'
+                      }`}>
+                        {comparisonSummary.cust.diff >= 0 ? '+' : ''}{formatMoney(comparisonSummary.cust.diff, 'TRY').formatted}
+                        <span className="text-[8px] opacity-80">({comparisonSummary.cust.diff >= 0 ? '▲' : '▼'} %{Math.abs(comparisonSummary.cust.pct).toFixed(1)})</span>
+                      </span>
+                    ) : (
+                      <span className={`font-bold flex items-center justify-end gap-0.5 ${
+                        comparisonSummary.supp.diff <= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      }`}>
+                        {comparisonSummary.supp.diff >= 0 ? '+' : ''}{formatMoney(comparisonSummary.supp.diff, 'TRY').formatted}
+                        <span className="text-[8px] opacity-80">({comparisonSummary.supp.diff <= 0 ? '▼ Ödendi' : '▲ Artış'})</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Arama Input'u */}
+                <div className="px-2 pt-1.5 pb-1 bg-[#0d1322] shrink-0">
+                  <div className="relative">
+                    <Search size={11} className="absolute left-2 top-2 text-slate-500" />
+                    <input
+                      type="text"
+                      placeholder="Cari ara..."
+                      value={cariSearch}
+                      onChange={(e) => setCariSearch(e.target.value)}
+                      className="w-full bg-[#070b14] border border-slate-800/80 text-white text-[10px] pl-6 pr-6 py-1 rounded focus:outline-none focus:border-indigo-500/50"
+                    />
+                    {cariSearch && (
+                      <button onClick={() => setCariSearch('')} className="absolute right-1.5 top-1.5 text-slate-500 hover:text-white cursor-pointer">
+                        <X size={11} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Cariler Listesi (Scrollable) */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5">
+                  {filteredCariList.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center p-4 border border-dashed border-slate-800 rounded-lg bg-slate-900/20 text-slate-500 text-center">
+                      <span className="text-[10px] font-bold text-slate-400">Kayıt Bulunamadı</span>
+                      <span className="text-[8px] text-slate-500 mt-0.5">Bu kriterlere uygun açık bakiye yok.</span>
+                    </div>
+                  ) : (
+                    filteredCariList.map((item, idx) => {
+                      const maxBal = Math.max(...filteredCariList.map(i => Math.abs(i.currentBal)), 1)
+                      const barPct = Math.min(100, Math.max(8, (Math.abs(item.currentBal) / maxBal) * 100))
+
+                      return (
+                        <div
+                          key={item.id}
+                          style={{ animation: 'fadeSlideRight 0.3s both', animationDelay: `${0.05 + idx * 0.03}s` }}
+                          className="p-2 rounded-lg bg-[#070b14] border border-slate-800/60 hover:border-slate-700 transition-colors"
+                        >
+                          <div className="flex justify-between items-start gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[10px] font-bold text-slate-200 truncate" title={item.name}>
+                                {item.name}
+                              </div>
+                              <div className="text-[8px] text-slate-400 font-mono mt-0.5">
+                                Önceki: <span className="text-slate-300 font-bold">{formatMoney(item.previousBal, 'TRY').formatted}</span>
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <div className={`text-[11px] font-mono font-bold ${
+                                cariTab === 'receivables' ? 'text-blue-400' : 'text-amber-400'
+                              }`}>
+                                {formatMoney(item.currentBal, 'TRY').formatted}
+                              </div>
+
+                              <div className="text-[8px] font-mono mt-0.5 flex items-center justify-end gap-1">
+                                {item.diff === 0 ? (
+                                  <span className="text-slate-400 font-medium">Değişmedi</span>
+                                ) : cariTab === 'receivables' ? (
+                                  item.diff > 0 ? (
+                                    <span className="text-blue-400 font-bold">
+                                      +{formatMoney(item.diff, 'TRY').formatted} (▲ %{Math.abs(item.pct).toFixed(0)})
+                                    </span>
+                                  ) : (
+                                    <span className="text-emerald-400 font-bold">
+                                      {formatMoney(item.diff, 'TRY').formatted} (▼ Tahsilat)
+                                    </span>
+                                  )
+                                ) : (
+                                  item.diff < 0 ? (
+                                    <span className="text-emerald-400 font-bold">
+                                      {formatMoney(item.diff, 'TRY').formatted} (▼ Ödendi)
+                                    </span>
+                                  ) : (
+                                    <span className="text-rose-400 font-bold">
+                                      +{formatMoney(item.diff, 'TRY').formatted} (▲ Artış)
+                                    </span>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Hacim Barı */}
+                          <div className="w-full h-1 bg-slate-800/80 rounded-full overflow-hidden mt-1.5">
+                            <div
+                              style={{ width: `${barPct}%` }}
+                              className={`h-full rounded-full ${
+                                cariTab === 'receivables' ? 'bg-blue-500' : 'bg-amber-500'
+                              }`}
+                            />
+                          </div>
                         </div>
-                     </div>
-                   )
-                })}
+                      )
+                    })
+                  )}
+                </div>
              </div>
           </div>
       </div>
@@ -566,9 +1072,22 @@ export default function Home() {
                   <ArrowUpRight size={20} className="mb-2 opacity-70 text-blue-400 animate-bounce" />
                   <p className="text-[9px] font-bold text-slate-400">Aktif alacak yok.</p>
                 </div>
-              ) : activeCustomers.map(cust => (
-                  <div key={cust.id} className="py-1 flex justify-between items-center font-mono border-b border-slate-800/50 last:border-0"><span className="text-slate-300 font-sans font-medium truncate pr-2">{cust.name}</span><span className={`font-bold shrink-0 ${cust.balance > 0 ? 'text-blue-400' : 'text-rose-400'}`}>{formatMoney(cust.balance, 'TRY').formatted}</span></div>
-              ))}
+              ) : activeCustomers.map(cust => {
+                  const tryVal = getTryEquivalent(Number(cust.balance || 0), cust.currency || 'TRY')
+                  return (
+                    <div key={cust.id} className="py-1 flex justify-between items-center font-mono border-b border-slate-800/50 last:border-0">
+                      <span className="text-slate-300 font-sans font-medium truncate pr-2 flex items-center gap-1.5">
+                        {cust.name}
+                        {cust.currency && cust.currency !== 'TRY' && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                            {formatMoney(cust.balance, (cust.currency as any) || 'TRY').formatted}
+                          </span>
+                        )}
+                      </span>
+                      <span className={`font-bold shrink-0 ${tryVal > 0 ? 'text-blue-400' : 'text-rose-400'}`}>{formatMoney(tryVal, 'TRY').formatted}</span>
+                    </div>
+                  )
+              })}
             </div>
           )}
         </div>
@@ -645,9 +1164,22 @@ export default function Home() {
                   <ArrowDownLeft size={20} className="mb-2 opacity-70 text-amber-400 animate-bounce" />
                   <p className="text-[9px] font-bold text-slate-400">Aktif borç yok.</p>
                 </div>
-              ) : activeSuppliers.map(sup => (
-                  <div key={sup.id} className="py-1 flex justify-between items-center font-mono border-b border-slate-800/50 last:border-0"><span className="text-slate-300 font-sans font-medium truncate pr-2">{sup.company_name}</span><span className="font-bold text-amber-400 shrink-0">{formatMoney(sup.balance, 'TRY').formatted}</span></div>
-              ))}
+              ) : activeSuppliers.map(sup => {
+                  const tryVal = getTryEquivalent(Number(sup.balance || 0), sup.currency || 'TRY')
+                  return (
+                    <div key={sup.id} className="py-1 flex justify-between items-center font-mono border-b border-slate-800/50 last:border-0">
+                      <span className="text-slate-300 font-sans font-medium truncate pr-2 flex items-center gap-1.5">
+                        {sup.company_name}
+                        {sup.currency && sup.currency !== 'TRY' && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                            {formatMoney(sup.balance, (sup.currency as any) || 'TRY').formatted}
+                          </span>
+                        )}
+                      </span>
+                      <span className="font-bold text-amber-400 shrink-0">{formatMoney(tryVal, 'TRY').formatted}</span>
+                    </div>
+                  )
+              })}
             </div>
           )}
         </div>
@@ -677,30 +1209,32 @@ export default function Home() {
           )}
         </div>
 
-        {/* ŞAHSİ GİDERLER */}
-        <div style={{ animation: 'fadeInUp 0.5s both 0.65s' }} onClick={() => toggleSection('pers')} className={`bg-[#0d1322] border rounded-xl p-3.5 shadow-md cursor-pointer transition-all hover:border-slate-400/60 hover:-translate-y-0.5 ${openSections.pers ? 'border-slate-500 ring-1 ring-slate-500' : 'border-slate-800/80'}`}>
-          <div className="flex justify-between items-start mb-1">
-            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">ŞAHSİ GİDERLER</span>
-            <div className="flex items-center gap-1.5"><div className="p-1 bg-slate-500/10 text-slate-300 rounded-md"><HomeIcon size={14} /></div>{openSections.pers ? <ChevronUp size={13} className="text-slate-400" /> : <ChevronDown size={13} className="text-slate-400" />}</div>
-          </div>
-          <div className="my-2 font-mono flex items-baseline">
-            <span className="text-xl font-black text-slate-300">{loading ? '...' : formatMoney(totalPersExpTry, 'TRY').integerPart}</span>
-            <span className="text-xs font-bold text-slate-300/80">{loading ? '' : `,${formatMoney(totalPersExpTry, 'TRY').decimalPart}₺`}</span>
-          </div>
-          <div className="text-[10px] text-slate-500 font-medium flex justify-between items-center"><span>Kategori Bazlı (Tüm Zamanlar)</span></div>
-          {openSections.pers && (
-            <div className="mt-2.5 pt-2.5 border-t border-slate-800 space-y-1 text-xs animate-in fade-in slide-in-from-top-2 duration-200" onClick={(e) => e.stopPropagation()}>
-              {persExpBreakdown.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-4 border border-dashed border-slate-700/60 rounded-lg bg-slate-800/10 text-slate-500 shadow-inner mt-2 mb-1">
-                  <HomeIcon size={20} className="mb-2 opacity-70 text-slate-400 animate-bounce" />
-                  <p className="text-[9px] font-bold text-slate-400">Gider kaydı yok.</p>
-                </div>
-              ) : persExpBreakdown.map(c => (
-                  <div key={c.id} className="py-1 flex justify-between items-center font-mono border-b border-slate-800/50 last:border-0"><span className="text-slate-300 font-sans font-medium truncate pr-2">{c.name}</span><span className="font-bold shrink-0 text-slate-300">{formatMoney(c.total, 'TRY').formatted}</span></div>
-              ))}
+        {/* ŞAHSİ GİDERLER (Yalnızca Yönetici Görür) */}
+        {isAdmin && (
+          <div style={{ animation: 'fadeInUp 0.5s both 0.65s' }} onClick={() => toggleSection('pers')} className={`bg-[#0d1322] border rounded-xl p-3.5 shadow-md cursor-pointer transition-all hover:border-slate-400/60 hover:-translate-y-0.5 ${openSections.pers ? 'border-slate-500 ring-1 ring-slate-500' : 'border-slate-800/80'}`}>
+            <div className="flex justify-between items-start mb-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">ŞAHSİ GİDERLER</span>
+              <div className="flex items-center gap-1.5"><div className="p-1 bg-slate-500/10 text-slate-300 rounded-md"><HomeIcon size={14} /></div>{openSections.pers ? <ChevronUp size={13} className="text-slate-400" /> : <ChevronDown size={13} className="text-slate-400" />}</div>
             </div>
-          )}
-        </div>
+            <div className="my-2 font-mono flex items-baseline">
+              <span className="text-xl font-black text-slate-300">{loading ? '...' : formatMoney(totalPersExpTry, 'TRY').integerPart}</span>
+              <span className="text-xs font-bold text-slate-300/80">{loading ? '' : `,${formatMoney(totalPersExpTry, 'TRY').decimalPart}₺`}</span>
+            </div>
+            <div className="text-[10px] text-slate-500 font-medium flex justify-between items-center"><span>Kategori Bazlı (Tüm Zamanlar)</span></div>
+            {openSections.pers && (
+              <div className="mt-2.5 pt-2.5 border-t border-slate-800 space-y-1 text-xs animate-in fade-in slide-in-from-top-2 duration-200" onClick={(e) => e.stopPropagation()}>
+                {persExpBreakdown.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-4 border border-dashed border-slate-700/60 rounded-lg bg-slate-800/10 text-slate-500 shadow-inner mt-2 mb-1">
+                    <HomeIcon size={20} className="mb-2 opacity-70 text-slate-400 animate-bounce" />
+                    <p className="text-[9px] font-bold text-slate-400">Gider kaydı yok.</p>
+                  </div>
+                ) : persExpBreakdown.map(c => (
+                    <div key={c.id} className="py-1 flex justify-between items-center font-mono border-b border-slate-800/50 last:border-0"><span className="text-slate-300 font-sans font-medium truncate pr-2">{c.name}</span><span className="font-bold shrink-0 text-slate-300">{formatMoney(c.total, 'TRY').formatted}</span></div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
       </div>
 

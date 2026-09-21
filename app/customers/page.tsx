@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Users, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight } from 'lucide-react'
+import { Users, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, MessageSquare, Copy, Download, ExternalLink, Check } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Warehouse = { id: string; name: string }
@@ -13,6 +13,15 @@ type Customer = {
   id: string; name: string; contact_name: string; phone: string;
   email: string; tax_office: string; tax_id: string; address: string;
   balance: number; currency: string;
+}
+
+type ConsentCustomer = {
+  id: string;
+  name: string;
+  phone: string;
+  ticketNo: string;
+  brandModel?: string;
+  date: string;
 }
 
 type InvoiceLine = {
@@ -102,8 +111,19 @@ export default function CustomersPage() {
     isOpen: boolean; title: string; message: string; confirmText: string; cancelText: string; isDanger: boolean; onConfirm: () => void;
   }>({ isOpen: false, title: '', message: '', confirmText: '', cancelText: '', isDanger: false, onConfirm: () => {} })
 
+  const [consentCustomers, setConsentCustomers] = useState<ConsentCustomer[]>([])
+  const [isConsentModalOpen, setIsConsentModalOpen] = useState(false)
+  const [consentSearchTerm, setConsentSearchTerm] = useState('')
+  const [hasCopiedNumbers, setHasCopiedNumbers] = useState(false)
+
   useEffect(() => {
-    fetchExchangeRates(); fetchCompanies(); fetchCustomers(); fetchWarehouses(); fetchPaymentSources(); fetchStocks(); fetchServices()
+    fetchExchangeRates(); fetchCompanies(); fetchCustomers(); fetchWarehouses(); fetchPaymentSources(); fetchStocks(); fetchServices(); fetchConsentCustomers()
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('sms') === 'open') {
+        setIsConsentModalOpen(true)
+      }
+    }
   }, [])
 
   useEffect(() => {
@@ -159,6 +179,104 @@ export default function CustomersPage() {
   async function fetchTransactions(custId: string) {
     const { data } = await supabase.from('customer_transactions').select('*, company:companies(name, is_personal)').eq('customer_id', custId).order('tx_date', { ascending: false }).order('created_at', { ascending: false })
     setTransactions(data || [])
+  }
+
+  async function fetchConsentCustomers() {
+    try {
+      const { data, error } = await supabase
+        .from('technical_service_tickets')
+        .select('id, ticket_no, customer_name, customer_phone, marketing_consent, brand_model, received_at, created_at')
+        .eq('marketing_consent', true)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.warn("SMS izinli müşteriler alınamadı:", error.message)
+        return
+      }
+
+      if (data) {
+        const seenPhones = new Set<string>()
+        const uniqueList: ConsentCustomer[] = []
+
+        for (const t of data) {
+          const rawPhone = (t.customer_phone || '').trim()
+          const digits = rawPhone.replace(/\D/g, '')
+          const key = digits.length >= 10 ? digits.slice(-10) : (digits || (t.customer_name || '').toLowerCase().trim())
+          if (key && !seenPhones.has(key)) {
+            seenPhones.add(key)
+            uniqueList.push({
+              id: t.id,
+              name: t.customer_name?.trim() || 'İsimsiz Müşteri',
+              phone: rawPhone,
+              ticketNo: t.ticket_no || '',
+              brandModel: t.brand_model || '',
+              date: t.received_at || t.created_at || ''
+            })
+          }
+        }
+        setConsentCustomers(uniqueList)
+      }
+    } catch (err) {
+      console.error("fetchConsentCustomers error:", err)
+    }
+  }
+
+  function isCustomerConsent(phoneStr?: string): boolean {
+    if (!phoneStr) return false
+    const cleanDigits = phoneStr.replace(/\D/g, '')
+    if (cleanDigits.length < 7) return false
+    const suffix = cleanDigits.slice(-10)
+    return consentCustomers.some(c => {
+      const cDigits = c.phone.replace(/\D/g, '')
+      return cDigits.endsWith(suffix) || suffix.endsWith(cDigits.slice(-10))
+    })
+  }
+
+  function handleCopyConsentNumbers() {
+    const listToCopy = filteredConsentCustomers.length > 0 ? filteredConsentCustomers : consentCustomers
+    const numbers = listToCopy
+      .map(c => c.phone)
+      .filter(Boolean)
+      .join(', ')
+
+    if (!numbers) {
+      toast.error('Kopyalanacak telefon numarası bulunamadı.')
+      return
+    }
+
+    navigator.clipboard.writeText(numbers)
+    setHasCopiedNumbers(true)
+    toast.success(`${listToCopy.length} adet telefon numarası panoya kopyalandı!`)
+    setTimeout(() => setHasCopiedNumbers(false), 2500)
+  }
+
+  function handleDownloadConsentCSV() {
+    const listToExport = filteredConsentCustomers.length > 0 ? filteredConsentCustomers : consentCustomers
+    if (listToExport.length === 0) {
+      toast.error('Dışa aktarılacak kayıt bulunamadı.')
+      return
+    }
+
+    const headers = ['Müşteri Adı', 'Telefon', 'Son Fiş No', 'Cihaz Modeli', 'İzin Tarihi']
+    const rows = listToExport.map(c => [
+      `"${(c.name || '').replace(/"/g, '""')}"`,
+      `"${(c.phone || '').replace(/"/g, '""')}"`,
+      `"${(c.ticketNo || '').replace(/"/g, '""')}"`,
+      `"${(c.brandModel || '').replace(/"/g, '""')}"`,
+      `"${formatDateTR(c.date?.split('T')[0] || '')}"`
+    ])
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\r\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `sms_izinli_musteriler_${getLocalTodayISO()}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    toast.success('Excel / CSV dosyası başarıyla indirildi.')
   }
 
   // =========================================================================================
@@ -309,7 +427,7 @@ export default function CustomersPage() {
   }
 
   // --- ARTIK BAKİYE DÜŞMEK YERİNE SADECE HAREKET İNSERT/DELETE YAPAN YARDIMCI ---
-  async function modifyPaymentSourceBalance(sourceType: string, sourceId: string, amount: number, txCurr: string, customRate: number, action: 'payment' | 'reverse', relatedTxId: string, dateStr: string, custName: string, desc: string, compId: string | null) {
+  async function modifyPaymentSourceBalance(sourceType: string, sourceId: string, amount: number, txCurr: string, customRate: number, action: 'payment' | 'reverse', relatedTxId: string, dateStr: string, custName: string, desc: string, compId?: string | null) {
     let table = ''; let txTable = ''; let txIdField = ''
     if (sourceType === 'cash') { table = 'cash_registers'; txTable = 'cash_transactions'; txIdField = 'cash_register_id' }
     else if (sourceType === 'bank') { table = 'bank_accounts'; txTable = 'bank_transactions'; txIdField = 'bank_account_id' }
@@ -548,12 +666,12 @@ export default function CustomersPage() {
 
             if (existingStock && existingStock.length > 0) {
               targetStockId = existingStock[0].id
-              affectedStocks.add(targetStockId)
+              if (targetStockId) affectedStocks.add(targetStockId)
             } else {
               const { data: newStock } = await supabase.from('stocks').insert([{ warehouse_id: line.warehouseId, name: line.name, currency: invCurrency, quantity: 0, unit_price: p, vat_rate: v, unit: 'Adet', stock_color: 'from-[#1b253b] to-[#121a2a]' }]).select()
-              if (newStock) {
+              if (newStock && newStock.length > 0) {
                  targetStockId = newStock[0].id
-                 affectedStocks.add(targetStockId)
+                 if (targetStockId) affectedStocks.add(targetStockId)
               }
             }
           }
@@ -598,7 +716,23 @@ export default function CustomersPage() {
     return ''
   }
 
-  const filteredCustomers = customers.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()) || (c.contact_name && c.contact_name.toLowerCase().includes(searchTerm.toLowerCase())))
+  const filteredCustomers = customers.filter(c => 
+    c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (c.contact_name && c.contact_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (c.phone && c.phone.includes(searchTerm))
+  )
+
+  const filteredConsentCustomers = consentCustomers.filter(c => {
+    if (!consentSearchTerm) return true
+    const term = consentSearchTerm.toLowerCase().trim()
+    return (
+      c.name.toLowerCase().includes(term) ||
+      c.phone.toLowerCase().includes(term) ||
+      c.ticketNo.toLowerCase().includes(term) ||
+      (c.brandModel && c.brandModel.toLowerCase().includes(term))
+    )
+  })
+
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId)
   const isEditingDetailedTx = editingTxId && transactions.find(t => t.id === editingTxId)?.is_detailed
 
@@ -617,14 +751,28 @@ export default function CustomersPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] relative">
-      <Toaster position="top-right" toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px', zIndex: 999999 } }} />
+      {/* TOASTER KONTEYNER Z-INDEX DEĞERİ MAX VE POZİSYONU BOTTOM-RIGHT YAPILDI */}
+      <Toaster position="bottom-right" containerStyle={{ zIndex: 99999999 }} toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px' } }} />
       
       <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#0d1322] border border-slate-800/80 p-4 rounded-xl shadow-md shrink-0 mb-4 transition-colors">
         <div className="flex items-center gap-3 text-white">
           <div className="p-2 bg-blue-500/10 text-blue-400 rounded-lg"><Users size={24} /></div>
           <div><h2 className="font-bold text-lg leading-none">Müşteriler / Alacaklar</h2><p className="text-[10px] text-slate-400 mt-1">Satış yaptığınız kişi/kurumlar ve tahsilat takibi</p></div>
         </div>
-        <div className="flex items-center gap-4 text-xs font-mono">
+        <div className="flex items-center gap-3 text-xs font-mono">
+          <button
+            type="button"
+            onClick={() => setIsConsentModalOpen(true)}
+            className="flex items-center gap-2 px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-sans font-bold transition-all active:scale-95 shadow-sm hover:shadow-emerald-500/10 cursor-pointer"
+            title="Teknik serviste SMS ve pazarlama onayı veren müşteriler"
+          >
+            <MessageSquare size={15} className="text-emerald-400" />
+            <span>SMS İzinleri</span>
+            <span className="bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold">
+              {consentCustomers.length}
+            </span>
+          </button>
+
           <div className="flex flex-col items-end">
             <span className="text-[9px] text-slate-400 font-sans tracking-wide">TOPLAM MÜŞTERİ ALACAĞI (₺)</span>
             <div className="flex gap-3 mt-0.5 font-bold">
@@ -640,7 +788,22 @@ export default function CustomersPage() {
       <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
         <div style={{ animation: 'fadeInUp 0.4s both 0.1s' }} className="w-full lg:w-[400px] bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col shrink-0 shadow-lg">
           <div className="p-3 border-b border-slate-800/80 bg-[#0a0f1d] rounded-t-xl flex flex-col gap-3 shrink-0">
-            <div className="flex justify-between items-center"><span className="text-xs font-bold text-slate-300">Müşteri Listesi ({filteredCustomers.length})</span><button onClick={openAddModal} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95"><Plus size={14} /> Yeni Müşteri</button></div>
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-300">Müşteri Listesi ({filteredCustomers.length})</span>
+              <div className="flex items-center gap-1.5">
+                <button 
+                  type="button"
+                  onClick={() => setIsConsentModalOpen(true)}
+                  className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-1.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
+                  title="SMS ve Kampanya İzni Veren Müşteriler Listesi"
+                >
+                  <MessageSquare size={13} /> SMS ({consentCustomers.length})
+                </button>
+                <button onClick={openAddModal} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95">
+                  <Plus size={14} /> Yeni Müşteri
+                </button>
+              </div>
+            </div>
             <div className="relative"><Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" /><input type="text" placeholder="Firma, kişi veya yetkili ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-blue-500/50 transition-colors" /></div>
           </div>
           <div className="overflow-y-auto flex-1 custom-scrollbar p-2 space-y-1.5">
@@ -657,7 +820,17 @@ export default function CustomersPage() {
                   style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.15 + (index * 0.05)}s` }}
                   className={`flex items-center justify-between py-2.5 px-3 rounded-lg cursor-pointer transition-all border hover:-translate-y-0.5 group ${item.id === selectedCustomerId ? 'bg-blue-900/10 border-blue-500/50 shadow-inner' : 'bg-[#070b14] border-slate-800/50 hover:border-slate-600'}`}
                 >
-                  <div className="flex-1 min-w-0 pr-2"><h4 className="text-[11px] font-bold text-slate-200 truncate">{item.name}</h4><p className="text-[9px] text-slate-500 truncate mt-0.5">{item.contact_name || '-'}</p></div>
+                  <div className="flex-1 min-w-0 pr-2">
+                    <div className="flex items-center gap-1.5">
+                      <h4 className="text-[11px] font-bold text-slate-200 truncate">{item.name}</h4>
+                      {isCustomerConsent(item.phone) && (
+                        <span className="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[8px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" title="SMS ve Ticari İleti Onayı Var">
+                          📢 SMS
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-slate-500 truncate mt-0.5">{item.contact_name || '-'}</p>
+                  </div>
                   <div className="text-right shrink-0">
                     <div className={`text-[11px] font-mono font-bold ${item.balance > 0 ? 'text-blue-400' : 'text-slate-400'}`}>{formatMoney(item.balance, 'TRY').formatted}</div>
                     <div className="text-[8px] text-slate-500 uppercase tracking-wider mt-0.5">{item.balance > 0 ? 'ALACAĞIMIZ' : 'BAKİYE YOK'}</div>
@@ -672,9 +845,27 @@ export default function CustomersPage() {
             <>
               <div className="p-4 border-b border-slate-800/80 bg-gradient-to-r from-[#0a0f1d] to-[#0d1322] rounded-t-xl shrink-0 flex flex-col md:flex-row justify-between gap-4 relative z-10">
                 <div className="flex-1 w-full">
-                  <div className="flex items-center justify-between mb-2"><h2 className="text-lg font-bold text-white flex items-center gap-2">{selectedCustomer.name}</h2><div className="flex items-center gap-1 bg-black/40 p-1 rounded border border-slate-800"><button onClick={(e) => openEditModal(selectedCustomer, e)} className="text-slate-400 hover:text-blue-400 p-1 transition"><Edit3 size={14} /></button><button onClick={(e) => handleDeleteCustomer(selectedCustomer.id, e)} className="text-slate-400 hover:text-rose-400 p-1 transition"><Trash2 size={14} /></button></div></div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-lg font-bold text-white flex items-center gap-2">{selectedCustomer.name}</h2>
+                      {isCustomerConsent(selectedCustomer.phone) && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm">
+                          <MessageSquare size={11} /> SMS & Kampanya İzinli
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 bg-black/40 p-1 rounded border border-slate-800"><button onClick={(e) => openEditModal(selectedCustomer, e)} className="text-slate-400 hover:text-blue-400 p-1 transition"><Edit3 size={14} /></button><button onClick={(e) => handleDeleteCustomer(selectedCustomer.id, e)} className="text-slate-400 hover:text-rose-400 p-1 transition"><Trash2 size={14} /></button></div>
+                  </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] text-slate-400 bg-[#070b14] p-3 rounded-lg border border-slate-800/50">
-                    <div><span className="flex items-center gap-1 text-slate-500 mb-0.5"><Phone size={10} /> Telefon</span><span className="text-slate-300">{selectedCustomer.phone || '-'}</span></div>
+                    <div>
+                      <span className="flex items-center gap-1 text-slate-500 mb-0.5"><Phone size={10} /> Telefon</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-slate-300">{selectedCustomer.phone || '-'}</span>
+                        {isCustomerConsent(selectedCustomer.phone) && (
+                          <span className="text-[8px] text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded border border-emerald-500/20 font-bold tracking-wider">SMS İZİNLİ</span>
+                        )}
+                      </div>
+                    </div>
                     <div><span className="flex items-center gap-1 text-slate-500 mb-0.5"><Mail size={10} /> E-Posta</span><span className="text-slate-300 truncate block">{selectedCustomer.email || '-'}</span></div>
                     <div><span className="flex items-center gap-1 text-slate-500 mb-0.5"><FileText size={10} /> V. Dairesi/No</span><span className="text-slate-300">{selectedCustomer.tax_office || '-'} {selectedCustomer.tax_id ? `/ ${selectedCustomer.tax_id}` : ''}</span></div>
                     <div><span className="flex items-center gap-1 text-slate-500 mb-0.5"><MapPin size={10} /> Adres</span><span className="text-slate-300 truncate block">{selectedCustomer.address || '-'}</span></div>
@@ -945,6 +1136,192 @@ export default function CustomersPage() {
                 <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-1.5 rounded font-medium transition-all active:scale-95 shadow-lg shadow-blue-900/20">Kaydet</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- SMS / PAZARLAMA İZİNLİ MÜŞTERİLER MODALI --- */}
+      {isConsentModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 9999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className="p-4 border-b border-slate-800 bg-gradient-to-r from-[#0a0f1d] via-[#0d1322] to-[#0a0f1d] flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl">
+                  <MessageSquare size={22} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-white">SMS & Ticari İleti İzni Veren Müşteriler</h3>
+                    <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full text-xs font-mono font-bold">
+                      {filteredConsentCustomers.length} Müşteri
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Teknik servis fişi oluşturulurken reklam ve bilgilendirme SMS'i almayı onaylayan müşteriler
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsConsentModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Action Toolbar */}
+            <div className="p-3 bg-[#0a0f1d] border-b border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+              <div className="relative w-full sm:w-80">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="text"
+                  placeholder="İsim, telefon, fiş no veya model ara..."
+                  value={consentSearchTerm}
+                  onChange={(e) => setConsentSearchTerm(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 transition-colors"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={handleCopyConsentNumbers}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 cursor-pointer ${
+                    hasCopiedNumbers
+                      ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/30'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600'
+                  }`}
+                  title="Tüm telefon numaralarını virgülle ayrılmış kopyalar (Toplu SMS panelleri için)"
+                >
+                  {hasCopiedNumbers ? <Check size={14} /> : <Copy size={14} />}
+                  <span>{hasCopiedNumbers ? 'Kopyalandı!' : 'Numaraları Kopyala'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadConsentCSV}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all active:scale-95 shadow-md shadow-emerald-900/20 cursor-pointer"
+                  title="Excel uyumlu CSV listesi indir"
+                >
+                  <Download size={14} />
+                  <span>Excel / CSV İndir</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Customer List Content */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
+              {filteredConsentCustomers.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-12 text-slate-500">
+                  <MessageSquare size={40} className="mb-3 opacity-40 text-emerald-400" />
+                  <p className="text-sm font-bold text-slate-300">
+                    {consentSearchTerm ? 'Aramanıza uygun izinli müşteri bulunamadı.' : 'Henüz SMS izni veren müşteri kaydı yok.'}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1 text-center max-w-sm">
+                    Teknik servis fişi oluşturulurken "Müşteri bilgilendirme & reklam SMS onayı verdi" seçeneği işaretlendiğinde burada listelenir.
+                  </p>
+                </div>
+              ) : (
+                <div className="border border-slate-800 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="sticky top-0 bg-[#0a0f1d] border-b border-slate-800 text-slate-400 font-medium">
+                      <tr>
+                        <th className="p-3">Müşteri</th>
+                        <th className="p-3">Telefon</th>
+                        <th className="p-3">Son Fiş / Cihaz</th>
+                        <th className="p-3">İzin Tarihi</th>
+                        <th className="p-3 text-right">İletişim</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono">
+                      {filteredConsentCustomers.map((cust) => {
+                        const cleanDigits = cust.phone.replace(/\D/g, '')
+                        const waNumber = cleanDigits.startsWith('0') ? `9${cleanDigits}` : cleanDigits.startsWith('90') ? cleanDigits : `90${cleanDigits}`
+                        return (
+                          <tr key={cust.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="p-3 font-sans">
+                              <div className="font-bold text-slate-200">{cust.name}</div>
+                            </td>
+                            <td className="p-3 text-slate-300">
+                              <span className="font-mono">{cust.phone || '-'}</span>
+                            </td>
+                            <td className="p-3 font-sans">
+                              <div className="text-slate-300 font-medium flex items-center gap-1.5 flex-wrap">
+                                {cust.ticketNo && (
+                                  <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">
+                                    {cust.ticketNo}
+                                  </span>
+                                )}
+                                {cust.brandModel && (
+                                  <span className="text-slate-400 text-xs truncate max-w-[200px]">
+                                    {cust.brandModel}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-3 text-slate-400 text-[11px] font-sans">
+                              {cust.date ? formatDateTR(cust.date.split('T')[0]) : '-'}
+                            </td>
+                            <td className="p-3 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {cleanDigits && (
+                                  <>
+                                    <a
+                                      href={`https://wa.me/${waNumber}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-sans font-bold flex items-center gap-1 transition-colors"
+                                      title="WhatsApp'tan Mesaj Gönder"
+                                    >
+                                      <span>WP</span>
+                                      <ExternalLink size={10} />
+                                    </a>
+                                    <a
+                                      href={`tel:${cust.phone}`}
+                                      className="p-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded transition-colors"
+                                      title="Doğrudan Ara"
+                                    >
+                                      <Phone size={12} />
+                                    </a>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(cust.phone)
+                                        toast.success(`${cust.phone} kopyalandı!`)
+                                      }}
+                                      className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition-colors cursor-pointer"
+                                      title="Numarayı Kopyala"
+                                    >
+                                      <Copy size={12} />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer info */}
+            <div className="p-3 bg-[#0a0f1d] border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500 shrink-0">
+              <span className="text-[11px]">💡 Toplu SMS atarken numaraları doğrudan kopyalayıp SMS paneline yapıştırabilirsiniz.</span>
+              <button
+                type="button"
+                onClick={() => setIsConsentModalOpen(false)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium transition-colors cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
+
           </div>
         </div>
       )}

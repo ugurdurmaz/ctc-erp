@@ -209,6 +209,7 @@ Bazı kayıtlar **açıklama string'i ile** tanınır. Bu metinler değiştirili
 | `Açılış Stoğu` | Stok kartı ilk giriş hareketi. |
 | `Mağaza Satışı: Z-Raporu (POS-<tarih>)` | POS'un ürettiği stok çıkışları; gün yeniden kaydedilince `LIKE` ile silinir. |
 | `Mağaza Z-Raporu: Kartlı Giderler (POS-<tarih>)` | POS kartlı gider ekstresi; aynı şekilde silinir. |
+| `Mağaza Hizmet Alımı (POS-<tarih>): <açıklama>` | POS servis/maliyet satırlarının tedarikçi borcu; `supplier_transactions` tablosuna `debt` yazılır; gün yeniden kaydedilince `LIKE` ile silinip güncellenir. |
 | `Abonelik Tahsilatı: <username> (<full_name>)` | Abonelik silinince ilgili kasa/banka girişini bulup siler. |
 
 ### 4.5 Bekleyen Provizyon (`bank_transactions.status`)
@@ -224,6 +225,8 @@ Bazı kayıtlar **açıklama string'i ile** tanınır. Bu metinler değiştirili
 > Kolonlar kodda okunan/yazılan alanlardan çıkarılmıştır. `id` (uuid) ve `created_at` her tabloda varsayılmıştır. FK/cascade davranışı repo'dan doğrulanamaz; silme akışları cascade'e güvenir (bkz. §10).
 
 ### 5.1 Yapısal Tablolar
+
+**`user_profiles`** — `id (uuid, references auth.users)`, `email`, `full_name`, `role (admin|finance|cashier|warehouse|custom)`, `allowed_modules (text[])`, `allowed_companies (text[]?)`, `is_active (bool)`
 
 **`companies`** — `name`, `is_personal (bool)`
 
@@ -241,7 +244,7 @@ Bazı kayıtlar **açıklama string'i ile** tanınır. Bu metinler değiştirili
 
 **`customers`** — `name`, `contact_name`, `phone`, `email`, `tax_office`, `tax_id`, `address`, `balance` (türev, TRY), `currency` (`'TRY'`)
 
-**`credit_wallets`** — `supplier_id`, `name`, `balance` (adet, türev), `unit_cost` (sıradaki FIFO lot maliyeti, cüzdan para biriminde), `currency`, `fifo_lots (jsonb[])`
+**`credit_wallets`** — `supplier_id`, `company_id?` (ticari işletme), `name`, `balance` (adet, türev), `unit_cost` (sıradaki FIFO lot maliyeti, cüzdan para biriminde), `currency`, `fifo_lots (jsonb[])`
 - Lot şekli: `{ qty, original_qty?, price, currency, exRate, is_opening? }`
 
 ### 5.2 Hesap ve Hareket Tabloları
@@ -290,7 +293,11 @@ Bazı kayıtlar **açıklama string'i ile** tanınır. Bu metinler değiştirili
 
 **`audit_logs`** — `module`, `action (INSERT|UPDATE|DELETE|ROLLBACK)`, `description`, `record_id?`, `amount`, `currency`, `old_data (jsonb)`, `new_data (jsonb)`, `company_id?`
 
-Kullanılan `module` değerleri: `company, service, cash, cash_tx, cash_transfer, bank, bank_tx, bank_transfer, credit_card, card_tx, warehouse, stock, stock_category, stock_tx, supplier, supplier_tx, supplier_invoice, customer, customer_tx, invoice, expense, expense_category, subscription, subscription_wallet, subscription_payment`.
+Kullanılan `module` değerleri: `company, service, cash, cash_tx, cash_transfer, bank, bank_tx, bank_transfer, credit_card, card_tx, warehouse, stock, stock_category, stock_tx, supplier, supplier_tx, supplier_invoice, customer, customer_tx, invoice, expense, expense_category, subscription, subscription_wallet, subscription_payment, technical_service`.
+
+### 5.8 Teknik Servis & Cihaz Takip
+
+**`technical_service_tickets`** — `ticket_no (UNIQUE, SRV-YY-xxxx)`, `company_id?`, `customer_id?`, `customer_name`, `customer_phone`, `device_type`, `brand_model`, `serial_no`, `device_password`, `accessories`, `physical_condition`, `problem_description`, `technician_notes`, `status (pending|diagnosing|waiting_approval|waiting_parts|ready|delivered|cancelled)`, `estimated_cost`, `labor_cost`, `parts_cost`, `total_cost`, `used_parts (jsonb[])`, `performed_services (jsonb[])`, `payment_status (unpaid|paid|debt_added)`, `payment_method (cash|card|customer_debt|free)?`, `payment_target_id?`, `received_at`, `completed_at?`, `delivered_at?`
 
 ---
 
@@ -353,12 +360,13 @@ Gün kaydedilirken sırasıyla:
 1. `pos_daily_summaries` upsert (`date` çakışması).
 2. O günün `pos_transactions` ve `pos_bank_transfers` **tamamı silinir, yeniden yazılır** (idempotent).
 3. Fotokopi N/K girildiyse `category_id='fotokopi'`, `cost = (N+K) × 0.5` satırı eklenir (**%50 maliyet sabiti**).
-4. `syncPosToMainSystem`: `POS-%-<tarih>` ön ekli tüm kasa/banka hareketleri ve `Mağaza Satışı: Z-Raporu (POS-<tarih>)` stok çıkışları ve kartlı gider ekstresi silinir, sonra:
+4. `syncPosToMainSystem`: `POS-%-<tarih>` ön ekli tüm kasa/banka hareketleri, `Mağaza Satışı: Z-Raporu (POS-<tarih>)` stok çıkışları, `Mağaza Hizmet Alımı (POS-<tarih>)` tedarikçi borçları ve kartlı gider ekstresi silinir, sonra:
    - Kasa: `POS-Z-CASH-IN` (nakit ciro = satış nakit + fotokopi nakit), `POS-Z-CASH-OUT` (nakit gider), her transfer için `POS-TRF-CASH-<i>`.
    - Banka: `POS-Z-CARD-IN` **pending** (kart ciro), her transfer için `POS-TRF-BANK-<i>` completed.
    - Stok: `stock_id`'li satırlar için `out` (birim maliyet = cost/qty, TRY, KDV 0).
+   - Tedarikçi: Tedarikçi seçilen satırlar için `supplier_transactions`'a `debt` (TRY, exchange_rate 1, `invoice_lines` JSON metadata) yazılır.
    - Kredi kartı: kartlı gider toplamı `credit_card_transactions`'a `out`.
-   - Etkilenen tüm kasa/banka/stok/kart bakiyeleri yeniden hesaplanır.
+   - Etkilenen tüm kasa/banka/stok/tedarikçi/kart bakiyeleri yeniden hesaplanır (`recalculateAbsoluteSupplierBalance`).
 5. `syncForwardBalances`: **tüm** `pos_daily_summaries` günleri kronolojik gezilir; ilk günün `opening_cash`'i bağlı kasanın `Açılış Bakiyesi / Devir` hareketinden alınır, sonraki her günün `opening_cash`'i önceki günün kapanışından yazılır.
 6. `localStorage` taslağı silinir.
 
@@ -389,11 +397,24 @@ Geriye dönük hesaplama: `closing = current − future_in + future_out`, `openi
 Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetiklediği yan etkiler**.
 
 ### 7.1 Genel Durum `/`
-- Üst: şirket filtresi (Holding / Ortak / şirketler), Net Finansal Durum = banka + kasa + müşteri alacağı − tedarikçi borcu − kart borcu.
-- Orta: 6 aylık P&L bar grafiği + 5 KPI kartı (Ciro, SMM, Gider, POS Kârı, Net Kâr, aylık trend %).
-- Sağ: Son 30 işlem (müşteri, tedarikçi, gider birleşik akış).
-- Alt: 8 açılır özet kartı (Banka, Kasa, Müşteri, Stok/Depo, Kredi Kartı, Tedarikçi, Ticari Gider, Şahsi Gider).
-- Yan etki yok (salt okunur). 14 tabloyu tam çeker.
+- **Üst:** Şirket filtresi (Holding / Ortak / şirketler), Net Finansal Durum = banka + kasa + müşteri alacağı − tedarikçi borcu − kart borcu.
+- **Orta (Sol 2 Kolon):** 6 aylık P&L bar grafiği + 5 KPI kartı (Ciro, SMM, Gider, POS Kârı, Net Kâr, aylık trend %) + altta **6 Aylık Finansal Özet Tablosu** (aylık ciro, maliyet/gider, net kâr ve kâr marjı).
+- **Sağ (1 Kolon):**
+  1. **Son İşlem Akışı:** Son 30 işlem (müşteri, tedarikçi, gider birleşik akış, tarih ve tutar göstergeli).
+  2. **Cari Borç & Alacak Kıyaslama Widget'ı (Yeni):**
+     - **Sekmeler:** `Müşteri Alacakları` ve `Tedarikçi Borçları` geçişi.
+     - **Dönem Kıyaslama Seçicisi:** "Geçen Ay Sonu" veya "Son 30 Gün" eşiklerine göre anlık geriye dönük hesaplama.
+     - **Mini KPI Strip:** Toplam açık bakiye, geçmiş döneme göre değişim tutarı ve yüzde artış/azalış/ödendi göstergesi.
+     - **Dinamik Liste:** Carilerin güncel bakiyesi, önceki dönem bakiyesi, fark tutarı, yüzdesi ve toplam içindeki pay çubuğu (progress bar), isimle canlı arama.
+- **Alt:** Açılır özet kartları (Banka, Kasa, Müşteri, Stok/Depo, Kredi Kartı, Tedarikçi, Ticari Gider; Yönetici için ayrıca Şahsi Gider).
+- **Rol ve Şirket Bazlı İzolasyon (Multi-Tenant Koruma):**
+  - Kısıtlı personel (`allowed_companies` tanımlı kullanıcı, örn. İbrahim Evgilli / Bilgisayar Hastanesi) oturum açtığında:
+    - Üst şirket seçici dropdown gizlenir; yerine "🏢 [Şirket Adı] 🔒 Kilitli" rozeti gelir. Filtre personelin şirketine zorunlu kilitlenir.
+    - P&L Grafiği, Ciro, SMM, Ticari Gider ve Net Kâr yalnızca personelin şirket hareketlerini (`isMatch`) baz alır.
+    - Müşteri Alacakları ve Tedarikçi Borçları: Diğer şirketlerle olan bakiyeler izole edilir; yalnız personelin şirketiyle yapılan `customer_transactions` ve `supplier_transactions` bakiyesi toplanır ve kıyaslanır.
+    - Kasa, Banka, Kredi Kartı ve Depo kartlarında yalnızca yetkili şirketin varlıkları listelenir.
+    - Şahsi Giderler kartı admin olmayan personele tamamen gizlenir.
+- Yan etki yok (salt okunur). 14 tabloyu çeker ve oturum yetkilerine göre süzerek hesaplar.
 
 ### 7.2 Mağaza Satış (POS) `/retail`
 - Tarih gezgini (◀ ▶ / takvim). Her gün ayrı Z-raporu.
@@ -429,6 +450,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Sağ: Hızlı Arama & İşlem (ürün seçince form otomatik dolar), seçili ürün başlığı, hareket formu (tarih, merkez, Giriş/Çıkış, açıklama, miktar, net fiyat, döviz, KDV), hareket tablosu.
 - Depo silme: "içindeki stok kartları da silinir" (cascade'e bağlı). Kategori silme: stokların `category` alanı `NULL` yapılır.
 - Kategori adı değişince aynı depodaki stokların `category` string'i toplu güncellenir.
+- **Rol ve Depo Yetkilendirmesi:** Kasiyer / Satış personeli sol menüden Stok Yönetimi modülüne erişebilir. Personelin yetkili olduğu şirket kısıtlaması (`allowed_companies`) varsa, ekranda **yalnızca o mağazaya ait depolar** listelenir; başka mağaza veya şirketlerin depoları gizlenir. Personel yalnızca kendi mağazasının deposuna yeni stok kartı açabilir ve **Stok Girişi (`tx_type = 'in'`) / Sayım** yapabilir.
 
 ### 7.7 Hizmet Yönetimi `/services`
 - Kart ızgarası: ad, sahip merkez, net fiyat, KDV, KDV dahil fiyat. Arama, ekle/düzenle/sil.
@@ -460,11 +482,23 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Cüzdan düzenlemede açılış lotu (`is_opening`) miktar/maliyeti değiştirilebilir; "hayalet bakiye" için zorla silme uyarısı vardır.
 - Kurallar: §6.5.
 
-### 7.12 Raporlar (P&L) `/reports`
-- Filtreler: merkez, dönem (Bu Ay / Geçen Ay / Bu Yıl / Tüm Zamanlar), **Raporu Yazdır** (A4 dikey, `#printable-report` dışındaki her şey gizlenir, siyah-beyaz baskı CSS'i).
-- Bölüm 1: Gider, Tedarikçi Ödemesi, Müşteri Tahsilatı için Nakit/Banka/Kart dağılım barları.
-- Bölüm 2–4: Kredi Kartı, Banka, Depo için dönem başı / giriş / çıkış / dönem sonu tabloları (§6.8).
-- Kasa hesapları için mizan tablosu **yoktur**.
+### 7.12 Raporlar (P&L / Nakit Akışı / Mizan) `/reports`
+- **Filtreler:** Merkez seçimi, dönem hapları (Son 7 Gün / Son 30 Gün / Bu Ay / Geçen Ay / Bu Yıl / Tüm Zamanlar / Özel İki Tarih Aralığı), **Raporu Yazdır** (A4 dikey tek sayfa optimizasyonu, `#printable-report` dışındaki her şey gizlenir, sıfır siyah ekonomik baskı CSS'i).
+- **Yönetici Özet KPI Kartları:** Toplam Nakit Girişi, Toplam Çıkış & Masraf, Net Nakit Akışı, Günlük Ortalama Hacim, En Yüksek Girişli Zirve Gün.
+- **Cari Mutabakat & Açık Bakiye Dengesi Kartları:** Müşteri Alacakları (Açık bakiye, dönem satış/tahsilat), Tedarikçi Borçları (Açık borç, dönem alış/ödeme), Net Cari Denge (Alacak − Borç).
+- **Günlük İnteraktif Trend Grafiği (Saf SVG):** Seçilen aralıktaki her gün için Yeşil (Giriş) ve Kırmızı (Çıkış) çubukları; Net Nakit Akış eğrisi; canlı hover popover ve tıklanabilir gün drill-down seçimi (varsayılan olarak baskıda gizlidir, üst bardaki "Grafikleri Yazdır" kutusuyla açılabilir).
+- **Kategori & Kanal Analizleri:** Masraf kategorileri dağılımı (yüzdeli barlar) ve Mağaza (POS) Nakit vs. Kredi Kartı satış hasılat oranı.
+- **Günlük İşlem Detay Dökümü (Drill-Down):** Tıklanan güne veya tüm döneme ait tüm fatura, tahsilat, masraf, kasa ve banka hareketlerinin kronolojik listesi ve anlık araması (baskıda gizli).
+- **Bölüm 1 (İşlem Gören Kaynakların Dağılımı):** Ekranda Gider, Tedarikçi Ödemesi, Müşteri Tahsilatı için 3'lü renkli kartlar; baskıda ise dikey alanı koruyan 4 satırlık kompakt mizan matrisi (`Gider/Tedarikçi/Müşteri × Kasa/Banka/Kart/Toplam`).
+- **Maksimum Ekonomik Tek Sayfa A4 Baskı Düzeni:**
+  - `@page { size: A4 portrait; margin: 4mm 5mm; }`
+  - Baskıda 6'lı üst KPI/Cari strip tek satırda toplanır.
+  - Finansal mizan tabloları **dengeli 2 sütunlu ızgara** halinde dizilir (`print:grid print:grid-cols-2 print:gap-2`):
+    - **Sol Sütun:** 1. Kaynak Dağılımı Matrisi, 2. Nakit Kasalar, 3. Banka Hesapları, 4. Kredi Kartları, 7. Depo ve Sermaye Durumu (yükseklik dengelemesi için sol sütunda).
+    - **Sağ Sütun:** 5. Müşteriler (Alacaklarımız) Mizanı, 6. Tedarikçiler (Borçlarımız) Mizanı.
+  - Kompakt yazı boyutu (`6.8px`–`7px`) ve hücre dolguları (`1.2px 2.5px`) ile kesilme veya taşma olmadan tek A4 sayfasına sığar.
+
+
 
 ### 7.13 Şirketler / Merkezler `/companies`
 - İki sütun: Ticari Şirketler & Departmanlar, Şahsi / Ev Masraf Merkezleri. Ekle/düzenle/sil (radyo ile tür seçimi).
@@ -476,8 +510,21 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Modül filtresi seçenekleri (`cash, bank, customer, supplier, stock, subscription, expense`) gerçek `module` değerleriyle **tam eşleşme** arar; `cash_tx`, `bank_tx`, `customer_tx` gibi kayıtlar filtrelenince görünmez.
 
 ### 7.15 Ortak Kabuk: Sidebar ve TopBar
-- Sidebar: 13 menü + altta "İşlem Geçmişi (Log)". Daralt/genişlet (state, kalıcı değil). `print:hidden`.
-- TopBar: rota → başlık eşlemesi (`/activity` için eşleme yok, varsayılan başlık çıkar), tarih, USD/EUR (saatlik yenileme), Bildirim Merkezi (ödenmemiş abonelikler = "Kritik", 15 gün içinde bitenler = "Uyarı"; her rota değişiminde yenilenir), sabit profil.
+- Sidebar: 14 menü + altta "İşlem Geçmişi (Log)". Daralt/genişlet (state, kalıcı değil). `print:hidden`.
+- TopBar: rota → başlık eşlemesi (`/activity` için eşleme yok, varsayılan başlık çıkar), tarih, USD/EUR (saatlik yenileme), Bildirim Merkezi (ödenmemiş abonelikler = "Kritik", 15 gün içinde bitenler = "Uyarı"; her rota değişiminde yenilenir), dinamik profil ve çıkış menüsü.
+
+### 7.16 Teknik Servis & Cihaz Takip `/technical-service`
+- **Amaç:** Cihaz kabul (laptop, PC, telefon vb.), arıza teşhisi, aşama takibi, parça & işçilik maliyeti hesaplama, kabul fişi basımı ve teslimat/tahsilat yönetimi.
+- **Ekran Düzeni:**
+  - Üstte 7 KPI metrik kartı: Sırada Bekleyen, İncelemede, Onay Bekleyen, Parça Bekleyen, Teslime Hazır, Toplam Teslim Edilen, Bu Ayki Servis Cirosu.
+  - Arama (fiş no, müşteri, telefon, marka/model, seri no) ve Aşama filtre çipleri.
+  - Görünüm Değiştirici: **Kanban Pano (6 aşamalı sütunlar)** veya **Detaylı Liste Tablosu**.
+- **İşlemler:**
+  - **Yeni Cihaz Kabul:** Müşteri seçimi veya anında yeni müşteri açma, cihaz türü, marka/model, seri no, kilit açma şifresi, teslim alınan aksesuarlar, hasar notu, arıza şikayeti ve ön tahmin.
+  - **Detay & İşlem Ekleme:** Aşama güncelleme, teknisyen teşhis notları, `services` kataloğundan işçilik ekleme, `stocks` deposundan yedek parça seçme ve maliyet hesaplama.
+  - **Teslimat & Tahsilat:** Cihaz `delivered` durumuna çekilirken nakit kasaya (`cash_transactions`), bankaya (`bank_transactions`) tahsilat yazma veya müşteri carisine (`customer_transactions`) borç kaydetme; kullanılan parçaların depodan otomatik düşülmesi (`stock_transactions (out)`).
+  - **Yazdırma & WhatsApp:** 80mm termal ve A4/A5 kurumsal cihaz kabul fişi baskısı (`window.print`); tek tıkla müşterinin telefonuna durum güncelleme WhatsApp mesajı iletme.
+- **Yetki & İzolasyon:** Kasiyer (İbrahim Bey) ve Ön Muhasebe rollerine açıktır. Personelin bağlı olduğu şirket kısıtlaması varsa yalnızca o şubenin cihazlarını görür.
 
 ---
 
@@ -517,7 +564,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 
 ### 9.2 Tekrarlayan Kalıplar
 - **Onay modalı:** `confirmDialog` state'i `{isOpen, title, message, confirmText, cancelText, isDanger, onConfirm}`; tarayıcı `confirm()` kullanılmaz.
-- **Toaster:** her sayfa kendi `<Toaster>` render eder (top-right veya bottom-right, yüksek z-index).
+- **Toaster:** her sayfa kendi `<Toaster>` render eder (TopBar çakışmasını önlemek için sabit `bottom-right` pozisyonunda ve `containerStyle={{ zIndex: 99999999 }}` ile render edilir).
 - **Merkez seçici:** `<select>` içinde `common` + iki `optgroup` (Ticari / Şahsi).
 - **Ödeme kaynağı değeri:** `"cash|<id>"`, `"bank|<id>"`, `"card|<id>"` string'i `split('|')` ile ayrıştırılır.
 - **Tarih:** `getLocalTodayISO()` yerel tarih (`YYYY-MM-DD`), `formatDateTR()` → `GG.AA.YYYY`. POS ve abonelik bazı yerlerde `toISOString().split('T')[0]` (UTC) kullanır — gece yarısı civarı gün kayması riski.

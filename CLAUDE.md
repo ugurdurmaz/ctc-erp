@@ -13,7 +13,7 @@
 - **Veri**: Supabase Postgres, **doğrudan tarayıcıdan** `supabase-js` ile (`lib/supabase.ts`). Sunucu katmanı, API route, ORM yok. Şema repo'da değil — koddan çıkarılmış referans `docs/HANDBOOK.md §5`, kurulum SQL'i `docs/RUNBOOK.md §3`.
 - **Kur**: `open.er-api.com/v6/latest/USD`, yedek sabitler `34.25 / 37.80`. Kayıt anında `exchange_rate` sabitlenir.
 - **Kimlik**: Yok. Anon anahtar tarayıcıya gömülü; güvenlik RLS + ağ katmanına bağlı (`docs/AUDIT-2026-09-16.md` S-1/S-2).
-- **Dil**: UI metinleri ve commit gövdeleri Türkçe; kod tanımlayıcıları İngilizce; tablo/kolon adları `snake_case`.
+- **Dil**: İletişim, açıklamalar, kod içi yorumlar, UI metinleri ve commit gövdeleri her zaman Türkçe; kod tanımlayıcıları İngilizce; tablo/kolon adları `snake_case`.
 - **Ekip**: solo dev + Claude. Kod ilk sürümünde başka bir yapay zeka ile yazıldı; bilinen yapısal sorunlar denetim raporunda sınıflandırıldı.
 
 ## Docs — pointer map
@@ -35,8 +35,7 @@ Detay `docs/` altında. En yakın konuyu bul, o dosyayı oku; burada tekrar etme
 
 ### Always-on cross-cutting truths
 
-- **Bakiye asla elle değiştirilmez.** Hareket yaz → ilgili `recalculateAbsolute*` çağır → `logActivity`. Silme yolunu da aynı disiplinle yaz. Formüller: `docs/HANDBOOK.md §6.1`.
-- **Çapraz modül hareketleri `transfer_id` ön ekiyle işaretlenir** (`EXP-`, `SUPP-`, `CUST-`, `POS-*`, `TRF-`). Kasa/banka ekranları bu ön ekleri silmeyi reddeder; yeni ön ek eklersen etiket + koruma listesini de güncelle (`app/cash-registers/page.tsx`, `app/bank-accounts/page.tsx`).
+- **Çapraz modül hareketleri `transfer_id` ön ekiyle işaretlenir** (`EXP-`, `SUPP-`, `CUST-`, `POS-*`, `TRF-`). Kasa/banka ekranları bu ön ekleri silmeyi reddeder; yeni ön ek eklersen etiket + koruma listesini de güncelle (`app/cash-registers/page.tsx`, `app/bank-accounts/page.tsx`). Not: `supplier_transactions` tablosunda `transfer_id` kolonu yoktur; POS tedarikçi maliyetleri sihirli açıklama (`Mağaza Hizmet Alımı (POS-<tarih>)`) ve `invoice_lines` ile bağlanır, cari ekranından silme engellenir.
 - **Kredi kartı hareketleri `card_transactions` / `card_id` / `expense|payment`'tır.** `credit_card_transactions` tablosu POS'ta kalmış bir hatadır (AUDIT C-1); yeni kod ona yazmaz.
 - **Açılış bakiyeleri hareket olarak yaşar** ve açıklama metniyle tanınır (`Açılış Bakiyesi / Devir`, `Dönem Başı Devir Borcu`, `Açılış Stoğu`). Bu string'leri değiştirme.
 - **POS kart cirosu bankaya `status='pending'` yazılır**, bakiyeye girmez; onay bankadan yapılır. Tüm banka toplamları `status !== 'pending'` filtresi taşır.

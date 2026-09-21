@@ -70,7 +70,10 @@ async function logActivity(module: string, action: string, description: string, 
   }
 }
 
+import { useAuth } from '@/lib/auth-context'
+
 export default function StocksPage() {
+  const { profile, isAdmin } = useAuth()
   const [companies, setCompanies] = useState<Company[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null)
@@ -132,7 +135,7 @@ export default function StocksPage() {
     fetchCompanies()
     fetchWarehouses()
     fetchAllStocks()
-  }, [])
+  }, [profile?.id, profile?.allowed_companies])
 
   useEffect(() => {
     if (selectedWarehouseId) {
@@ -162,14 +165,32 @@ export default function StocksPage() {
     } catch (err) { console.error(err) }
   }
 
-  async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name', { ascending: true }); setCompanies(data || []) }
+  async function fetchCompanies() { 
+    try {
+      const { data } = await supabase.from('companies').select('*').order('name', { ascending: true })
+      let comps = data || []
+      if (!isAdmin && profile?.allowed_companies && profile.allowed_companies.length > 0) {
+        comps = comps.filter(c => profile.allowed_companies!.includes(c.id))
+      }
+      setCompanies(comps) 
+    } catch (err) { console.error(err) }
+  }
 
   async function fetchWarehouses() {
     try {
       const { data, error } = await supabase.from('warehouses').select('*, company:companies(name, is_personal)').order('created_at', { ascending: true })
       if (error) throw error
-      setWarehouses(data || [])
-      if (data && data.length > 0 && !selectedWarehouseId) setSelectedWarehouseId(data[0].id)
+
+      let whList = data || []
+      // Yetkili şirket kısıtlaması varsa sadece o şirketin depoları gösterilir
+      if (!isAdmin && profile?.allowed_companies && profile.allowed_companies.length > 0) {
+        whList = whList.filter(w => !w.company_id || profile.allowed_companies!.includes(w.company_id))
+      }
+
+      setWarehouses(whList)
+      if (whList && whList.length > 0 && !selectedWarehouseId) {
+        setSelectedWarehouseId(whList[0].id)
+      }
     } catch (err) { console.error(err) }
   }
 
@@ -535,7 +556,8 @@ export default function StocksPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] relative">
-      <Toaster position="top-right" toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px', zIndex: 99999 } }} />
+      {/* TOASTER KONTEYNER Z-INDEX DEĞERİ MAX VE POZİSYONU BOTTOM-RIGHT YAPILDI */}
+      <Toaster position="bottom-right" containerStyle={{ zIndex: 99999999 }} toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px' } }} />
       
       {/* Üst Bar */}
       <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex items-center justify-between gap-4 bg-[#0d1322] border border-slate-800/80 p-3 rounded-xl shadow-md shrink-0 mb-4 transition-colors">

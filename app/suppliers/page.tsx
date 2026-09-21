@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Building2, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight } from 'lucide-react'
+import { Building2, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, Store } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Warehouse = { id: string; name: string }
@@ -74,6 +74,8 @@ export default function SuppliersPage() {
   const [taxOffice, setTaxOffice] = useState(''); const [taxId, setTaxId] = useState(''); const [address, setAddress] = useState('')
   const [openingBalance, setOpeningBalance] = useState('')
   const [openingCompanyId, setOpeningCompanyId] = useState('common') 
+  const [openingCurrency, setOpeningCurrency] = useState<'TRY' | 'USD' | 'EUR'>('TRY')
+  const [openingExchangeRate, setOpeningExchangeRate] = useState('1')
 
   const [editingTxId, setEditingTxId] = useState<string | null>(null)
   const todayISO = getLocalTodayISO()
@@ -104,9 +106,19 @@ export default function SuppliersPage() {
   }, [])
 
   useEffect(() => {
-    if (selectedSupplierId) { fetchTransactions(selectedSupplierId); cancelEditTx() } 
-    else setTransactions([])
+    if (selectedSupplierId) { 
+      fetchTransactions(selectedSupplierId); 
+      cancelEditTx()
+      const s = suppliers.find(item => item.id === selectedSupplierId)
+      if (s?.currency) {
+        setTxCurrency((s.currency as 'TRY' | 'USD' | 'EUR') || 'TRY')
+        setInvCurrency((s.currency as 'TRY' | 'USD' | 'EUR') || 'TRY')
+      }
+    } else {
+      setTransactions([])
+    }
   }, [selectedSupplierId])
+
 
   useEffect(() => {
     if (txCurrency === 'USD') setTxExchangeRate(rates.USD.toString())
@@ -159,12 +171,28 @@ export default function SuppliersPage() {
   // --- MUTLAK HESAPLAMA MOTORLARI (ABSOLUTE LEDGER RECALCULATORS) ---
   // =========================================================================================
   async function recalculateAbsoluteSupplierBalance(supplierId: string) {
-    const { data: txs } = await supabase.from('supplier_transactions').select('amount, tx_type, exchange_rate').eq('supplier_id', supplierId)
+    const { data: supp } = await supabase.from('suppliers').select('currency').eq('id', supplierId).single()
+    const suppCurr = supp?.currency || 'TRY'
+
+    const { data: txs } = await supabase.from('supplier_transactions').select('amount, tx_type, currency, exchange_rate').eq('supplier_id', supplierId)
     let absoluteBal = 0
     txs?.forEach(t => {
-      const tryEquivalent = Number(t.amount) * (Number(t.exchange_rate) || 1)
-      if (t.tx_type === 'debt') absoluteBal += tryEquivalent
-      else absoluteBal -= tryEquivalent
+      let val = Number(t.amount || 0)
+      const txCurr = t.currency || 'TRY'
+      const rate = Number(t.exchange_rate) || 1
+
+      if (suppCurr === 'USD') {
+        if (txCurr === 'TRY') val = val / (rate || rates.USD || 1)
+        else if (txCurr === 'EUR') val = (val * (rate || rates.EUR || 1)) / (rates.USD || 1)
+      } else if (suppCurr === 'EUR') {
+        if (txCurr === 'TRY') val = val / (rate || rates.EUR || 1)
+        else if (txCurr === 'USD') val = (val * (rate || rates.USD || 1)) / (rates.EUR || 1)
+      } else {
+        if (txCurr !== 'TRY') val = val * rate
+      }
+
+      if (t.tx_type === 'debt') absoluteBal += val
+      else absoluteBal -= val
     })
     await supabase.from('suppliers').update({ balance: absoluteBal }).eq('id', supplierId)
   }
@@ -204,7 +232,7 @@ export default function SuppliersPage() {
   // =========================================================================================
 
   function openAddModal() {
-    setEditingId(null); setCompanyName(''); setContactName(''); setPhone(''); setEmail(''); setTaxOffice(''); setTaxId(''); setAddress(''); setOpeningBalance(''); setOpeningCompanyId('common'); setIsModalOpen(true)
+    setEditingId(null); setCompanyName(''); setContactName(''); setPhone(''); setEmail(''); setTaxOffice(''); setTaxId(''); setAddress(''); setOpeningBalance(''); setOpeningCompanyId('common'); setOpeningCurrency('TRY'); setOpeningExchangeRate('1'); setIsModalOpen(true)
   }
 
   async function openEditModal(supp: Supplier, e: React.MouseEvent) {
@@ -212,14 +240,20 @@ export default function SuppliersPage() {
     setEditingId(supp.id); setCompanyName(supp.company_name); setContactName(supp.contact_name || ''); setPhone(supp.phone || ''); setEmail(supp.email || ''); setTaxOffice(supp.tax_office || ''); setTaxId(supp.tax_id || ''); setAddress(supp.address || ''); setIsModalOpen(true)
 
     const { data: txs } = await supabase.from('supplier_transactions')
-       .select('amount, company_id').eq('supplier_id', supp.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
+       .select('amount, company_id, currency, exchange_rate').eq('supplier_id', supp.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
     
     if (txs && txs.length > 0) {
       setOpeningBalance(txs[0].amount.toString());
       setOpeningCompanyId(txs[0].company_id || 'common');
+      const cur = (txs[0].currency as 'TRY' | 'USD' | 'EUR') || (supp.currency as 'TRY' | 'USD' | 'EUR') || 'TRY';
+      setOpeningCurrency(cur);
+      setOpeningExchangeRate(txs[0].exchange_rate ? txs[0].exchange_rate.toString() : (cur === 'USD' ? rates.USD.toString() : cur === 'EUR' ? rates.EUR.toString() : '1'));
     } else {
       setOpeningBalance('0');
       setOpeningCompanyId('common');
+      const cur = (supp.currency as 'TRY' | 'USD' | 'EUR') || 'TRY';
+      setOpeningCurrency(cur);
+      setOpeningExchangeRate(cur === 'USD' ? rates.USD.toString() : cur === 'EUR' ? rates.EUR.toString() : '1');
     }
   }
 
@@ -227,7 +261,8 @@ export default function SuppliersPage() {
     e.preventDefault(); if (!companyName) return
     const initialBalance = parseFloat(openingBalance) || 0
     const initialCompId = openingCompanyId === 'common' ? null : openingCompanyId
-    const payload = { company_name: companyName, contact_name: contactName, phone, email, tax_office: taxOffice, tax_id: taxId, address, currency: 'TRY' }
+    const rateVal = openingCurrency === 'TRY' ? 1 : (parseFloat(openingExchangeRate) || 1)
+    const payload = { company_name: companyName, contact_name: contactName, phone, email, tax_office: taxOffice, tax_id: taxId, address, currency: openingCurrency }
     
     try {
       if (editingId) {
@@ -240,12 +275,20 @@ export default function SuppliersPage() {
 
         if (oldTx) {
            const compChanged = oldTx.company_id !== initialCompId;
-           if ((initialBalance - oldTx.amount) !== 0 || compChanged) {
+           const amountChanged = (initialBalance - oldTx.amount) !== 0;
+           const curChanged = (oldTx.currency || 'TRY') !== openingCurrency;
+           const rateChanged = Number(oldTx.exchange_rate || 1) !== rateVal;
+           if (amountChanged || compChanged || curChanged || rateChanged) {
               if (initialBalance === 0) await supabase.from('supplier_transactions').delete().eq('id', oldTx.id);
-              else await supabase.from('supplier_transactions').update({ amount: initialBalance, company_id: initialCompId }).eq('id', oldTx.id);
+              else await supabase.from('supplier_transactions').update({
+                amount: initialBalance,
+                company_id: initialCompId,
+                currency: openingCurrency,
+                exchange_rate: rateVal
+              }).eq('id', oldTx.id);
            }
         } else if (initialBalance > 0) {
-           const txPayload = { supplier_id: editingId, company_id: initialCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'debt', amount: initialBalance, currency: 'TRY', exchange_rate: 1 }
+           const txPayload = { supplier_id: editingId, company_id: initialCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'debt', amount: initialBalance, currency: openingCurrency, exchange_rate: rateVal }
            await supabase.from('supplier_transactions').insert([txPayload]);
         }
 
@@ -254,7 +297,7 @@ export default function SuppliersPage() {
         
         await recalculateAbsoluteSupplierBalance(editingId);
 
-        await logActivity('supplier', 'UPDATE', `Tedarikçi güncellendi: ${companyName}`, editingId, 0, 'TRY', oldSupp, payload)
+        await logActivity('supplier', 'UPDATE', `Tedarikçi güncellendi: ${companyName}`, editingId, 0, openingCurrency, oldSupp, payload)
         toast.success('Tedarikçi başarıyla güncellendi.')
 
         if (selectedSupplierId === editingId) fetchTransactions(editingId);
@@ -263,13 +306,13 @@ export default function SuppliersPage() {
         const { data, error } = await supabase.from('suppliers').insert([{ ...payload, balance: 0 }]).select().single()
         if (error) throw error
         
-        await logActivity('supplier', 'INSERT', `Yeni tedarikçi eklendi: ${companyName}`, data.id, 0, 'TRY', null, data)
+        await logActivity('supplier', 'INSERT', `Yeni tedarikçi eklendi: ${companyName}`, data.id, 0, openingCurrency, null, data)
         
         if (initialBalance > 0) {
-           const txPayload = { supplier_id: data.id, company_id: initialCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'debt', amount: initialBalance, currency: 'TRY', exchange_rate: 1 }
+           const txPayload = { supplier_id: data.id, company_id: initialCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'debt', amount: initialBalance, currency: openingCurrency, exchange_rate: rateVal }
            const { data: txData, error: txErr } = await supabase.from('supplier_transactions').insert([txPayload]).select().single()
            if (!txErr && txData) {
-             await logActivity('supplier_tx', 'INSERT', `Açılış Bakiyesi (Tedarikçi): ${companyName}`, txData.id, initialBalance, 'TRY', null, txData, initialCompId)
+             await logActivity('supplier_tx', 'INSERT', `Açılış Bakiyesi (Tedarikçi): ${companyName}`, txData.id, initialBalance, openingCurrency, null, txData, initialCompId)
            }
         }
 
@@ -366,6 +409,10 @@ export default function SuppliersPage() {
   }
 
   function handleEditTx(t: SupplierTransaction) {
+    if (t.description?.startsWith('Mağaza Hizmet Alımı (POS-')) {
+      toast.error('Bu hareket Mağaza modülünden otomatik yansımıştır. Değişiklik yapmak için lütfen Mağaza sayfasından ilgili günü güncelleyin.');
+      return;
+    }
     setEditingTxId(t.id)
     if (t.is_detailed) {
       setInvDate(t.tx_date); setInvDesc(t.description); setInvLines(t.invoice_lines || []); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
@@ -394,7 +441,7 @@ export default function SuppliersPage() {
         const oldRate = oldTx.exchange_rate || 1
         
         if (oldTx.tx_type === 'payment' && oldTx.payment_source_type && oldTx.payment_source_id) {
-          await modifyPaymentSourceBalance(oldTx.payment_source_type, oldTx.payment_source_id, oldTx.amount, oldTx.currency || 'TRY', oldRate, 'reverse', oldTx.id, oldTx.tx_date, currentSupplier.company_name, oldTx.description, oldTx.company_id)
+          await modifyPaymentSourceBalance(oldTx.payment_source_type, oldTx.payment_source_id, oldTx.amount, oldTx.currency || 'TRY', oldRate, 'reverse', oldTx.id, oldTx.tx_date, currentSupplier.company_name, oldTx.description, oldTx.company_id ?? null)
         }
 
         const payload = {
@@ -434,6 +481,11 @@ export default function SuppliersPage() {
   }
 
   function handleDeleteTransaction(txId: string) {
+    const txToDelete = transactions.find(t => t.id === txId)
+    if (txToDelete?.description?.startsWith('Mağaza Hizmet Alımı (POS-')) {
+      toast.error('Bu hareket Mağaza modülünden otomatik yansımıştır. Değişiklik yapmak için lütfen Mağaza sayfasından ilgili günü güncelleyin.');
+      return;
+    }
     setConfirmDialog({
       isOpen: true,
       title: 'Hareketi Sil',
@@ -463,7 +515,7 @@ export default function SuppliersPage() {
           const oldRate = oldTx.exchange_rate || 1
 
           if (oldTx.tx_type === 'payment' && oldTx.payment_source_type && oldTx.payment_source_id) {
-            await modifyPaymentSourceBalance(oldTx.payment_source_type, oldTx.payment_source_id, oldTx.amount, oldTx.currency || 'TRY', oldRate, 'reverse', oldTx.id, oldTx.tx_date, currentSupplier?.company_name || '', oldTx.description, oldTx.company_id)
+            await modifyPaymentSourceBalance(oldTx.payment_source_type, oldTx.payment_source_id, oldTx.amount, oldTx.currency || 'TRY', oldRate, 'reverse', oldTx.id, oldTx.tx_date, currentSupplier?.company_name || '', oldTx.description, oldTx.company_id ?? null)
           }
 
           await supabase.from('supplier_transactions').delete().eq('id', txId)
@@ -547,12 +599,12 @@ export default function SuppliersPage() {
 
             if (existingStock && existingStock.length > 0) {
               targetStockId = existingStock[0].id
-              affectedStocks.add(targetStockId)
+              if (targetStockId) affectedStocks.add(targetStockId)
             } else {
               const { data: newStock } = await supabase.from('stocks').insert([{ warehouse_id: line.warehouseId, name: line.name, currency: invCurrency, quantity: 0, unit_price: p, vat_rate: v, unit: 'Adet', stock_color: 'from-[#1b253b] to-[#121a2a]' }]).select()
-              if (newStock) {
+              if (newStock && newStock.length > 0) {
                  targetStockId = newStock[0].id
-                 affectedStocks.add(targetStockId)
+                 if (targetStockId) affectedStocks.add(targetStockId)
               }
             }
           }
@@ -600,22 +652,40 @@ export default function SuppliersPage() {
   const selectedSupplier = suppliers.find(s => s.id === selectedSupplierId)
   const isEditingDetailedTx = editingTxId && transactions.find(t => t.id === editingTxId)?.is_detailed
 
+  const suppCurr = selectedSupplier?.currency || 'TRY'
   let currentRunningBalance = selectedSupplier ? selectedSupplier.balance : 0
   const displayTransactions = transactions.map((t) => {
     const rowBalance = currentRunningBalance
-    const tryEquivalent = t.amount * (t.exchange_rate || 1)
-    if (t.tx_type === 'debt') currentRunningBalance -= tryEquivalent
-    else currentRunningBalance += tryEquivalent
+    let valInSuppCurr = Number(t.amount || 0)
+    const txCurr = t.currency || 'TRY'
+    const rate = Number(t.exchange_rate) || 1
+
+    if (suppCurr === 'USD') {
+      if (txCurr === 'TRY') valInSuppCurr = valInSuppCurr / (rate || rates.USD || 1)
+      else if (txCurr === 'EUR') valInSuppCurr = (valInSuppCurr * (rate || rates.EUR || 1)) / (rates.USD || 1)
+    } else if (suppCurr === 'EUR') {
+      if (txCurr === 'TRY') valInSuppCurr = valInSuppCurr / (rate || rates.EUR || 1)
+      else if (txCurr === 'USD') valInSuppCurr = (valInSuppCurr * (rate || rates.USD || 1)) / (rates.EUR || 1)
+    } else {
+      if (txCurr !== 'TRY') valInSuppCurr = valInSuppCurr * rate
+    }
+
+    if (t.tx_type === 'debt') currentRunningBalance -= valInSuppCurr
+    else currentRunningBalance += valInSuppCurr
     return { ...t, running_balance: rowBalance }
   })
 
-  const totalDebtTry = suppliers.reduce((acc, s) => acc + s.balance, 0)
+  const totalDebtTry = suppliers.reduce((acc, s) => {
+    const rate = s.currency === 'USD' ? rates.USD : s.currency === 'EUR' ? rates.EUR : 1
+    return acc + (s.balance * rate)
+  }, 0)
   const totalDebtUsd = totalDebtTry / (rates.USD || 1)
   const totalDebtEur = totalDebtTry / (rates.EUR || 1)
 
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] relative">
-      <Toaster position="top-right" toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px', zIndex: 999999 } }} />
+      {/* TOASTER KONTEYNER Z-INDEX DEĞERİ MAX VE POZİSYONU BOTTOM-RIGHT YAPILDI */}
+      <Toaster position="bottom-right" containerStyle={{ zIndex: 99999999 }} toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px' } }} />
       
       <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#0d1322] border border-slate-800/80 p-4 rounded-xl shadow-md shrink-0 mb-4 transition-colors">
         <div className="flex items-center gap-3 text-white">
@@ -655,9 +725,26 @@ export default function SuppliersPage() {
                   style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.15 + (index * 0.05)}s` }}
                   className={`flex items-center justify-between py-2.5 px-3 rounded-lg cursor-pointer transition-all border hover:-translate-y-0.5 ${item.id === selectedSupplierId ? 'bg-amber-900/10 border-amber-500/30 shadow-inner' : 'bg-[#070b14] border-slate-800/50 hover:border-slate-700'}`}
                 >
-                  <div className="flex-1 min-w-0 pr-2"><h4 className="text-[11px] font-bold text-slate-200 truncate">{item.company_name}</h4><p className="text-[9px] text-slate-500 truncate mt-0.5">{item.contact_name || '-'}</p></div>
+                  <div className="flex-1 min-w-0 pr-2">
+                    <div className="flex items-center gap-1.5">
+                      <h4 className="text-[11px] font-bold text-slate-200 truncate">{item.company_name}</h4>
+                      {item.currency && item.currency !== 'TRY' && (
+                        <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">
+                          {item.currency === 'USD' ? '$ USD' : '€ EUR'}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-slate-500 truncate mt-0.5">{item.contact_name || '-'}</p>
+                  </div>
                   <div className="text-right shrink-0">
-                    <div className={`text-[11px] font-mono font-bold ${item.balance > 0 ? 'text-amber-400' : 'text-slate-400'}`}>{formatMoney(item.balance, 'TRY').formatted}</div>
+                    <div className={`text-[11px] font-mono font-bold ${item.balance > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
+                      {formatMoney(item.balance, (item.currency as any) || 'TRY').formatted}
+                    </div>
+                    {item.currency && item.currency !== 'TRY' && item.balance !== 0 && (
+                      <div className="text-[9px] font-mono text-slate-400 mt-0.5">
+                        ≈ {formatMoney(item.balance * (item.currency === 'USD' ? rates.USD : rates.EUR), 'TRY').formatted}
+                      </div>
+                    )}
                     <div className="text-[8px] text-slate-500 uppercase tracking-wider mt-0.5">{item.balance > 0 ? 'BORCUMUZ' : 'BAKİYE YOK'}</div>
                   </div>
                 </div>
@@ -681,9 +768,21 @@ export default function SuppliersPage() {
                     <div><span className="flex items-center gap-1 text-slate-500 mb-0.5"><MapPin size={10} /> Adres</span><span className="text-slate-300 truncate block">{selectedSupplier.address || '-'}</span></div>
                   </div>
                 </div>
-                <div className="flex flex-col justify-center items-end bg-[#070b14] px-5 py-3 rounded-lg border border-slate-800/50 min-w-[160px] w-full md:w-auto">
-                  <span className="text-[10px] font-bold text-slate-500 mb-1 tracking-widest">GÜNCEL BAKİYE (₺)</span>
-                  <span className={`text-2xl font-black font-mono ${selectedSupplier.balance > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{formatMoney(selectedSupplier.balance, 'TRY').formatted}</span>
+                <div className="flex flex-col justify-center items-end bg-[#070b14] px-5 py-3 rounded-lg border border-slate-800/50 min-w-[180px] w-full md:w-auto">
+                  <span className="text-[10px] font-bold text-slate-500 mb-1 tracking-widest">
+                    GÜNCEL BAKİYE {selectedSupplier.currency !== 'TRY' ? `(${selectedSupplier.currency})` : '(₺)'}
+                  </span>
+                  <span className={`text-2xl font-black font-mono ${selectedSupplier.balance > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {formatMoney(selectedSupplier.balance, (selectedSupplier.currency as any) || 'TRY').formatted}
+                  </span>
+                  {selectedSupplier.currency && selectedSupplier.currency !== 'TRY' && (
+                    <div className="flex items-center gap-1 mt-1 text-[11px] font-mono text-indigo-300 bg-indigo-950/40 border border-indigo-500/30 px-2 py-0.5 rounded">
+                      <span className="text-slate-400">Canlı ₺:</span>
+                      <span className="font-bold text-amber-300">
+                        {formatMoney(selectedSupplier.balance * (selectedSupplier.currency === 'USD' ? rates.USD : rates.EUR), 'TRY').formatted}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -722,7 +821,7 @@ export default function SuppliersPage() {
                 <div className="border border-slate-800/80 rounded-lg overflow-hidden flex-1 flex flex-col">
                   <table className="w-full text-left text-[11px]">
                     <thead className="sticky top-0 bg-[#0a0f1d] z-10">
-                      <tr className="border-b border-slate-800/80 text-slate-400"><th className="p-2.5 font-medium">Tarih</th><th className="p-2.5 font-medium">Açıklama & Merkez</th><th className="p-2.5 font-medium text-right text-rose-400">Borçlanma (+)</th><th className="p-2.5 font-medium text-right text-emerald-400">Ödenen (-)</th><th className="p-2.5 font-medium text-right text-slate-300 bg-slate-800/20">Bakiye (₺)</th><th className="p-2.5 font-medium text-center w-12">İşlem</th></tr>
+                      <tr className="border-b border-slate-800/80 text-slate-400"><th className="p-2.5 font-medium">Tarih</th><th className="p-2.5 font-medium">Açıklama & Merkez</th><th className="p-2.5 font-medium text-right text-rose-400">Borçlanma (+)</th><th className="p-2.5 font-medium text-right text-emerald-400">Ödenen (-)</th><th className="p-2.5 font-medium text-right text-slate-300 bg-slate-800/20">Bakiye {suppCurr !== 'TRY' ? `(${suppCurr === 'USD' ? '$' : '€'})` : '(₺)'}</th><th className="p-2.5 font-medium text-center w-12">İşlem</th></tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
                       {displayTransactions.length === 0 ? (
@@ -746,7 +845,11 @@ export default function SuppliersPage() {
                           >
                             <td className="p-2.5 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
                             <td className="p-2.5 text-slate-200 font-sans align-top">
-                              <div className="flex items-center gap-2 mb-1">{t.is_detailed && <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/30 flex items-center gap-1"><ScrollText size={10}/> Detaylı</span>}{t.description}</div>
+                              <div className="flex items-center gap-2 mb-1">
+                                {t.is_detailed && <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/30 flex items-center gap-1"><ScrollText size={10}/> Detaylı</span>}
+                                {t.description?.startsWith('Mağaza Hizmet Alımı (POS-') && <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/30 flex items-center gap-1"><Store size={10}/> Mağaza</span>}
+                                {t.description}
+                              </div>
                               {t.tx_type === 'payment' && t.payment_source_type && t.payment_source_id && (<div className="text-[9px] text-emerald-500/70 mt-0.5 mb-1 flex items-center gap-1">{t.payment_source_type === 'cash' ? <Wallet size={10}/> : t.payment_source_type === 'bank' ? <Landmark size={10}/> : <CreditCard size={10}/>} Kaynak: {getPaymentSourceName(t.payment_source_type, t.payment_source_id)}</div>)}
                               <div className="flex items-center gap-1 text-[9px] text-slate-500">
                                 {t.company ? (isPersonal ? <Home size={10} className="text-slate-400"/> : <Building size={10} className="text-indigo-400"/>) : <Globe size={10} className="text-emerald-500/70"/>}
@@ -754,13 +857,20 @@ export default function SuppliersPage() {
                               </div>
                             </td>
                             <td className="p-2.5 text-right text-rose-400 font-medium align-top leading-tight">
-                              {t.tx_type === 'debt' ? (<div className="flex flex-col"><span>{formatMoney(t.amount, t.currency || 'TRY').formatted}</span>{t.currency !== 'TRY' && <span className="text-[9px] text-rose-400/50 mt-0.5">{rateStr}{formatMoney(tryEquivalent, 'TRY').formatted}</span>}</div>) : '-'}
+                              {t.tx_type === 'debt' ? (<div className="flex flex-col"><span>{formatMoney(t.amount, (t.currency as any) || 'TRY').formatted}</span>{t.currency !== 'TRY' && <span className="text-[9px] text-rose-400/50 mt-0.5">{rateStr}{formatMoney(tryEquivalent, 'TRY').formatted}</span>}</div>) : '-'}
                             </td>
                             <td className="p-2.5 text-right text-emerald-400 font-medium align-top leading-tight">
-                              {t.tx_type === 'payment' ? (<div className="flex flex-col"><span>{formatMoney(t.amount, t.currency || 'TRY').formatted}</span>{t.currency !== 'TRY' && <span className="text-[9px] text-emerald-400/50 mt-0.5">{rateStr}{formatMoney(tryEquivalent, 'TRY').formatted}</span>}</div>) : '-'}
+                              {t.tx_type === 'payment' ? (<div className="flex flex-col"><span>{formatMoney(t.amount, (t.currency as any) || 'TRY').formatted}</span>{t.currency !== 'TRY' && <span className="text-[9px] text-emerald-400/50 mt-0.5">{rateStr}{formatMoney(tryEquivalent, 'TRY').formatted}</span>}</div>) : '-'}
                             </td>
                             <td className="p-2.5 text-right text-slate-300 font-medium align-top bg-slate-800/10">
-                              {formatMoney(t.running_balance, 'TRY').formatted}
+                              <div className="flex flex-col">
+                                <span>{formatMoney(t.running_balance, (suppCurr as any) || 'TRY').formatted}</span>
+                                {suppCurr !== 'TRY' && (
+                                  <span className="text-[9px] text-slate-500 mt-0.5">
+                                    ≈ {formatMoney(t.running_balance * (suppCurr === 'USD' ? rates.USD : rates.EUR), 'TRY').formatted}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="p-2.5 text-center align-top"><div className="flex items-center justify-center gap-2"><button onClick={() => handleEditTx(t)} className="text-slate-500 hover:text-amber-400 transition"><Edit3 size={12} /></button><button onClick={() => handleDeleteTransaction(t.id)} className="text-slate-600 hover:text-rose-400 transition"><Trash2 size={12} /></button></div></td>
                           </tr>
@@ -889,21 +999,97 @@ export default function SuppliersPage() {
               <div className="col-span-2"><label className="block text-slate-400 mb-1">Açık Adres</label><textarea value={address} onChange={(e) => setAddress(e.target.value)} rows={2} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none resize-none transition-colors" /></div>
               
               <div className="col-span-2 mt-2 pt-3 border-t border-slate-800">
-                <label className="block text-slate-400 font-bold mb-2">
-                  {editingId ? 'Devir / Açılış Bakiyesini Düzenle' : 'Devir / Açılış Bakiyesi (Bizim borcumuz)'}
-                </label>
-                <div className="flex gap-2">
-                  <div className="w-1/2">
-                    <select value={openingCompanyId} onChange={(e) => setOpeningCompanyId(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-white focus:outline-none focus:border-amber-500 transition-colors">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-slate-300 font-bold flex items-center gap-1.5">
+                    <Wallet size={13} className="text-amber-400" />
+                    {editingId ? 'Devir / Açılış Bakiyesini Düzenle' : 'Devir / Açılış Bakiyesi (Bizim borcumuz)'}
+                  </label>
+                  {openingCurrency !== 'TRY' && (
+                    <span className="text-[10px] text-indigo-400 font-mono bg-indigo-950/50 border border-indigo-500/30 px-1.5 py-0.5 rounded">
+                      TCMB: 1 {openingCurrency} = {openingCurrency === 'USD' ? rates.USD : rates.EUR} ₺
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-12 gap-2">
+                  {/* İlgili Merkez */}
+                  <div className="col-span-12 sm:col-span-4">
+                    <label className="block text-slate-400 mb-1 text-[10px]">İlgili Merkez</label>
+                    <select 
+                      value={openingCompanyId} 
+                      onChange={(e) => setOpeningCompanyId(e.target.value)} 
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-white focus:outline-none focus:border-amber-500 transition-colors"
+                    >
                       <option value="common">🌍 Ortak / Bağımsız</option>
                       <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
                       <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
                     </select>
                   </div>
-                  <div className="flex-1">
-                    <input type="number" step="0.01" placeholder="0.00" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-1.5 text-white focus:outline-none focus:border-amber-500 font-mono transition-colors" />
+
+                  {/* Para Birimi */}
+                  <div className={openingCurrency === 'TRY' ? "col-span-5 sm:col-span-3" : "col-span-4 sm:col-span-2"}>
+                    <label className="block text-slate-400 mb-1 text-[10px]">Para Birimi</label>
+                    <select 
+                      value={openingCurrency} 
+                      onChange={(e) => {
+                        const c = e.target.value as 'TRY' | 'USD' | 'EUR';
+                        setOpeningCurrency(c);
+                        if (c === 'USD') setOpeningExchangeRate(rates.USD.toString());
+                        else if (c === 'EUR') setOpeningExchangeRate(rates.EUR.toString());
+                        else setOpeningExchangeRate('1');
+                      }} 
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-white focus:outline-none focus:border-amber-500 font-medium transition-colors"
+                    >
+                      <option value="TRY">₺ TRY</option>
+                      <option value="USD">$ USD</option>
+                      <option value="EUR">€ EUR</option>
+                    </select>
+                  </div>
+
+                  {/* Mutabakat Kuru (Döviz Seçiliyse) */}
+                  {openingCurrency !== 'TRY' && (
+                    <div className="col-span-4 sm:col-span-3">
+                      <label className="block text-indigo-300 mb-1 text-[10px] font-medium">Mutabakat Kuru</label>
+                      <input 
+                        type="number" 
+                        step="0.0001" 
+                        required 
+                        value={openingExchangeRate} 
+                        onChange={(e) => setOpeningExchangeRate(e.target.value)} 
+                        className="w-full bg-indigo-950/30 border border-indigo-500/40 rounded px-2 py-1.5 text-indigo-200 focus:outline-none font-mono text-right transition-colors" 
+                        title="Mutabakat Kuru"
+                      />
+                    </div>
+                  )}
+
+                  {/* Tutar */}
+                  <div className={openingCurrency === 'TRY' ? "col-span-7 sm:col-span-5" : "col-span-4 sm:col-span-3"}>
+                    <label className="block text-slate-400 mb-1 text-[10px]">
+                      {openingCurrency === 'TRY' ? 'Tutar (₺)' : `Tutar (${openingCurrency === 'USD' ? '$' : '€'})`}
+                    </label>
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      placeholder="0.00" 
+                      value={openingBalance} 
+                      onChange={(e) => setOpeningBalance(e.target.value)} 
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-1.5 text-white focus:outline-none focus:border-amber-500 font-mono text-right transition-colors" 
+                    />
                   </div>
                 </div>
+
+                {/* Döviz Çevrim Özeti / Bilgi Kartı */}
+                {openingCurrency !== 'TRY' && parseFloat(openingBalance) > 0 && (
+                  <div className="mt-2 py-1.5 px-3 rounded bg-indigo-950/20 border border-indigo-500/20 flex items-center justify-between text-[11px] text-indigo-300">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
+                      <span>Döviz: <strong>{openingCurrency === 'USD' ? '$' : '€'}{Number(openingBalance).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> × Kur: <strong>{openingExchangeRate}</strong></span>
+                    </span>
+                    <span className="font-mono font-bold text-amber-400">
+                      ≈ {(Number(openingBalance) * (parseFloat(openingExchangeRate) || 1)).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺ Borç
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="col-span-2 flex justify-end gap-2 mt-3 pt-3 border-t border-slate-800">

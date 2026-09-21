@@ -297,7 +297,7 @@ export default function BankAccountsPage() {
 
   function handleDeleteTransaction(txId: string, amount: number, type: 'in' | 'out', isTransfer: boolean, transferId?: string, status?: string) {
     if (transferId && (transferId.startsWith('SUPP-') || transferId.startsWith('CUST-') || transferId.startsWith('EXP-') || transferId.startsWith('POS-'))) {
-      toast.error('Bu işlem harici bir modülden (POS, Cari veya Gider) otomatik yansımıştır. Lütfen işlemi ait olduğu modülden iptal edin.');
+      toast.error('Bu işlem harici bir modülden (Mağaza, Cari veya Gider) otomatik yansımıştır. Lütfen işlemi ait olduğu modülden iptal edin.');
       return;
     }
 
@@ -593,7 +593,7 @@ export default function BankAccountsPage() {
                             <td className="p-2.5 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
                             <td className="p-2.5 text-slate-200 font-sans align-top">
                                <div className="flex items-center gap-2 mb-1">
-                                 {t.transfer_id?.startsWith('POS') ? <span className="text-[9px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">Mağaza POS</span> 
+                                 {t.transfer_id?.startsWith('POS') ? <span className="text-[9px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">Mağaza</span> 
                                  : t.transfer_id?.startsWith('SUPP') ? <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/30 flex items-center gap-1">Tedarikçi Ödemesi</span> 
                                  : t.transfer_id?.startsWith('CUST') ? <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-1">Müşteri Tahsilatı</span> 
                                  : t.transfer_id?.startsWith('EXP') ? <span className="text-[9px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded border border-rose-500/30 flex items-center gap-1">Gider Ödemesi</span> 

@@ -1,5 +1,6 @@
-export function formatMoney(amount: number, currency: 'TRY' | 'USD' | 'EUR' = 'TRY') {
-  const symbol = currency === 'TRY' ? '₺' : currency === 'USD' ? '$' : '€'
+export function formatMoney(amount: number, currency: string = 'TRY') {
+  const normCurrency = (currency || 'TRY').toUpperCase()
+  const symbol = normCurrency === 'USD' ? '$' : normCurrency === 'EUR' ? '€' : '₺'
   const parts = Number(amount || 0).toLocaleString('tr-TR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

@@ -132,7 +132,8 @@ export default function ActivityLogPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] relative max-w-[1600px] mx-auto">
-      <Toaster position="top-right" toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px' } }} />
+      {/* TOASTER KONTEYNER Z-INDEX DEĞERİ MAX VE POZİSYONU BOTTOM-RIGHT YAPILDI */}
+      <Toaster position="bottom-right" containerStyle={{ zIndex: 99999999 }} toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px' } }} />
 
       {/* ÜST BAR */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#0d1322] border border-slate-800/80 p-5 rounded-2xl shadow-xl shrink-0 mb-4 overflow-hidden relative">

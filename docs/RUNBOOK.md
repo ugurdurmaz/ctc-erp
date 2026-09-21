@@ -108,6 +108,23 @@ Repo'da migration bulunmaz. Aşağıdaki SQL, koddan çıkarılan şemayı **yen
 
 ```sql
 -- Yapısal
+-- Kullanıcılar ve Rol Bazlı Yetkilendirme (Bkz. supabase/user_profiles.sql)
+create table if not exists public.user_profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  email text not null unique,
+  full_name text not null,
+  role text not null check (role in ('admin', 'finance', 'cashier', 'warehouse', 'custom')) default 'admin',
+  allowed_modules text[] not null default array[
+    'dashboard', 'retail', 'cash-registers', 'bank-accounts', 'credit-cards',
+    'stocks', 'services', 'suppliers', 'customers', 'expenses',
+    'subscriptions', 'reports', 'companies', 'activity', 'users'
+  ],
+  allowed_companies text[] default null,
+  is_active boolean not null default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
 create table if not exists companies (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -274,6 +291,7 @@ create table if not exists expense_transactions (
 -- Abonelik
 create table if not exists credit_wallets (
   id uuid primary key default gen_random_uuid(),
+  company_id uuid references companies(id) on delete set null,
   supplier_id uuid not null references suppliers(id) on delete restrict,
   name text not null, balance int not null default 0,
   unit_cost numeric default 0, currency text default 'USD',

@@ -8,7 +8,7 @@ import { Key, Plus, Trash2, X, Edit3, Search, Building, Globe, CheckCircle2, Ale
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Supplier = { id: string; company_name: string; balance: number; currency: string }
-type CreditWallet = { id: string; supplier_id: string; name: string; balance: number; unit_cost: number; currency: string; supplier?: { company_name: string }; fifo_lots?: any[] }
+type CreditWallet = { id: string; supplier_id: string; company_id?: string | null; name: string; balance: number; unit_cost: number; currency: string; supplier?: { company_name: string }; company?: { name: string; is_personal: boolean }; fifo_lots?: any[] }
 type BankAccount = { id: string; bank_name: string; balance: number; currency: string }
 type CashRegister = { id: string; name: string; balance: number; currency: string }
 
@@ -65,6 +65,7 @@ export default function SubscriptionsPage() {
   const [walletCurrency, setWalletCurrency] = useState('USD')
   const [walletOpeningBalance, setWalletOpeningBalance] = useState('') 
   const [walletOpeningCost, setWalletOpeningCost] = useState('') 
+  const [walletCompanyId, setWalletCompanyId] = useState('common') 
 
   const [isLoadModalOpen, setIsLoadModalOpen] = useState(false)
   const [loadWalletId, setLoadWalletId] = useState('')
@@ -92,7 +93,14 @@ export default function SubscriptionsPage() {
   async function fetchExchangeRates() { try { const res = await fetch('https://open.er-api.com/v6/latest/USD'); const data = await res.json(); if (data && data.rates) setRates({ USD: Number(data.rates.TRY.toFixed(4)), EUR: Number((data.rates.TRY / data.rates.EUR).toFixed(4)) }) } catch (err) {} }
   async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name'); setCompanies(data || []) }
   async function fetchSuppliers() { const { data } = await supabase.from('suppliers').select('id, company_name, balance, currency').order('company_name'); setSuppliers(data || []) }
-  async function fetchWallets() { const { data } = await supabase.from('credit_wallets').select('*, supplier:suppliers(company_name)').order('created_at'); setWallets(data || []) }
+  async function fetchWallets() { 
+    let { data, error } = await supabase.from('credit_wallets').select('*, supplier:suppliers(company_name), company:companies(name, is_personal)').order('created_at')
+    if (error) {
+      const fallback = await supabase.from('credit_wallets').select('*, supplier:suppliers(company_name)').order('created_at')
+      data = fallback.data
+    }
+    setWallets(data || []) 
+  }
   async function fetchSubscriptions() { const { data } = await supabase.from('credit_subscriptions').select('*, company:companies(name, is_personal), wallet:credit_wallets(name)').order('end_date'); setSubscriptions(data || []) }
   async function fetchPaymentSources() {
     const { data: bData } = await supabase.from('bank_accounts').select('id, bank_name, balance, currency')
@@ -141,13 +149,13 @@ export default function SubscriptionsPage() {
 
 
   function openNewWalletModal() { 
-    setEditingWalletId(null); setWalletName(''); setWalletSupplierId(''); setWalletCurrency('USD'); 
+    setEditingWalletId(null); setWalletName(''); setWalletCompanyId('common'); setWalletSupplierId(''); setWalletCurrency('USD'); 
     setWalletOpeningBalance(''); setWalletOpeningCost('');
     setIsWalletModalOpen(true) 
   }
   
   function openEditWalletModal(w: CreditWallet) { 
-    setEditingWalletId(w.id); setWalletName(w.name); setWalletSupplierId(w.supplier_id); setWalletCurrency(w.currency); 
+    setEditingWalletId(w.id); setWalletName(w.name); setWalletCompanyId(w.company_id || 'common'); setWalletSupplierId(w.supplier_id); setWalletCurrency(w.currency); 
     const openingLot = (w.fifo_lots || []).find((l: any) => l.is_opening)
     if (openingLot) {
        setWalletOpeningBalance(openingLot.original_qty?.toString() || openingLot.qty.toString())
@@ -163,7 +171,8 @@ export default function SubscriptionsPage() {
     e.preventDefault()
     if(!walletName || !walletSupplierId) return
 
-    const payload = { name: walletName, supplier_id: walletSupplierId, currency: walletCurrency }
+    const finalCompanyId = walletCompanyId === 'common' || !walletCompanyId ? null : walletCompanyId
+    const payload: any = { name: walletName, supplier_id: walletSupplierId, currency: walletCurrency, company_id: finalCompanyId }
     const initialQty = parseInt(walletOpeningBalance) || 0
     const initialCost = parseFloat(walletOpeningCost) || 0
 
@@ -204,17 +213,29 @@ export default function SubscriptionsPage() {
            newUnitCost = 0
         }
 
-        const fullPayload = { ...payload, balance: recalculatedBalance, fifo_lots: newLots, unit_cost: newUnitCost }
-        await supabase.from('credit_wallets').update(fullPayload).eq('id', editingWalletId)
+        const fullPayload: any = { ...payload, balance: recalculatedBalance, fifo_lots: newLots, unit_cost: newUnitCost }
+        let { error: updateErr } = await supabase.from('credit_wallets').update(fullPayload).eq('id', editingWalletId)
+        if (updateErr) {
+          delete fullPayload.company_id
+          const { error: retryErr } = await supabase.from('credit_wallets').update(fullPayload).eq('id', editingWalletId)
+          if (retryErr) throw retryErr
+        }
         
-        await logActivity('subscription_wallet', 'UPDATE', `Cüzdan güncellendi: ${walletName}`, editingWalletId, 0, walletCurrency, oldWallet, fullPayload)
+        await logActivity('subscription_wallet', 'UPDATE', `Cüzdan güncellendi: ${walletName}`, editingWalletId, 0, walletCurrency, oldWallet, fullPayload, finalCompanyId)
         toast.success('Cüzdan başarıyla güncellendi.')
       } else {
         const initialLots = initialQty > 0 ? [{ qty: initialQty, original_qty: initialQty, price: initialCost, currency: walletCurrency, exRate: 1, is_opening: true }] : []
-        const fullPayload = { ...payload, balance: initialQty, unit_cost: initialQty > 0 ? initialCost : 0, fifo_lots: initialLots }
+        const fullPayload: any = { ...payload, balance: initialQty, unit_cost: initialQty > 0 ? initialCost : 0, fifo_lots: initialLots }
         
-        const { data } = await supabase.from('credit_wallets').insert([fullPayload]).select().single()
-        await logActivity('subscription_wallet', 'INSERT', `Yeni cüzdan açıldı: ${walletName}`, data?.id, 0, walletCurrency, null, data)
+        let { data, error: insertErr } = await supabase.from('credit_wallets').insert([fullPayload]).select().single()
+        if (insertErr) {
+          delete fullPayload.company_id
+          const res = await supabase.from('credit_wallets').insert([fullPayload]).select().single()
+          if (res.error) throw res.error
+          data = res.data
+        }
+
+        await logActivity('subscription_wallet', 'INSERT', `Yeni cüzdan açıldı: ${walletName}`, data?.id, 0, walletCurrency, null, data, finalCompanyId)
         toast.success('Yeni kredi cüzdanı oluşturuldu.')
       }
       setIsWalletModalOpen(false)
@@ -267,10 +288,15 @@ export default function SubscriptionsPage() {
     
     const amountInCurrency = qty * price
 
-    const { data: suppTx } = await supabase.from('supplier_transactions').insert([{
+    const suppTxPayload: any = {
       supplier_id: wallet.supplier_id, tx_date: getLocalTodayISO(), description: `${wallet.name} Kredi Alımı (${qty} adet)`,
       tx_type: 'debt', amount: amountInCurrency, currency: loadCurrency, exchange_rate: exRate
-    }]).select().single()
+    }
+    if (wallet.company_id) {
+      suppTxPayload.company_id = wallet.company_id
+    }
+
+    const { data: suppTx } = await supabase.from('supplier_transactions').insert([suppTxPayload]).select().single()
 
     // MUTLAK HESAPLAMA TETİKLENDİ
     await recalculateAbsoluteSupplierBalance(wallet.supplier_id)
@@ -308,7 +334,7 @@ export default function SubscriptionsPage() {
     
     let finalCost = 0
     let walletToDeduct = null
-    let newFifoLots = []
+    let newFifoLots: any[] = []
     let newUnitCost = 0
 
     if (!editingId && subWalletId) {
@@ -451,7 +477,7 @@ export default function SubscriptionsPage() {
     
     let finalCost = 0
     let walletToDeduct = null
-    let newFifoLots = []
+    let newFifoLots: any[] = []
     let newUnitCost = 0
 
     if (oldSub.wallet_id) {
@@ -586,19 +612,20 @@ export default function SubscriptionsPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] relative">
-      <Toaster position="top-right" toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px', zIndex: 999999 } }} />
+      {/* TOASTER KONTEYNER Z-INDEX DEĞERİ MAX VE POZİSYONU BOTTOM-RIGHT YAPILDI */}
+      <Toaster position="bottom-right" containerStyle={{ zIndex: 99999999 }} toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px' } }} />
       
       {/* KREDİ CÜZDANLARI */}
       <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex gap-3 mb-4 overflow-x-auto custom-scrollbar pb-2 shrink-0">
-        {wallets.length === 0 ? (
+        {wallets.filter(w => selectedCompanyFilter === 'all' ? true : selectedCompanyFilter === 'common' ? !w.company_id : w.company_id === selectedCompanyFilter).length === 0 ? (
           <div className="w-full flex flex-col items-center justify-center p-6 border border-dashed border-slate-700/80 rounded-xl text-slate-500 min-h-[120px] bg-slate-800/10">
             <Key size={24} className="mb-3 opacity-40 text-indigo-400" />
-            <p className="text-[11px] mb-3">Henüz bir kredi cüzdanı oluşturulmamış.</p>
+            <p className="text-[11px] mb-3">{wallets.length === 0 ? 'Henüz bir kredi cüzdanı oluşturulmamış.' : 'Seçili merkeze ait cüzdan bulunamadı.'}</p>
             <button onClick={openNewWalletModal} className="bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/50 text-indigo-400 hover:text-white px-4 py-2 rounded-lg text-[11px] font-bold flex items-center gap-2 transition-all active:scale-95">
               <Plus size={14} /> Kredi Cüzdanı Oluştur
             </button>
           </div>
-        ) : wallets.map((w, index) => (
+        ) : wallets.filter(w => selectedCompanyFilter === 'all' ? true : selectedCompanyFilter === 'common' ? !w.company_id : w.company_id === selectedCompanyFilter).map((w, index) => (
           <div 
             key={w.id} 
             style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.1 + (index * 0.05)}s` }}
@@ -614,7 +641,18 @@ export default function SubscriptionsPage() {
               </div>
               <span className="bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded text-[10px] border border-indigo-500/30 font-mono font-bold shrink-0">{w.balance} Kredi</span>
             </div>
-            <div className="text-[10px] text-slate-500 truncate">Tedarikçi: <span className="text-slate-400">{w.supplier?.company_name}</span></div>
+            <div className="flex items-center justify-between text-[10px] gap-2">
+              <span className="text-slate-500 truncate">Tedarikçi: <span className="text-slate-400">{w.supplier?.company_name}</span></span>
+              {w.company ? (
+                <span className="text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded text-[9px] flex items-center gap-1 shrink-0 font-medium">
+                  <Building size={10} /> {w.company.name}
+                </span>
+              ) : (
+                <span className="text-slate-500 bg-slate-800/40 border border-slate-700/40 px-1.5 py-0.5 rounded text-[9px] flex items-center gap-1 shrink-0">
+                  <Globe size={10} /> Ortak
+                </span>
+              )}
+            </div>
             <div className="flex items-center justify-between mt-1 pt-2 border-t border-slate-800/50">
               <span className="text-[10px] font-mono text-slate-400">Sıradaki Maliyet: <span className="text-rose-300 font-bold">{formatMoney(w.unit_cost, w.currency).formatted}</span></span>
               <button onClick={() => openLoadModal(w.id)} className="text-[10px] bg-slate-800 hover:bg-indigo-600 text-white px-2.5 py-1 rounded transition flex items-center gap-1 font-bold active:scale-95"><Download size={10}/> Yükle</button>
@@ -883,6 +921,21 @@ export default function SubscriptionsPage() {
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2"><Key size={16} className="text-indigo-500"/> {editingWalletId ? 'Cüzdanı Düzenle' : 'Yeni Kredi Cüzdanı'}</h3>
             <form onSubmit={handleSaveWallet} className="space-y-3 text-xs">
               <div><label className="block text-slate-400 mb-1">Cüzdan Adı *</label><input type="text" required placeholder="Örn: Pixverse Yıllık Krediler" value={walletName} onChange={(e) => setWalletName(e.target.value)} className="w-full bg-[#070b14] border border-slate-800 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" /></div>
+              <div>
+                <label className="block text-slate-400 mb-1 font-bold">Ait Olduğu Ticari İşletme</label>
+                <select 
+                  value={walletCompanyId} 
+                  onChange={(e) => setWalletCompanyId(e.target.value)} 
+                  className="w-full bg-[#070b14] border border-slate-800 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                >
+                  <option value="common">🌍 Ortak / Bağımsız Cüzdan</option>
+                  <optgroup label="Ticari Şirketler">
+                    {companies.filter(c => !c.is_personal).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
               <div><label className="block text-slate-400 mb-1">Alım Yapılacak Tedarikçi *</label><select required value={walletSupplierId} onChange={(e) => setWalletSupplierId(e.target.value)} className="w-full bg-[#070b14] border border-slate-800 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"><option value="">Tedarikçi Seçin...</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.company_name}</option>)}</select></div>
               <div><label className="block text-slate-400 mb-1">Standart Döviz Cinsi</label><select disabled={!!editingWalletId} value={walletCurrency} onChange={(e) => setWalletCurrency(e.target.value)} className="w-full bg-[#070b14] border border-slate-800 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 disabled:opacity-50 transition-colors"><option value="USD">USD ($)</option><option value="EUR">EUR (€)</option><option value="TRY">TRY (₺)</option></select></div>
               

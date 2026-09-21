@@ -11,8 +11,8 @@ const CATEGORIES = [
   { id: 'oyun_prog', name: 'Oyun & Prog Yükleme', color: 'bg-teal-600' },
   { id: 'dvd_harici', name: 'DVD & Hariciye (Film, müzik, oyun, prg vs.)', color: 'bg-emerald-600' },
   { id: 'orjinal', name: 'Orjinal Film & Oyun', color: 'bg-teal-600' },
-  { id: 'servis', name: 'Servis', color: 'bg-emerald-600' },
-  { id: 'diger', name: 'Diğer', color: 'bg-teal-600' }
+  { id: 'diger', name: 'Diğer', color: 'bg-emerald-600' },
+  { id: 'servis', name: 'Servis', color: 'bg-teal-600' }
 ]
 
 const EXPENSE_CATEGORY_ID = 'gider'
@@ -25,10 +25,16 @@ type RetailRow = {
   categoryId: string;
   description: string;
   stockId?: string | null;
+  supplierId?: string | null;
   quantity: string;
   cost: string;
   cash: string;
   card: string;
+}
+
+type Supplier = {
+  id: string;
+  company_name: string;
 }
 
 type BankTransfer = {
@@ -106,6 +112,7 @@ export default function RetailPOSPage() {
   const [activeCashes, setActiveCashes] = useState<CashRegister[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [stocks, setStocks] = useState<RawStock[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [activeCards, setActiveCards] = useState<CardDetail[]>([]) 
   
   const [rates, setRates] = useState<{ USD: number; EUR: number }>({ USD: 34.25, EUR: 37.80 })
@@ -145,6 +152,9 @@ export default function RetailPOSPage() {
 
       const { data: cdData } = await supabase.from('credit_cards').select('*').order('name')
       if (cdData) setActiveCards(cdData)
+
+      const { data: supData } = await supabase.from('suppliers').select('id, company_name').order('company_name')
+      if (supData) setSuppliers(supData)
 
       const savedSettings = localStorage.getItem('ctc_pos_config')
       if (savedSettings) {
@@ -192,6 +202,17 @@ export default function RetailPOSPage() {
     setIsSettingsModalOpen(false)
     toast.success('Mağaza ayarları başarıyla kaydedildi.')
     fetchDayData(currentDate)
+  }
+
+  async function recalculateAbsoluteSupplierBalance(supplierId: string) {
+    const { data: txs } = await supabase.from('supplier_transactions').select('amount, tx_type, exchange_rate').eq('supplier_id', supplierId)
+    let absoluteBal = 0
+    txs?.forEach(t => {
+      const tryEquivalent = Number(t.amount) * (Number(t.exchange_rate) || 1)
+      if (t.tx_type === 'debt') absoluteBal += tryEquivalent
+      else absoluteBal -= tryEquivalent
+    })
+    await supabase.from('suppliers').update({ balance: absoluteBal }).eq('id', supplierId)
   }
 
   async function recalculateAbsoluteStock(stockId: string) {
@@ -351,6 +372,7 @@ export default function RetailPOSPage() {
 
       const { data: dbRows } = await supabase.from('pos_transactions').select('*').eq('date', dateStr)
       const { data: dbTransfers } = await supabase.from('pos_bank_transfers').select('*').eq('date', dateStr)
+      const { data: daySuppTxs } = await supabase.from('supplier_transactions').select('id, supplier_id, description, amount, invoice_lines').like('description', `Mağaza Hizmet Alımı (POS-${dateStr})%`)
 
       if (dbTransfers) {
         setTransfers(dbTransfers.map(t => ({
@@ -362,15 +384,34 @@ export default function RetailPOSPage() {
 
       const allCategoryIds = [...CATEGORIES.map(c => c.id), EXPENSE_CATEGORY_ID]
       let newRows: RetailRow[] = []
+      const remainingSuppTxs = daySuppTxs ? [...daySuppTxs] : []
 
       allCategoryIds.forEach(catId => {
         if (catId === 'fotokopi') return;
 
         const catDbRows = (dbRows || []).filter(r => r.category_id === catId)
         catDbRows.forEach(r => {
+          let matchedSupplierId: string | null = null
+          if (remainingSuppTxs.length > 0) {
+            const matchIndex = remainingSuppTxs.findIndex(st => {
+              const line = Array.isArray(st.invoice_lines) && (st.invoice_lines[0] as any)
+              if (line && line.category_id === catId && line.description === r.description && Number(line.cost) === Number(r.cost)) {
+                return true
+              }
+              if (st.description === `Mağaza Hizmet Alımı (POS-${dateStr}): ${r.description}` && Number(st.amount) === Number(r.cost)) {
+                return true
+              }
+              return false
+            })
+            if (matchIndex !== -1) {
+              matchedSupplierId = remainingSuppTxs[matchIndex].supplier_id
+              remainingSuppTxs.splice(matchIndex, 1)
+            }
+          }
+
           newRows.push({
             id: r.id, categoryId: r.category_id, description: r.description || '', 
-            stockId: r.stock_id || null, quantity: r.quantity ? String(r.quantity) : '', 
+            stockId: r.stock_id || null, supplierId: matchedSupplierId, quantity: r.quantity ? String(r.quantity) : '', 
             cost: formatValue(r.cost), cash: formatValue(r.cash), card: formatValue(r.card)
           })
         })
@@ -378,7 +419,7 @@ export default function RetailPOSPage() {
         const rowsToAdd = INITIAL_ROWS_PER_CATEGORY - catDbRows.length
         for (let i = 0; i < rowsToAdd; i++) {
           newRows.push({ 
-            id: `${catId}-init-${Date.now()}-${i}-${Math.random()}`, categoryId: catId, description: '', stockId: null, quantity: '', cost: '', cash: '', card: '' 
+            id: `${catId}-init-${Date.now()}-${i}-${Math.random()}`, categoryId: catId, description: '', stockId: null, supplierId: null, quantity: '', cost: '', cash: '', card: '' 
           })
         }
       })
@@ -400,6 +441,7 @@ export default function RetailPOSPage() {
     const affectedCashes = new Set<string>();
     const affectedStocks = new Set<string>();
     const affectedCards = new Set<string>(); // Kredi kartlarını takip etmek için eklendi
+    const affectedSuppliers = new Set<string>();
 
     const { data: oldBankTxs } = await supabase.from('bank_transactions').select('id, bank_account_id').like('transfer_id', `POS-%-${currentDateStr}`)
     if (oldBankTxs && oldBankTxs.length > 0) {
@@ -420,6 +462,12 @@ export default function RetailPOSPage() {
     const { data: oldCardTxs } = await supabase.from('credit_card_transactions').select('id, credit_card_id').like('description', `Mağaza Z-Raporu: Kartlı Giderler (POS-${currentDateStr})%`)
     if (oldCardTxs && oldCardTxs.length > 0) {
       for (const ot of oldCardTxs) { affectedCards.add(ot.credit_card_id); await supabase.from('credit_card_transactions').delete().eq('id', ot.id) }
+    }
+
+    // YENİ: Eski Tedarikçi İşlemlerini Sil
+    const { data: oldSuppTxs } = await supabase.from('supplier_transactions').select('id, supplier_id').like('description', `Mağaza Hizmet Alımı (POS-${currentDateStr})%`)
+    if (oldSuppTxs && oldSuppTxs.length > 0) {
+       for (const ot of oldSuppTxs) { affectedSuppliers.add(ot.supplier_id); await supabase.from('supplier_transactions').delete().eq('id', ot.id) }
     }
 
     if (posSettings.targetCashId) {
@@ -506,6 +554,39 @@ export default function RetailPOSPage() {
        }
     }
 
+    // YENİ: Tedarikçi Borcunu Ekle
+    const suppInserts: any[] = [];
+    filledRows.forEach((r, rIdx) => {
+        if (r.supplierId && parseValue(r.cost) > 0) {
+            affectedSuppliers.add(r.supplierId);
+            suppInserts.push({
+                supplier_id: r.supplierId,
+                company_id: finalCompId,
+                tx_date: currentDateStr,
+                description: `Mağaza Hizmet Alımı (POS-${currentDateStr}): ${r.description}`,
+                tx_type: 'debt',
+                amount: parseValue(r.cost),
+                currency: 'TRY',
+                exchange_rate: 1,
+                invoice_lines: [{
+                  pos_row_id: r.id,
+                  category_id: r.categoryId,
+                  description: r.description,
+                  quantity: parseValue(r.quantity) || 1,
+                  cost: parseValue(r.cost),
+                  row_index: rIdx
+                }]
+            });
+        }
+    });
+    if (suppInserts.length > 0) {
+      const { error: suppErr } = await supabase.from('supplier_transactions').insert(suppInserts);
+      if (suppErr) {
+        console.error("Tedarikçi Borcu Ekleme Hatası:", suppErr);
+        toast.error("Tedarikçi borç kaydı oluşturulurken hata: " + suppErr.message);
+      }
+    }
+
     // YENİ: KREDİ KARTI GİDERİ EKLENMESİ VE EKSTREYE İŞLENMESİ
     if (posSettings.targetCreditCardId && expenseCard > 0) {
       affectedCards.add(posSettings.targetCreditCardId);
@@ -536,6 +617,11 @@ export default function RetailPOSPage() {
 
     for (const sId of Array.from(affectedStocks)) {
       await recalculateAbsoluteStock(sId)
+    }
+
+    // YENİ: TEDARİKÇİ BAKİYE HESAPLAMASI
+    for (const sId of Array.from(affectedSuppliers)) {
+       await recalculateAbsoluteSupplierBalance(sId)
     }
 
     // YENİ: KREDİ KARTI MUTLAK BORÇ HESAPLAMASI
@@ -585,7 +671,7 @@ export default function RetailPOSPage() {
     }
 
     const invalidRows = rows.filter(r => {
-      if (r.categoryId === 'servis' || r.categoryId === EXPENSE_CATEGORY_ID) return false;
+      if (r.categoryId === EXPENSE_CATEGORY_ID) return false;
       const hasSale = parseValue(r.cash) > 0 || parseValue(r.card) > 0;
       const hasCost = parseValue(r.cost) > 0;
       return hasSale && !hasCost;
@@ -597,6 +683,20 @@ export default function RetailPOSPage() {
         { duration: 6000, icon: '⚠️' }
       );
       return; 
+    }
+
+    // YENİ: Açıklama zorunluluğu doğrulaması
+    const missingDescRows = rows.filter(r => {
+      const hasValue = parseValue(r.cost) > 0 || parseValue(r.cash) > 0 || parseValue(r.card) > 0;
+      return hasValue && !r.description.trim();
+    });
+
+    if (missingDescRows.length > 0) {
+      toast.error(
+        'HATA: Değer girdiğiniz satırların Açıklama alanını boş bırakamazsınız!',
+        { duration: 5000, icon: '📝' }
+      );
+      return;
     }
 
     setIsSaving(true)
@@ -619,7 +719,9 @@ export default function RetailPOSPage() {
       await supabase.from('pos_bank_transfers').delete().eq('date', currentDate)
 
       const finalCompId = posSettings.companyId === '' ? null : posSettings.companyId; 
-      const filledRows = rows.filter(r => r.description || parseValue(r.cost) > 0 || parseValue(r.cash) > 0 || parseValue(r.card) > 0)
+      
+      // GÜNCELLENDİ: Sadece açıklaması olan ve bir değeri olan satırları işle
+      const filledRows = rows.filter(r => r.description.trim() !== '' && (parseValue(r.cost) > 0 || parseValue(r.cash) > 0 || parseValue(r.card) > 0))
       
       let transactionsToInsert: any[] = [];
       
