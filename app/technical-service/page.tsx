@@ -2541,7 +2541,7 @@ export default function TechnicalServicePage() {
 
                   {/* Parça Ekleme Formu */}
                   <div className="bg-[#070b14] p-2.5 rounded-xl border border-slate-800/80 space-y-2">
-                    <div className="flex items-center gap-1.5">
+                    <div className="w-full">
                       <select
                         value={selectedStockId}
                         onChange={(e) => {
@@ -2554,7 +2554,7 @@ export default function TechnicalServicePage() {
                             setSelectedPartPrice('')
                           }
                         }}
-                        className="flex-1 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] focus:outline-none focus:border-purple-500"
+                        className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] focus:outline-none focus:border-purple-500 truncate"
                       >
                         <option value="">-- Depodan Parça Seç --</option>
                         {stocks.map(s => {
@@ -2566,44 +2566,53 @@ export default function TechnicalServicePage() {
                           )
                         })}
                       </select>
-                      {selectedStockId && (
-                        <div className="relative">
-                          <input
-                            type="number"
-                            step="0.01"
-                            placeholder="Fiyat ₺"
-                            value={selectedPartPrice}
-                            onChange={(e) => setSelectedPartPrice(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault()
-                                handleAddPart()
-                              }
-                            }}
-                            className="w-20 px-2 py-1.5 bg-slate-900 border border-purple-500/60 rounded-lg text-white text-[11px] font-mono text-right focus:outline-none focus:border-purple-400 ring-1 ring-purple-500/30"
-                            title="Parça birim satış fiyatı (TL) - Enter ile fişe ekler"
-                          />
-                        </div>
-                      )}
-                      <input
-                        type="number"
-                        min="1"
-                        value={stockQty}
-                        onChange={(e) => setStockQty(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            handleAddPart()
-                          }
-                        }}
-                        className="w-14 px-2 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] font-mono text-center focus:outline-none focus:border-purple-500"
-                        title="Adet (Enter ile listeye ekler)"
-                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1 border-t border-slate-800/50">
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[10px] text-slate-400">Adet:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={stockQty}
+                          onChange={(e) => setStockQty(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              handleAddPart()
+                            }
+                          }}
+                          className="w-12 px-2 py-1 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] font-mono text-center focus:outline-none focus:border-purple-500"
+                          title="Kullanılan Parça Adedi"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-1 flex-1 min-w-0">
+                        <span className="text-[10px] text-slate-400 shrink-0">Birim ₺:</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={selectedPartPrice}
+                          onChange={(e) => setSelectedPartPrice(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              handleAddPart()
+                            }
+                          }}
+                          disabled={!selectedStockId}
+                          className="w-full px-2 py-1 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] font-mono text-right focus:outline-none focus:border-purple-500 disabled:opacity-40"
+                          title="Parça birim satış fiyatı (TL)"
+                        />
+                      </div>
+
                       <button
                         type="button"
                         onClick={handleAddPart}
                         disabled={!selectedStockId}
-                        className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-[11px] rounded-lg transition shrink-0 cursor-pointer flex items-center gap-1 shadow-sm shadow-purple-600/30 active:scale-95"
+                        className="px-3 py-1 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold text-[11px] rounded-lg transition shrink-0 cursor-pointer flex items-center gap-1 shadow-sm shadow-purple-600/30 active:scale-95"
+                        title="Seçili parçayı servis fişine ekle"
                       >
                         <Plus size={12} />
                         <span>Ekle</span>
