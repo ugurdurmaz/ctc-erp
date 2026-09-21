@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Calendar, ChevronLeft, ChevronRight, Save, Wallet, CreditCard, Eye, EyeOff, Landmark, X, Trash2, StickyNote, Loader2, AlertTriangle, Settings, ArrowRightLeft, Package, Search } from 'lucide-react'
 import { formatMoney } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
@@ -48,7 +48,7 @@ type BankTransfer = {
 
 type BankAccount = { id: string; bank_name: string; account_name: string; currency: string }
 type CashRegister = { id: string; name: string; currency: string }
-type Warehouse = { id: string; name: string }
+type Warehouse = { id: string; name: string; company_id?: string | null }
 type RawStock = { id: string; name: string; sku: string; quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
 type CardDetail = { id: string; name: string; current_debt: number; card_limit: number; company_id: string | null }
 
@@ -125,6 +125,29 @@ export default function RetailPOSPage() {
 
   const [activeDropdownId, setActiveDropdownId] = useState<string | null>(null)
 
+  // Mağazaya tanımlı aktif hedef depo (seçili olan, veya POS şirketinin deposu, veya 'Mağaza' adlı depo)
+  const activeWarehouse = useMemo(() => {
+    if (posSettings.targetWarehouseId) {
+      return warehouses.find(w => w.id === posSettings.targetWarehouseId) || null
+    }
+    if (posSettings.companyId) {
+      return warehouses.find(w => w.company_id === posSettings.companyId) || null
+    }
+    return warehouses.find(w => w.name.toLocaleLowerCase('tr-TR').includes('mağaza')) || warehouses[0] || null
+  }, [posSettings.targetWarehouseId, posSettings.companyId, warehouses])
+
+  // Mağazaya tanımlı depolardaki ürünler
+  const storeStocks = useMemo(() => {
+    if (activeWarehouse) {
+      return stocks.filter(s => s.warehouse_id === activeWarehouse.id)
+    }
+    if (posSettings.companyId) {
+      const compWhIds = warehouses.filter(w => w.company_id === posSettings.companyId).map(w => w.id)
+      if (compWhIds.length > 0) return stocks.filter(s => compWhIds.includes(s.warehouse_id))
+    }
+    return stocks
+  }, [activeWarehouse, posSettings.companyId, warehouses, stocks])
+
   useEffect(() => {
     async function fetchAccounts() {
       try {
@@ -156,17 +179,28 @@ export default function RetailPOSPage() {
       const { data: supData } = await supabase.from('suppliers').select('id, company_name').order('company_name')
       if (supData) setSuppliers(supData)
 
+      let initialWhId = ''
       const savedSettings = localStorage.getItem('ctc_pos_config')
+      let parsedSettings: any = null
       if (savedSettings) {
-        const parsed = JSON.parse(savedSettings)
-        setPosSettings({
-           targetCashId: parsed.targetCashId || '',
-           targetBankId: parsed.targetBankId || '',
-           companyId: parsed.companyId || '',
-           targetWarehouseId: parsed.targetWarehouseId || '',
-           targetCreditCardId: parsed.targetCreditCardId || ''
-        })
+        try {
+          parsedSettings = JSON.parse(savedSettings)
+          initialWhId = parsedSettings.targetWarehouseId || ''
+        } catch (e) {}
       }
+
+      if (!initialWhId && wData && wData.length > 0) {
+        const found = wData.find(w => w.name.toLocaleLowerCase('tr-TR').includes('mağaza')) || wData[0]
+        if (found) initialWhId = found.id
+      }
+
+      setPosSettings({
+         targetCashId: parsedSettings?.targetCashId || '',
+         targetBankId: parsedSettings?.targetBankId || '',
+         companyId: parsedSettings?.companyId || '',
+         targetWarehouseId: initialWhId,
+         targetCreditCardId: parsedSettings?.targetCreditCardId || ''
+      })
       
       if (bData && bData.length > 0) setTransferForm(prev => ({ ...prev, bankId: bData[0].id }))
     }
@@ -525,7 +559,7 @@ export default function RetailPOSPage() {
       await supabase.from('bank_transactions').insert([{ bank_account_id: trf.bankId, company_id: finalCompId, tx_date: currentDateStr, description: `Mağaza Kasa İşlemi: ${trf.description || (isToBank ? 'Gün Sonu Yatırma' : 'Kasaya Çekim')}`, tx_type: isToBank ? 'in' : 'out', amount: trf.amount, currency: targetCurrency, exchange_rate: 1, is_transfer: true, transfer_id: `POS-TRF-BANK-${i}-${currentDateStr}`, status: 'completed' }]);
     }
 
-    if (posSettings.targetWarehouseId) {
+    if (posSettings.targetWarehouseId || filledRows.some(r => r.stockId)) {
        const stockInserts: any[] = [];
        filledRows.forEach(r => {
           if (r.stockId && parseValue(r.quantity) > 0) {
@@ -982,12 +1016,18 @@ export default function RetailPOSPage() {
           )}
           {catRows.map((row, index) => {
             const isFirst = index === 0;
-            const filteredStocks = (row.description && posSettings.targetWarehouseId && activeDropdownId === row.id) 
-              ? stocks.filter(s => 
-                  s.warehouse_id === posSettings.targetWarehouseId && 
-                  s.quantity > 0 &&
-                  (s.name.toLowerCase().includes(row.description.toLowerCase()) || (s.sku && s.sku.toLowerCase().includes(row.description.toLowerCase())))
-                )
+            const searchQ = (row.description || '').trim().toLocaleLowerCase('tr-TR');
+            
+            // Açıklama girerken veya alana tıklandığında mağaza deposundaki ürünleri listele ve filtrele
+            const rowFilteredStocks = (activeDropdownId === row.id && !isExpenseCat)
+              ? storeStocks.filter(s => {
+                  if (!searchQ) return true; // Boşken depodaki tüm ürünler listelensin
+                  return s.name.toLocaleLowerCase('tr-TR').includes(searchQ) || (s.sku && s.sku.toLocaleLowerCase('tr-TR').includes(searchQ));
+                }).sort((a, b) => {
+                  if (b.quantity > 0 && a.quantity <= 0) return 1;
+                  if (a.quantity > 0 && b.quantity <= 0) return -1;
+                  return a.name.localeCompare(b.name, 'tr-TR');
+                })
               : [];
 
             return (
@@ -995,10 +1035,23 @@ export default function RetailPOSPage() {
               
               <div className="flex-1 min-w-[50px] relative flex">
                 <div className={`flex items-center w-full bg-transparent border-r border-slate-700 focus-within:bg-indigo-900/20 transition-colors ${row.stockId ? 'bg-emerald-900/10' : ''}`}>
-                   {!isExpenseCat && activeDropdownId === row.id && <Search size={10} className="text-slate-500 ml-1.5 shrink-0" />}
+                   {!isExpenseCat && (
+                     <button
+                       type="button"
+                       tabIndex={-1}
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         setActiveDropdownId(activeDropdownId === row.id ? null : row.id);
+                       }}
+                       className="ml-1.5 shrink-0 text-slate-500 hover:text-indigo-400 cursor-pointer"
+                       title={row.stockId ? "Stoktan düşülecek ürün seçili" : "Depodaki ürünleri listele"}
+                     >
+                       {row.stockId ? <Package size={12} className="text-emerald-400" /> : <Search size={10} className="text-slate-500" />}
+                     </button>
+                   )}
                    <input 
                      type="text" 
-                     placeholder={isFirst ? "Açıklama veya Ürün Ara..." : ""} 
+                     placeholder={isFirst ? "Açıklama veya Ürün Seç..." : ""} 
                      value={row.description} 
                      onChange={(e) => {
                         handleInputChange(row.id, 'description', e.target.value);
@@ -1008,24 +1061,77 @@ export default function RetailPOSPage() {
                      onFocus={() => !isExpenseCat && setActiveDropdownId(row.id)}
                      className="w-full bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none placeholder:text-slate-600 font-sans transition-colors" 
                    />
-                   {row.stockId && <span className="pr-1.5" title="Stoktan düşülecek"><Package size={12} className="text-emerald-500" /></span>}
+                   {row.stockId && (
+                     <button
+                       type="button"
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         handleInputChange(row.id, 'stockId', '');
+                       }}
+                       className="pr-1.5 text-slate-500 hover:text-rose-400 cursor-pointer"
+                       title="Stok bağlantısını kaldır"
+                     >
+                       <X size={11} />
+                     </button>
+                   )}
                 </div>
                 
-                {activeDropdownId === row.id && filteredStocks.length > 0 && (
-                   <div className="absolute top-full left-0 z-50 mt-0.5 bg-[#1b253b] border border-indigo-500/50 rounded-lg shadow-2xl overflow-hidden max-h-40 overflow-y-auto custom-scrollbar w-full min-w-[200px]">
-                      {filteredStocks.map(stock => (
-                         <div 
-                           key={stock.id} 
-                           onClick={(e) => { e.stopPropagation(); selectStockForRow(row.id, stock); }}
-                           className="px-2 py-1.5 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 flex justify-between items-center"
-                         >
-                            <span className="font-bold text-[10px] truncate pr-2">{stock.name}</span>
-                            <div className="flex gap-2 items-center shrink-0">
-                               <span className="text-[9px] text-emerald-400 font-mono">Stk:{stock.quantity}</span>
-                               <span className="text-[10px] text-indigo-300 font-mono font-bold">{formatMoney(stock.unit_price, stock.currency).formatted}</span>
-                            </div>
+                {activeDropdownId === row.id && !isExpenseCat && (
+                   <div 
+                     onMouseDown={(e) => e.stopPropagation()}
+                     className="absolute top-full left-0 z-50 mt-0.5 bg-[#0f172a] border border-indigo-500/50 rounded-xl shadow-2xl overflow-hidden max-h-52 w-full min-w-[240px] sm:min-w-[280px] flex flex-col animate-in fade-in duration-150"
+                   >
+                      <div className="px-2.5 py-1.5 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between text-[10px] text-indigo-300 font-bold shrink-0">
+                         <div className="flex items-center gap-1.5">
+                            <Package size={12} className="text-indigo-400" />
+                            <span>{activeWarehouse?.name || 'Mağaza'} Deposu</span>
                          </div>
-                      ))}
+                         <span className="text-slate-400 text-[9px] font-mono">
+                            {rowFilteredStocks.length} ürün
+                         </span>
+                      </div>
+
+                      <div className="overflow-y-auto custom-scrollbar divide-y divide-slate-800/60">
+                         {rowFilteredStocks.length === 0 ? (
+                            <div className="p-3 text-center text-slate-400 text-[10px]">
+                               {searchQ ? `"${row.description}" ile eşleşen ürün bulunamadı.` : 'Seçili depoda henüz kayıtlı ürün bulunmuyor.'}
+                            </div>
+                         ) : (
+                            rowFilteredStocks.map(stock => {
+                               const isSelected = row.stockId === stock.id;
+                               return (
+                               <div 
+                                 key={stock.id} 
+                                 onMouseDown={(e) => { 
+                                    e.preventDefault(); 
+                                    e.stopPropagation(); 
+                                    selectStockForRow(row.id, stock); 
+                                 }}
+                                 className={`px-2.5 py-2 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors flex justify-between items-center ${isSelected ? 'bg-indigo-950/60 text-indigo-200' : ''}`}
+                               >
+                                  <div className="flex flex-col min-w-0 pr-2">
+                                     <span className="font-bold text-[11px] truncate">{stock.name}</span>
+                                     {stock.sku && <span className="text-[9px] text-slate-400 font-mono truncate">{stock.sku}</span>}
+                                  </div>
+                                  <div className="flex gap-2 items-center shrink-0">
+                                     {stock.quantity > 0 ? (
+                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono font-bold">
+                                           Stk: {stock.quantity}
+                                        </span>
+                                     ) : (
+                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono">
+                                           Stk: 0
+                                        </span>
+                                     )}
+                                     <span className="text-[10px] text-indigo-300 font-mono font-bold">
+                                        {formatMoney(stock.unit_price, stock.currency).formatted}
+                                     </span>
+                                  </div>
+                               </div>
+                               );
+                            })
+                         )}
+                      </div>
                    </div>
                 )}
               </div>

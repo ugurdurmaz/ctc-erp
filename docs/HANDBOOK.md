@@ -421,8 +421,8 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - 6 satış kategorisi kutusu × 7 satır (otomatik genişler): Açıklama/ürün arama, Adet, Nakit, K.Kartı, (gizli) Maliyet.
 - Sağ panel: Gider & Masraf kutusu, Günün Notları, Günün Banka Hareketleri.
 - Üst şerit: Dünden Devir (salt okunur), Kasa (hesaplanan), Nakit Satış, Kredi Kartı, Toplam Gider, Fotokopi N/K, Ayarlar ⚙, Günü Kaydet.
-- **Ayarlar** (`localStorage: ctc_pos_config`): bağlı merkez, satışların düşüleceği depo, nakit kasa, kart cirosu bankası, kartlı gider kredi kartı.
-- Ürün arama yalnız depo seçiliyse ve `quantity > 0` stoklarda çalışır; seçim maliyeti `unit_price × adet` (TRY) olarak doldurur.
+- **Ayarlar** (`localStorage: ctc_pos_config`): bağlı merkez, satışların düşüleceği depo, nakit kasa, kart cirosu bankası, kartlı gider kredi kartı. Varsayılan olarak "Mağaza" deposu veya ilk aktif depo otomatik seçilir.
+- **Ürün Arama & Depodan Seçim**: Açıklama alanına odaklanıldığında veya tıklandığında mağazaya tanımlı depodaki tüm ürünler listelenir; arama kutusuna yazıldıkça Türkçe küçük harf uyumlu olarak filtreleme yapılır. Seçilen ürünün adı, adedi ve döviz kuruna göre hesaplanan TRY maliyeti otomatik doldurulur ve satır stoktan düşüş için 📦 ikonu ile bağlanır.
 - Taslak: her değişiklik `ctc_pos_draft_<tarih>`'e yazılır; sayfa açılışında taslak varsa "Sistem kapanması algılandı" uyarısı ile geri yüklenir.
 - Yan etkiler: §6.6.
 
