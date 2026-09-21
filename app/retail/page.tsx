@@ -981,7 +981,7 @@ export default function RetailPOSPage() {
         style={{ animation: 'fadeInUp 0.4s both', animationDelay: `${0.1 + (index * 0.08)}s` }}
         className="bg-[#070b14] border border-slate-700 rounded-lg flex flex-col overflow-hidden shadow-lg w-full break-inside-avoid hover:border-slate-500/50 transition-colors"
       >
-        <div className={`${category.color} px-2.5 py-1.5 flex justify-between items-center text-white text-[11px] font-bold`}>
+        <div className={`${category.color} px-2.5 py-1.5 flex justify-between items-center text-white text-[11px] font-normal`}>
           <div className="flex items-center gap-1.5 overflow-hidden pr-2 flex-1 min-w-0">
             {!isExpenseCat && (
                <button onClick={() => toggleCostColumn(category.id)} className="p-1 bg-black/20 hover:bg-black/40 rounded transition-colors shrink-0">
@@ -990,18 +990,18 @@ export default function RetailPOSPage() {
             )}
             <span className="truncate">{category.name}</span>
           </div>
-          <div className="flex items-center shrink-0 text-[10px] font-mono">
+          <div className="flex items-center shrink-0 text-[10px] font-mono font-normal">
             <div className="w-[55px] flex flex-col items-end pr-1 justify-center">
-              <span className="text-white/80 leading-none mb-0.5 text-[8px] font-sans">NAKİT</span>
+              <span className="text-white/80 leading-none mb-0.5 text-[8px] font-sans font-normal">NAKİT</span>
               <span>{catCash > 0 ? catCash.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'}</span>
             </div>
             <div className="w-[55px] flex flex-col items-end pr-1 justify-center border-l border-white/20">
-              <span className="text-white/80 leading-none mb-0.5 text-[8px] font-sans">K.KARTI</span>
+              <span className="text-white/80 leading-none mb-0.5 text-[8px] font-sans font-normal">K.KARTI</span>
               <span>{catCard > 0 ? catCard.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'}</span>
             </div>
             {isCostVisible && !isExpenseCat && (
               <div className="w-[55px] flex flex-col items-end pr-1 justify-center border-l border-white/20">
-                <span className="text-white/80 leading-none mb-0.5 text-[8px] font-sans">MALİYET</span>
+                <span className="text-white/80 leading-none mb-0.5 text-[8px] font-sans font-normal">MALİYET</span>
                 <span>{catCost > 0 ? catCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'}</span>
               </div>
             )}
@@ -1059,7 +1059,7 @@ export default function RetailPOSPage() {
                         if(!isExpenseCat) setActiveDropdownId(row.id);
                      }} 
                      onFocus={() => !isExpenseCat && setActiveDropdownId(row.id)}
-                     className="w-full bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none placeholder:text-slate-600 font-sans transition-colors" 
+                     className="w-full bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none placeholder:text-slate-600 font-sans font-normal transition-colors" 
                    />
                    {row.stockId && (
                      <button
@@ -1081,12 +1081,12 @@ export default function RetailPOSPage() {
                      onMouseDown={(e) => e.stopPropagation()}
                      className="absolute top-full left-0 z-50 mt-0.5 bg-[#0f172a] border border-indigo-500/50 rounded-xl shadow-2xl overflow-hidden max-h-52 w-full min-w-[240px] sm:min-w-[280px] flex flex-col animate-in fade-in duration-150"
                    >
-                      <div className="px-2.5 py-1.5 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between text-[10px] text-indigo-300 font-bold shrink-0">
+                      <div className="px-2.5 py-1.5 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between text-[10px] text-indigo-300 font-normal shrink-0">
                          <div className="flex items-center gap-1.5">
                             <Package size={12} className="text-indigo-400" />
                             <span>{activeWarehouse?.name || 'Mağaza'} Deposu</span>
                          </div>
-                         <span className="text-slate-400 text-[9px] font-mono">
+                         <span className="text-slate-400 text-[9px] font-mono font-normal">
                             {rowFilteredStocks.length} ürün
                          </span>
                       </div>
@@ -1110,20 +1110,20 @@ export default function RetailPOSPage() {
                                  className={`px-2.5 py-2 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors flex justify-between items-center ${isSelected ? 'bg-indigo-950/60 text-indigo-200' : ''}`}
                                >
                                   <div className="flex flex-col min-w-0 pr-2">
-                                     <span className="font-bold text-[11px] truncate">{stock.name}</span>
-                                     {stock.sku && <span className="text-[9px] text-slate-400 font-mono truncate">{stock.sku}</span>}
+                                     <span className="font-normal text-[11px] truncate text-slate-200">{stock.name}</span>
+                                     {stock.sku && <span className="text-[9px] text-slate-400 font-mono font-normal truncate">{stock.sku}</span>}
                                   </div>
                                   <div className="flex gap-2 items-center shrink-0">
                                      {stock.quantity > 0 ? (
-                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono font-bold">
+                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono font-normal">
                                            Stk: {stock.quantity}
                                         </span>
                                      ) : (
-                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono">
+                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono font-normal">
                                            Stk: 0
                                         </span>
                                      )}
-                                     <span className="text-[10px] text-indigo-300 font-mono font-bold">
+                                     <span className="text-[10px] text-indigo-300 font-mono font-normal">
                                         {formatMoney(stock.unit_price, stock.currency).formatted}
                                      </span>
                                   </div>
@@ -1155,7 +1155,7 @@ export default function RetailPOSPage() {
                         }
                      }
                    }} 
-                   className="w-[34px] shrink-0 bg-transparent text-center px-0.5 py-1 text-slate-300 focus:outline-none focus:bg-indigo-900/20 border-r border-slate-700 font-mono transition-colors" 
+                   className="w-[34px] shrink-0 bg-transparent text-center px-0.5 py-1 text-slate-300 focus:outline-none focus:bg-indigo-900/20 border-r border-slate-700 font-mono font-normal transition-colors" 
                    title="Adet"
                  />
               )}
@@ -1167,7 +1167,7 @@ export default function RetailPOSPage() {
                 value={row.cash} 
                 onChange={(e) => handleInputChange(row.id, 'cash', e.target.value)} 
                 onBlur={(e) => handleInputBlur(row.id, 'cash', e.target.value)} 
-                className={`w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-emerald-400 text-right focus:outline-none focus:bg-indigo-900/20 border-r border-slate-700 font-mono placeholder:text-emerald-900/40 transition-colors ${isExpenseCat ? 'text-amber-400 focus:bg-amber-900/20 placeholder:text-amber-900/40' : ''}`} 
+                className={`w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-emerald-400 text-right focus:outline-none focus:bg-indigo-900/20 border-r border-slate-700 font-mono font-normal placeholder:text-emerald-900/40 transition-colors ${isExpenseCat ? 'text-amber-400 focus:bg-amber-900/20 placeholder:text-amber-900/40' : ''}`} 
               />
               <input 
                 type="text" 
@@ -1176,7 +1176,7 @@ export default function RetailPOSPage() {
                 value={row.card} 
                 onChange={(e) => handleInputChange(row.id, 'card', e.target.value)} 
                 onBlur={(e) => handleInputBlur(row.id, 'card', e.target.value)} 
-                className={`w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-purple-400 text-right focus:outline-none focus:bg-indigo-900/20 font-mono placeholder:text-purple-900/40 transition-colors ${(isCostVisible && !isExpenseCat) ? 'border-r border-slate-700' : ''} ${isExpenseCat ? 'focus:bg-amber-900/20' : ''}`} 
+                className={`w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-purple-400 text-right focus:outline-none focus:bg-indigo-900/20 font-mono font-normal placeholder:text-purple-900/40 transition-colors ${(isCostVisible && !isExpenseCat) ? 'border-r border-slate-700' : ''} ${isExpenseCat ? 'focus:bg-amber-900/20' : ''}`} 
               />
               {(isCostVisible && !isExpenseCat) && (
                 <input 
@@ -1186,7 +1186,7 @@ export default function RetailPOSPage() {
                   value={row.cost} 
                   onChange={(e) => handleInputChange(row.id, 'cost', e.target.value)} 
                   onBlur={(e) => handleInputBlur(row.id, 'cost', e.target.value)} 
-                  className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-rose-400 text-right focus:outline-none focus:bg-indigo-900/20 font-mono placeholder:text-rose-900/40 transition-colors" 
+                  className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-rose-400 text-right focus:outline-none focus:bg-indigo-900/20 font-mono font-normal placeholder:text-rose-900/40 transition-colors" 
                 />
               )}
             </div>
@@ -1381,15 +1381,15 @@ export default function RetailPOSPage() {
             
             {/* GİDER & MASRAF */}
             <div style={{ animation: 'fadeInUp 0.4s both 0.6s' }} className="bg-[#070b14] border border-slate-700 rounded-lg flex flex-col overflow-hidden h-fit shadow-lg w-full hover:border-slate-500/50 transition-colors shrink-0">
-              <div className="bg-amber-600 px-2.5 py-1.5 flex justify-between items-center text-white text-[11px] font-bold">
+              <div className="bg-amber-600 px-2.5 py-1.5 flex justify-between items-center text-white text-[11px] font-normal">
                 <span className="truncate pr-2 flex-1 min-w-0">Gider & Masraf</span>
-                <div className="flex items-center shrink-0 text-[10px] font-mono">
+                <div className="flex items-center shrink-0 text-[10px] font-mono font-normal">
                   <div className="w-[55px] flex flex-col items-end pr-1 justify-center">
-                    <span className="text-white/80 leading-none mb-0.5 text-[8px] font-sans">NAKİT</span>
+                    <span className="text-white/80 leading-none mb-0.5 text-[8px] font-sans font-normal">NAKİT</span>
                     <span>{expenseCash > 0 ? expenseCash.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'}</span>
                   </div>
                   <div className="w-[55px] flex flex-col items-end pr-1 justify-center border-l border-white/20">
-                    <span className="text-white/80 leading-none mb-0.5 text-[8px] font-sans">K.KARTI</span>
+                    <span className="text-white/80 leading-none mb-0.5 text-[8px] font-sans font-normal">K.KARTI</span>
                     <span>{expenseCard > 0 ? expenseCard.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'}</span>
                   </div>
                 </div>
@@ -1408,7 +1408,7 @@ export default function RetailPOSPage() {
                       placeholder={index === 0 ? "Açıklama / Masraf Kalemi..." : ""} 
                       value={row.description} 
                       onChange={(e) => handleInputChange(row.id, 'description', e.target.value)} 
-                      className="flex-1 min-w-[50px] bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 placeholder:text-slate-600 font-sans transition-colors" 
+                      className="flex-1 min-w-[50px] bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 placeholder:text-slate-600 font-sans font-normal transition-colors" 
                     />
                     <input 
                       type="text" 
@@ -1417,7 +1417,7 @@ export default function RetailPOSPage() {
                       value={row.cash} 
                       onChange={(e) => handleInputChange(row.id, 'cash', e.target.value)} 
                       onBlur={(e) => handleInputBlur(row.id, 'cash', e.target.value)} 
-                      className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-amber-400 text-right focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 font-mono placeholder:text-amber-900/40 transition-colors" 
+                      className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-amber-400 text-right focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 font-mono font-normal placeholder:text-amber-900/40 transition-colors" 
                     />
                     <input 
                       type="text" 
@@ -1426,7 +1426,7 @@ export default function RetailPOSPage() {
                       value={row.card} 
                       onChange={(e) => handleInputChange(row.id, 'card', e.target.value)} 
                       onBlur={(e) => handleInputBlur(row.id, 'card', e.target.value)} 
-                      className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-purple-400 text-right focus:outline-none focus:bg-amber-900/20 font-mono placeholder:text-purple-900/40 transition-colors" 
+                      className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-purple-400 text-right focus:outline-none focus:bg-amber-900/20 font-mono font-normal placeholder:text-purple-900/40 transition-colors" 
                     />
                   </div>
                 ))}
