@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/lib/auth-context'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { Building2, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, Store } from 'lucide-react'
@@ -13,6 +14,9 @@ type Supplier = {
   id: string; company_name: string; contact_name: string; phone: string;
   email: string; tax_office: string; tax_id: string; address: string;
   balance: number; currency: string;
+  company_id?: string | null;
+  tax_number?: string | null;
+  company?: { id: string; name: string; is_personal: boolean };
 }
 
 type InvoiceLine = {
@@ -45,6 +49,10 @@ function formatDateTR(dateStr: string) {
 import { logActivity } from '@/lib/audit'
 
 export default function SuppliersPage() {
+  const { profile, isAdmin, hasCompanyAccess } = useAuth()
+  const isRestricted = !isAdmin && profile?.allowed_companies && profile.allowed_companies.length > 0
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all')
+
   const [companies, setCompanies] = useState<Company[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null)
@@ -61,6 +69,7 @@ export default function SuppliersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [companyName, setCompanyName] = useState('')
+  const [suppCompanyId, setSuppCompanyId] = useState('common')
   const [contactName, setContactName] = useState('')
   const [phone, setPhone] = useState(''); const [email, setEmail] = useState('')
   const [taxOffice, setTaxOffice] = useState(''); const [taxId, setTaxId] = useState(''); const [address, setAddress] = useState('')
@@ -94,8 +103,12 @@ export default function SuppliersPage() {
   }>({ isOpen: false, title: '', message: '', confirmText: '', cancelText: '', isDanger: false, onConfirm: () => {} })
 
   useEffect(() => {
-    fetchExchangeRates(); fetchCompanies(); fetchSuppliers(); fetchWarehouses(); fetchPaymentSources(); fetchStocks()
+    fetchExchangeRates(); fetchCompanies(); fetchWarehouses(); fetchPaymentSources(); fetchStocks()
   }, [])
+
+  useEffect(() => {
+    fetchSuppliers()
+  }, [companies])
 
   useEffect(() => {
     if (selectedSupplierId) { 
@@ -106,10 +119,21 @@ export default function SuppliersPage() {
         setTxCurrency((s.currency as 'TRY' | 'USD' | 'EUR') || 'TRY')
         setInvCurrency((s.currency as 'TRY' | 'USD' | 'EUR') || 'TRY')
       }
+      const suppComp = s?.company_id || (s?.tax_number && s.tax_number.includes('-') ? s.tax_number : null)
+      if (suppComp) {
+        setTxCompanyId(suppComp)
+        setInvCompanyId(suppComp)
+      } else if (isRestricted && profile?.allowed_companies?.[0]) {
+        setTxCompanyId(profile.allowed_companies[0])
+        setInvCompanyId(profile.allowed_companies[0])
+      } else {
+        setTxCompanyId('common')
+        setInvCompanyId('common')
+      }
     } else {
       setTransactions([])
     }
-  }, [selectedSupplierId])
+  }, [selectedSupplierId, suppliers, isRestricted, profile])
 
 
   useEffect(() => {
@@ -141,9 +165,19 @@ export default function SuppliersPage() {
   }
 
   async function fetchSuppliers() {
-    const { data } = await supabase.from('suppliers').select('*').order('company_name', { ascending: true })
-    setSuppliers(data || [])
-    if (data && data.length > 0 && !selectedSupplierId) setSelectedSupplierId(data[0].id)
+    const { data, error } = await supabase.from('suppliers').select('*').order('company_name', { ascending: true })
+    if (error) {
+      console.error('Tedarikçiler yüklenemedi:', error)
+      return
+    }
+    const comps = companies.length > 0 ? companies : ((await supabase.from('companies').select('*')).data || [])
+    const mapped: Supplier[] = (data || []).map((s: any) => {
+      const compId = s.company_id || (s.tax_number && s.tax_number.includes('-') ? s.tax_number : null)
+      const comp = comps.find(c => c.id === compId)
+      return { ...s, company_id: compId, company: comp }
+    })
+    setSuppliers(mapped)
+    if (mapped.length > 0 && !selectedSupplierId) setSelectedSupplierId(mapped[0].id)
   }
 
   async function fetchWarehouses() {
@@ -224,25 +258,41 @@ export default function SuppliersPage() {
   // =========================================================================================
 
   function openAddModal() {
-    setEditingId(null); setCompanyName(''); setContactName(''); setPhone(''); setEmail(''); setTaxOffice(''); setTaxId(''); setAddress(''); setOpeningBalance(''); setOpeningCompanyId('common'); setOpeningCurrency('TRY'); setOpeningExchangeRate('1'); setIsModalOpen(true)
+    setEditingId(null)
+    setCompanyName('')
+    setContactName('')
+    setPhone('')
+    setEmail('')
+    setTaxOffice('')
+    setTaxId('')
+    setAddress('')
+    setOpeningBalance('')
+    const defaultComp = isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common'
+    setSuppCompanyId(defaultComp)
+    setOpeningCompanyId(defaultComp)
+    setOpeningCurrency('TRY')
+    setOpeningExchangeRate('1')
+    setIsModalOpen(true)
   }
 
   async function openEditModal(supp: Supplier, e: React.MouseEvent) {
     e.stopPropagation()
     setEditingId(supp.id); setCompanyName(supp.company_name); setContactName(supp.contact_name || ''); setPhone(supp.phone || ''); setEmail(supp.email || ''); setTaxOffice(supp.tax_office || ''); setTaxId(supp.tax_id || ''); setAddress(supp.address || ''); setIsModalOpen(true)
 
+    const currentCompId = supp.company_id || (supp.tax_number && supp.tax_number.includes('-') ? supp.tax_number : null) || 'common'
+    setSuppCompanyId(currentCompId)
+    setOpeningCompanyId(currentCompId)
+
     const { data: txs } = await supabase.from('supplier_transactions')
        .select('amount, company_id, currency, exchange_rate').eq('supplier_id', supp.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
     
     if (txs && txs.length > 0) {
       setOpeningBalance(txs[0].amount.toString());
-      setOpeningCompanyId(txs[0].company_id || 'common');
       const cur = (txs[0].currency as 'TRY' | 'USD' | 'EUR') || (supp.currency as 'TRY' | 'USD' | 'EUR') || 'TRY';
       setOpeningCurrency(cur);
       setOpeningExchangeRate(txs[0].exchange_rate ? txs[0].exchange_rate.toString() : (cur === 'USD' ? rates.USD.toString() : cur === 'EUR' ? rates.EUR.toString() : '1'));
     } else {
       setOpeningBalance('0');
-      setOpeningCompanyId('common');
       const cur = (supp.currency as 'TRY' | 'USD' | 'EUR') || 'TRY';
       setOpeningCurrency(cur);
       setOpeningExchangeRate(cur === 'USD' ? rates.USD.toString() : cur === 'EUR' ? rates.EUR.toString() : '1');
@@ -252,9 +302,19 @@ export default function SuppliersPage() {
   async function handleSaveSupplier(e: React.FormEvent) {
     e.preventDefault(); if (!companyName) return
     const initialBalance = parseFloat(openingBalance) || 0
-    const initialCompId = openingCompanyId === 'common' ? null : openingCompanyId
+    const initialCompId = suppCompanyId === 'common' || !suppCompanyId ? null : suppCompanyId
     const rateVal = openingCurrency === 'TRY' ? 1 : (parseFloat(openingExchangeRate) || 1)
-    const payload = { company_name: companyName, contact_name: contactName, phone, email, tax_office: taxOffice, tax_id: taxId, address, currency: openingCurrency }
+    const payload: any = { 
+      company_name: companyName, 
+      contact_name: contactName, 
+      phone, 
+      email, 
+      tax_office: taxOffice, 
+      tax_id: taxId, 
+      address, 
+      currency: openingCurrency,
+      tax_number: initialCompId // stores company UUID safely in existing column
+    }
     
     try {
       if (editingId) {
@@ -284,21 +344,36 @@ export default function SuppliersPage() {
            await supabase.from('supplier_transactions').insert([txPayload]);
         }
 
-        const { error } = await supabase.from('suppliers').update(payload).eq('id', editingId)
-        if (error) throw error
+        const fullPayload = { ...payload, company_id: initialCompId }
+        let { error } = await supabase.from('suppliers').update(fullPayload).eq('id', editingId)
+        if (error && error.message?.includes('company_id')) {
+          delete fullPayload.company_id
+          const retry = await supabase.from('suppliers').update(payload).eq('id', editingId)
+          if (retry.error) throw retry.error
+        } else if (error) {
+          throw error
+        }
         
         await recalculateAbsoluteSupplierBalance(editingId);
 
-        await logActivity('supplier', 'UPDATE', `Tedarikçi güncellendi: ${companyName}`, editingId, 0, openingCurrency, oldSupp, payload)
+        await logActivity('supplier', 'UPDATE', `Tedarikçi güncellendi: ${companyName}`, editingId, 0, openingCurrency, oldSupp, fullPayload, initialCompId)
         toast.success('Tedarikçi başarıyla güncellendi.')
 
         if (selectedSupplierId === editingId) fetchTransactions(editingId);
 
       } else {
-        const { data, error } = await supabase.from('suppliers').insert([{ ...payload, balance: 0 }]).select().single()
-        if (error) throw error
+        const fullPayload = { ...payload, company_id: initialCompId, balance: 0 }
+        let { data, error } = await supabase.from('suppliers').insert([fullPayload]).select().single()
+        if (error && error.message?.includes('company_id')) {
+          delete fullPayload.company_id
+          const retry = await supabase.from('suppliers').insert([{ ...payload, balance: 0 }]).select().single()
+          if (retry.error) throw retry.error
+          data = retry.data
+        } else if (error) {
+          throw error
+        }
         
-        await logActivity('supplier', 'INSERT', `Yeni tedarikçi eklendi: ${companyName}`, data.id, 0, openingCurrency, null, data)
+        await logActivity('supplier', 'INSERT', `Yeni tedarikçi eklendi: ${companyName}`, data.id, 0, openingCurrency, null, data, initialCompId)
         
         if (initialBalance > 0) {
            const txPayload = { supplier_id: data.id, company_id: initialCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'debt', amount: initialBalance, currency: openingCurrency, exchange_rate: rateVal }
@@ -738,7 +813,45 @@ export default function SuppliersPage() {
     return ''
   }
 
-  const filteredSuppliers = suppliers.filter(s => s.company_name.toLowerCase().includes(searchTerm.toLowerCase()) || (s.contact_name && s.contact_name.toLowerCase().includes(searchTerm.toLowerCase())))
+  const filteredSuppliers = useMemo(() => {
+    return suppliers.filter(s => {
+      // 1. Yetki kontrolü (Multi-tenant company isolation)
+      const suppCompId = s.company_id || (s.tax_number && s.tax_number.includes('-') ? s.tax_number : null)
+      if (isRestricted && suppCompId && !hasCompanyAccess(suppCompId)) {
+        return false
+      }
+
+      // 2. Seçili şirket filtresi
+      if (selectedCompanyFilter !== 'all') {
+        if (selectedCompanyFilter === 'common') {
+          if (suppCompId) return false
+        } else {
+          if (suppCompId !== selectedCompanyFilter) return false
+        }
+      }
+
+      // 3. Arama kelimesi
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase()
+        const nameMatch = s.company_name?.toLowerCase().includes(term)
+        const contactMatch = s.contact_name && s.contact_name.toLowerCase().includes(term)
+        return nameMatch || contactMatch
+      }
+
+      return true
+    })
+  }, [suppliers, isRestricted, hasCompanyAccess, selectedCompanyFilter, searchTerm])
+
+  useEffect(() => {
+    if (filteredSuppliers.length > 0) {
+      if (!selectedSupplierId || !filteredSuppliers.some(s => s.id === selectedSupplierId)) {
+        setSelectedSupplierId(filteredSuppliers[0].id)
+      }
+    } else {
+      setSelectedSupplierId(null)
+    }
+  }, [filteredSuppliers, selectedSupplierId])
+
   const selectedSupplier = suppliers.find(s => s.id === selectedSupplierId)
   const isEditingDetailedTx = editingTxId && transactions.find(t => t.id === editingTxId)?.is_detailed
 
@@ -765,7 +878,7 @@ export default function SuppliersPage() {
     return { ...t, running_balance: rowBalance }
   })
 
-  const totalDebtTry = suppliers.reduce((acc, s) => {
+  const totalDebtTry = filteredSuppliers.reduce((acc, s) => {
     const rate = s.currency === 'USD' ? rates.USD : s.currency === 'EUR' ? rates.EUR : 1
     return acc + (s.balance * rate)
   }, 0)
@@ -796,10 +909,39 @@ export default function SuppliersPage() {
       </div>
 
       <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
-        <div style={{ animation: 'fadeInUp 0.4s both 0.1s' }} className="w-full lg:w-[400px] bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col shrink-0 shadow-lg">
-          <div className="p-3 border-b border-slate-800/80 bg-[#0a0f1d] rounded-t-xl flex flex-col gap-3 shrink-0">
-            <div className="flex justify-between items-center"><span className="text-xs font-bold text-slate-300">Tedarikçi Listesi ({filteredSuppliers.length})</span><button onClick={openAddModal} className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95"><Plus size={14} /> Yeni Tedarikçi</button></div>
-            <div className="relative"><Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" /><input type="text" placeholder="Firma adı ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-amber-500/50 transition-colors" /></div>
+        <div style={{ animation: 'fadeInUp 0.4s both 0.1s' }} className="w-full lg:w-[420px] bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col shrink-0 shadow-lg">
+          <div className="p-3 border-b border-slate-800/80 bg-[#0a0f1d] rounded-t-xl flex flex-col gap-2.5 shrink-0">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-300">Tedarikçi Listesi ({filteredSuppliers.length})</span>
+              <button onClick={openAddModal} className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 shadow-md shadow-amber-900/20">
+                <Plus size={14} /> Yeni Tedarikçi
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <div className="relative flex-1 min-w-0">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input 
+                  type="text" 
+                  placeholder="Firma veya kişi ara..." 
+                  value={searchTerm} 
+                  onChange={(e) => setSearchTerm(e.target.value)} 
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-amber-500/50 transition-colors" 
+                />
+              </div>
+              <select 
+                value={selectedCompanyFilter} 
+                onChange={(e) => setSelectedCompanyFilter(e.target.value)}
+                className="bg-[#070b14] border border-slate-700 rounded-lg px-2 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-amber-500/50 transition-colors max-w-[130px] shrink-0"
+              >
+                <option value="all">Tüm Merkezler</option>
+                <option value="common">🌍 Ortak / Bağımsız</option>
+                {companies
+                  .filter(c => !isRestricted || hasCompanyAccess(c.id))
+                  .map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+              </select>
+            </div>
           </div>
           <div className="overflow-y-auto flex-1 custom-scrollbar p-2 space-y-1.5">
             {filteredSuppliers.length === 0 ? (
@@ -824,7 +966,21 @@ export default function SuppliersPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-[9px] text-slate-500 truncate mt-0.5">{item.contact_name || '-'}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <p className="text-[9px] text-slate-500 truncate">{item.contact_name || '-'}</p>
+                      <span className="text-slate-700 text-[9px]">•</span>
+                      {item.company ? (
+                        <span className="text-[9px] text-indigo-400/90 flex items-center gap-1 truncate font-medium">
+                          {item.company.is_personal ? <Home size={10} className="shrink-0 text-slate-400" /> : <Building size={10} className="shrink-0 text-indigo-400" />}
+                          <span className="truncate">{item.company.name}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[9px] text-slate-500 flex items-center gap-1 truncate font-medium">
+                          <Globe size={10} className="shrink-0 text-slate-400" />
+                          <span>Ortak</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="text-right shrink-0">
                     <div className={`text-[11px] font-mono font-bold ${item.balance > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
@@ -848,7 +1004,20 @@ export default function SuppliersPage() {
               <div className="p-4 border-b border-slate-800/80 bg-gradient-to-r from-[#0a0f1d] to-[#0d1322] rounded-t-xl shrink-0 flex flex-col md:flex-row justify-between gap-4 relative z-10">
                 <div className="flex-1 w-full">
                   <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-lg font-bold text-white flex items-center gap-2">{selectedSupplier.company_name}</h2>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-lg font-bold text-white flex items-center gap-2">{selectedSupplier.company_name}</h2>
+                      {selectedSupplier.company ? (
+                        <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
+                          {selectedSupplier.company.is_personal ? <Home size={11} className="text-slate-400" /> : <Building size={11} />}
+                          {selectedSupplier.company.name}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
+                          <Globe size={11} className="text-emerald-400" />
+                          Ortak / Bağımsız
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1 bg-black/40 p-1 rounded border border-slate-800"><button onClick={(e) => openEditModal(selectedSupplier, e)} className="text-slate-400 hover:text-amber-400 p-1 transition"><Edit3 size={14} /></button><button onClick={(e) => handleDeleteSupplier(selectedSupplier.id, e)} className="text-slate-400 hover:text-rose-400 p-1 transition"><Trash2 size={14} /></button></div>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] text-slate-400 bg-[#070b14] p-3 rounded-lg border border-slate-800/50">
@@ -884,9 +1053,9 @@ export default function SuppliersPage() {
                     <div className="w-36">
                        <label className="block text-[9px] text-slate-400 mb-0.5">İlgili Merkez *</label>
                        <select value={txCompanyId} onChange={(e) => setTxCompanyId(e.target.value)} required className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors">
-                         <option value="common">🌍 Ortak / Bağımsız İşlem</option>
-                         <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                         <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                         {!isRestricted && <option value="common">🌍 Ortak / Bağımsız İşlem</option>}
+                         <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                         <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
                        </select>
                     </div>
 
@@ -1011,9 +1180,9 @@ export default function SuppliersPage() {
               <div className="w-36">
                  <label className="block text-[10px] text-slate-400 mb-1">İlgili Merkez *</label>
                  <select value={invCompanyId} onChange={(e) => setInvCompanyId(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none transition-colors">
-                   <option value="common">🌍 Ortak İşlem</option>
-                   <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                   <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                   {!isRestricted && <option value="common">🌍 Ortak İşlem</option>}
+                   <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                   <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
                  </select>
               </div>
               <div className="w-36"><label className="block text-[10px] text-slate-400 mb-1">Fatura Tarihi</label><input type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none transition-colors" /></div>
@@ -1075,6 +1244,31 @@ export default function SuppliersPage() {
                 <label className="block text-slate-400 mb-1">Firma / Tedarikçi Adı *</label>
                 <input type="text" required value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-amber-500 transition-colors" />
               </div>
+
+              <div className="col-span-2">
+                <label className="block text-slate-400 mb-1">Ait Olduğu Ticari İşletme / Merkez *</label>
+                <select 
+                  value={suppCompanyId} 
+                  onChange={(e) => {
+                    setSuppCompanyId(e.target.value)
+                    setOpeningCompanyId(e.target.value)
+                  }} 
+                  className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-amber-500 transition-colors"
+                >
+                  <option value="common">🌍 Ortak / Bağımsız (Tüm Merkezler)</option>
+                  <optgroup label="Ticari Şirketler">
+                    {companies.filter(c => !c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Şahsi Merkezler">
+                    {companies.filter(c => c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </optgroup>
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">Bu tedarikçinin bağlı olduğu merkezi belirleyin. Ortak seçilirse tüm merkezler görebilir.</p>
+              </div>
               
               <div className="col-span-2">
                 <label className="block text-slate-400 mb-1">Yetkili Kişi</label>
@@ -1102,22 +1296,8 @@ export default function SuppliersPage() {
                 </div>
 
                 <div className="grid grid-cols-12 gap-2">
-                  {/* İlgili Merkez */}
-                  <div className="col-span-12 sm:col-span-4">
-                    <label className="block text-slate-400 mb-1 text-[10px]">İlgili Merkez</label>
-                    <select 
-                      value={openingCompanyId} 
-                      onChange={(e) => setOpeningCompanyId(e.target.value)} 
-                      className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-white focus:outline-none focus:border-amber-500 transition-colors"
-                    >
-                      <option value="common">🌍 Ortak / Bağımsız</option>
-                      <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                      <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                    </select>
-                  </div>
-
                   {/* Para Birimi */}
-                  <div className={openingCurrency === 'TRY' ? "col-span-5 sm:col-span-3" : "col-span-4 sm:col-span-2"}>
+                  <div className={openingCurrency === 'TRY' ? "col-span-6 sm:col-span-4" : "col-span-4 sm:col-span-3"}>
                     <label className="block text-slate-400 mb-1 text-[10px]">Para Birimi</label>
                     <select 
                       value={openingCurrency} 
@@ -1153,7 +1333,7 @@ export default function SuppliersPage() {
                   )}
 
                   {/* Tutar */}
-                  <div className={openingCurrency === 'TRY' ? "col-span-7 sm:col-span-5" : "col-span-4 sm:col-span-3"}>
+                  <div className={openingCurrency === 'TRY' ? "col-span-6 sm:col-span-8" : "col-span-4 sm:col-span-6"}>
                     <label className="block text-slate-400 mb-1 text-[10px]">
                       {openingCurrency === 'TRY' ? 'Tutar (₺)' : `Tutar (${openingCurrency === 'USD' ? '$' : '€'})`}
                     </label>
