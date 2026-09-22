@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe, AlertTriangle, RefreshCw, Filter, Settings, Tags, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe, AlertTriangle, RefreshCw, Filter, Settings, Tags, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ChevronsUpDown, Tag, ArrowUpDown } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Warehouse = { id: string; name: string; color: string; company_id?: string | null; company?: { name: string; is_personal: boolean } }
@@ -82,6 +82,11 @@ export default function StocksPage() {
   const [selectedFilterCategories, setSelectedFilterCategories] = useState<string[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const categoryScrollRef = useRef<HTMLDivElement>(null)
+
+  const [statusFilter, setStatusFilter] = useState<'all' | 'in_stock' | 'critical' | 'out_of_stock'>('all')
+  const [sortBy, setSortBy] = useState<'capacity' | 'name_asc' | 'qty_desc' | 'qty_asc' | 'price_desc' | 'price_asc'>('capacity')
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
+  const [collapsedSubCategories, setCollapsedSubCategories] = useState<Record<string, boolean>>({})
 
   const [allStocks, setAllStocks] = useState<StockItem[]>([])
   const [selectedStockId, setSelectedStockId] = useState<string | null>(null)
@@ -604,10 +609,65 @@ export default function StocksPage() {
 
   const warehouseStocks = allStocks.filter(s => s.warehouse_id === selectedWarehouseId)
   
-  const filteredStocks = warehouseStocks.filter(s => {
+  // Doğal kapasite algılama (TB, GB, MB, KB)
+  function parseCapacity(name: string): number | null {
+    const match = name.match(/(\d+(?:[.,]\d+)?)\s*(tb|gb|mb|kb)/i);
+    if (!match) return null;
+    const num = parseFloat(match[1].replace(',', '.'));
+    const unit = match[2].toLowerCase();
+    if (unit === 'tb') return num * 1024 * 1024;
+    if (unit === 'gb') return num * 1024;
+    if (unit === 'mb') return num;
+    if (unit === 'kb') return num / 1024;
+    return null;
+  }
+
+  function sortStockItems(items: StockItem[], sortOption: typeof sortBy): StockItem[] {
+    return [...items].sort((a, b) => {
+      // Tükenen ürünleri en alta alma kuralı (stok miktarına göre sıralama hariç)
+      if (sortOption !== 'qty_asc' && sortOption !== 'qty_desc') {
+        if (a.quantity > 0 && b.quantity <= 0) return -1;
+        if (a.quantity <= 0 && b.quantity > 0) return 1;
+      }
+      if (sortOption === 'capacity') {
+        const capA = parseCapacity(a.name);
+        const capB = parseCapacity(b.name);
+        if (capA !== null && capB !== null && capA !== capB) return capA - capB;
+        return a.name.localeCompare(b.name, 'tr-TR', { numeric: true, sensitivity: 'base' });
+      }
+      if (sortOption === 'name_asc') {
+        return a.name.localeCompare(b.name, 'tr-TR', { numeric: true, sensitivity: 'base' });
+      }
+      if (sortOption === 'qty_desc') {
+        return b.quantity - a.quantity;
+      }
+      if (sortOption === 'qty_asc') {
+        return a.quantity - b.quantity;
+      }
+      if (sortOption === 'price_desc') {
+        return b.unit_price - a.unit_price;
+      }
+      if (sortOption === 'price_asc') {
+        return a.unit_price - b.unit_price;
+      }
+      return 0;
+    });
+  }
+
+  const statusFilteredStocks = warehouseStocks.filter(s => {
+    if (statusFilter === 'in_stock') return s.quantity > 0;
+    if (statusFilter === 'critical') return s.quantity > 0 && s.quantity <= 2;
+    if (statusFilter === 'out_of_stock') return s.quantity <= 0;
+    return true;
+  });
+
+  const filteredStocks = statusFilteredStocks.filter(s => {
     const catMatch = selectedFilterCategories.length === 0 || selectedFilterCategories.includes(s.category || 'Kategorisiz')
-    const searchStr = searchTerm.toLowerCase()
-    const searchMatch = !searchTerm || s.name.toLowerCase().includes(searchStr) || (s.sku && s.sku.toLowerCase().includes(searchStr))
+    const searchStr = searchTerm.toLowerCase().trim()
+    const searchMatch = !searchStr || 
+      s.name.toLowerCase().includes(searchStr) || 
+      (s.sku && s.sku.toLowerCase().includes(searchStr)) ||
+      (s.sub_category && s.sub_category.toLowerCase().includes(searchStr))
     return catMatch && searchMatch
   })
 
@@ -616,9 +676,78 @@ export default function StocksPage() {
     (s.name.toLowerCase().includes(quickSearchTerm.toLowerCase()) || (s.sku && s.sku.toLowerCase().includes(quickSearchTerm.toLowerCase())))
   )
 
-  const groupedStocks = filteredStocks.reduce((acc, stock) => {
-    const cat = stock.category || 'Kategorisiz'; if (!acc[cat]) acc[cat] = []; acc[cat].push(stock); return acc
-  }, {} as Record<string, StockItem[]>)
+  type SubGroup = { name: string; items: StockItem[] }
+  type CatGroup = { name: string; totalCount: number; totalQuantity: number; subGroups: SubGroup[] }
+
+  const groupedHierarchy: CatGroup[] = useMemo(() => {
+    const catMap = new Map<string, Map<string, StockItem[]>>();
+
+    filteredStocks.forEach(item => {
+      const cat = (item.category || 'Kategorisiz').trim();
+      const subCat = (item.sub_category || '').trim();
+
+      if (!catMap.has(cat)) catMap.set(cat, new Map());
+      const subMap = catMap.get(cat)!;
+      const subKey = subCat || '__NONE__';
+      if (!subMap.has(subKey)) subMap.set(subKey, []);
+      subMap.get(subKey)!.push(item);
+    });
+
+    const result: CatGroup[] = [];
+
+    catMap.forEach((subMap, catName) => {
+      let catTotalCount = 0;
+      let catTotalQty = 0;
+      const subGroups: SubGroup[] = [];
+
+      subMap.forEach((items, subKey) => {
+        const sorted = sortStockItems(items, sortBy);
+        catTotalCount += items.length;
+        catTotalQty += items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+        subGroups.push({
+          name: subKey === '__NONE__' ? (subMap.size > 1 ? 'Diğer / Genel' : '') : subKey,
+          items: sorted
+        });
+      });
+
+      subGroups.sort((a, b) => {
+        if (!a.name || a.name.includes('Diğer')) return 1;
+        if (!b.name || b.name.includes('Diğer')) return -1;
+        return a.name.localeCompare(b.name, 'tr-TR');
+      });
+
+      result.push({
+        name: catName,
+        totalCount: catTotalCount,
+        totalQuantity: catTotalQty,
+        subGroups
+      });
+    });
+
+    result.sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'));
+    return result;
+  }, [filteredStocks, sortBy]);
+
+  const toggleCategory = (catName: string) => {
+    setCollapsedCategories(prev => ({ ...prev, [catName]: !prev[catName] }));
+  };
+
+  const toggleSubCategory = (subKey: string) => {
+    setCollapsedSubCategories(prev => ({ ...prev, [subKey]: !prev[subKey] }));
+  };
+
+  const isAllCollapsed = groupedHierarchy.length > 0 && groupedHierarchy.every(g => !!collapsedCategories[g.name]);
+
+  const toggleAll = () => {
+    if (isAllCollapsed) {
+      setCollapsedCategories({});
+      setCollapsedSubCategories({});
+    } else {
+      const allC: Record<string, boolean> = {};
+      groupedHierarchy.forEach(g => { allC[g.name] = true });
+      setCollapsedCategories(allC);
+    }
+  };
 
   const selectedStock = allStocks.find(s => s.id === selectedStockId)
   const activeWarehouse = warehouses.find(w => w.id === selectedWarehouseId)
@@ -680,7 +809,66 @@ export default function StocksPage() {
             </div>
             <div className="relative">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input type="text" placeholder="Stoklarda ürün veya SKU ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" />
+              <input type="text" placeholder="Stoklarda ürün, alt kategori veya SKU ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" />
+            </div>
+
+            {/* Durum & Sıralama Kontrolleri */}
+            <div className="flex items-center justify-between gap-1 pt-0.5 text-[10px]">
+              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+                <button 
+                  type="button"
+                  onClick={() => setStatusFilter('all')} 
+                  className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none cursor-pointer ${statusFilter === 'all' ? 'bg-indigo-600 border-indigo-500 text-white font-bold' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-slate-400'}`}
+                >
+                  Tümü ({warehouseStocks.length})
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setStatusFilter('in_stock')} 
+                  className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none cursor-pointer ${statusFilter === 'in_stock' ? 'bg-emerald-600 border-emerald-500 text-white font-bold' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-emerald-400/80 hover:text-emerald-300'}`}
+                >
+                  Stokta ({warehouseStocks.filter(s => s.quantity > 0).length})
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setStatusFilter('critical')} 
+                  className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none cursor-pointer ${statusFilter === 'critical' ? 'bg-amber-600 border-amber-500 text-white font-bold' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-amber-400/80 hover:text-amber-300'}`}
+                >
+                  Kritik ({warehouseStocks.filter(s => s.quantity > 0 && s.quantity <= 2).length})
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setStatusFilter('out_of_stock')} 
+                  className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none cursor-pointer ${statusFilter === 'out_of_stock' ? 'bg-rose-600 border-rose-500 text-white font-bold' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-rose-400/80 hover:text-rose-300'}`}
+                >
+                  Tükenen ({warehouseStocks.filter(s => s.quantity <= 0).length})
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="bg-[#070b14] border border-slate-700 text-indigo-300 text-[10px] rounded px-1.5 py-0.5 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  title="Sıralama Ölçütü"
+                >
+                  <option value="capacity">⚡ Boyut / Kapasite</option>
+                  <option value="name_asc">🔤 İsim (A-Z)</option>
+                  <option value="qty_desc">📦 Stok (Çoktan Aza)</option>
+                  <option value="qty_asc">⚠️ Stok (Azdan Çoğa)</option>
+                  <option value="price_desc">💰 Fiyat (Pahalı-Ucuz)</option>
+                  <option value="price_asc">🏷️ Fiyat (Ucuz-Pahalı)</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={toggleAll}
+                  className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-indigo-300 transition-colors cursor-pointer"
+                  title={isAllCollapsed ? "Tümünü Genişlet" : "Tümünü Daralt"}
+                >
+                  <ChevronsUpDown size={13} />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -740,49 +928,134 @@ export default function StocksPage() {
           )}
           
           <div className="overflow-y-auto flex-1 custom-scrollbar">
-            {Object.keys(groupedStocks).length === 0 ? (
+            {groupedHierarchy.length === 0 ? (
               <div className="flex flex-col items-center justify-center p-8 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner mt-4 mx-2">
                 <Package size={32} className="mb-3 opacity-70 text-indigo-400 animate-bounce" />
                 <p className="text-[11px] font-bold text-slate-400">Kriterlere uygun ürün yok</p>
                 <p className="text-[9px] mt-1 text-slate-500">Lütfen arama kelimenizi veya filtrelerinizi değiştirin.</p>
               </div>
             ) : (
-              Object.keys(groupedStocks).map((catName) => (
-                <div key={catName}>
-                  <div className="sticky top-0 bg-[#0d1322]/95 backdrop-blur text-[10px] font-bold text-indigo-400 uppercase px-3 py-1.5 border-b border-slate-800/50 z-10 flex items-center gap-1.5">
-                    <Layers size={12} /> {catName}
-                  </div>
-                  <div className="divide-y divide-slate-800/50">
-                    {groupedStocks[catName].map((item, idx) => {
-                      const isSelected = item.id === selectedStockId
-                      const unitTry = getTryEquivalent(item.unit_price, item.currency)
-                      const unitUsd = getUsdEquivalent(unitTry)
-                      const displayUnit = item.unit === 'Adet' ? 'ad.' : item.unit
-                      
-                      return (
-                        <div 
-                          key={item.id} 
-                          onClick={() => setSelectedStockId(item.id)} 
-                          style={{ animation: 'fadeSlideRight 0.3s both', animationDelay: `${0.1 + (idx * 0.03)}s` }}
-                          className={`flex items-center justify-between text-[11px] py-2 px-3 cursor-pointer transition-colors ${isSelected ? 'bg-indigo-900/20' : 'hover:bg-slate-800/30'}`}
-                        >
-                          <div className="font-normal text-slate-300 truncate pr-2 flex-1">{item.name}</div>
-                          <div className="flex items-center gap-4 shrink-0 font-mono">
-                            <div className="text-slate-400 flex items-center">
-                              <span className={item.currency === 'USD' ? 'text-indigo-300 font-semibold' : ''}>{formatMoney(unitUsd, 'USD').formatted}</span>
-                              <span className="mx-1.5 text-slate-600">/</span>
-                              <span className={item.currency === 'TRY' ? 'text-indigo-300 font-semibold' : ''}>{formatMoney(unitTry, 'TRY').formatted}</span>
+              groupedHierarchy.map((catGroup) => {
+                const isCatCollapsed = !!collapsedCategories[catGroup.name];
+
+                return (
+                  <div key={catGroup.name} className="border-b border-slate-800/80 last:border-b-0">
+                    {/* KATEGORİ BAŞLIĞI (Akordeon) */}
+                    <div 
+                      onClick={() => toggleCategory(catGroup.name)}
+                      className="sticky top-0 bg-[#0a0f1d]/95 backdrop-blur-md px-3 py-2 border-b border-slate-800/80 z-10 flex items-center justify-between cursor-pointer hover:bg-slate-800/60 transition-colors select-none group"
+                    >
+                      <div className="flex items-center gap-2 min-w-0 pr-2">
+                        <span className="text-slate-500 group-hover:text-indigo-400 transition-transform">
+                          {isCatCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                        </span>
+                        <Layers size={13} className="text-indigo-400 shrink-0" />
+                        <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-wide truncate">
+                          {catGroup.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-mono">
+                        <span className="px-1.5 py-0.2 rounded bg-indigo-950/80 border border-indigo-500/30 text-indigo-300">
+                          {catGroup.totalCount} ürün
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded bg-slate-800/90 text-emerald-400 font-medium border border-slate-700">
+                          {catGroup.totalQuantity} ad.
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* KATEGORİ İÇERİĞİ */}
+                    {!isCatCollapsed && (
+                      <div className="bg-[#070b14]/50">
+                        {catGroup.subGroups.map((subGroup) => {
+                          const subKey = `${catGroup.name}__${subGroup.name}`;
+                          const isSubCollapsed = !!collapsedSubCategories[subKey];
+                          const hasSubHeader = !!subGroup.name;
+
+                          return (
+                            <div key={subKey} className="border-b border-slate-800/40 last:border-b-0">
+                              {/* ALT KATEGORİ BAŞLIĞI (Eğer tanımlıysa) */}
+                              {hasSubHeader && (
+                                <div 
+                                  onClick={() => toggleSubCategory(subKey)}
+                                  className="bg-[#080d19] px-3 py-1.5 border-b border-slate-800/30 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition-colors select-none group/sub"
+                                >
+                                  <div className="flex items-center gap-1.5 pl-3 min-w-0 pr-2">
+                                    <span className="text-slate-500 group-hover/sub:text-teal-400 transition-transform">
+                                      {isSubCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+                                    </span>
+                                    <Tag size={11} className="text-teal-400/80 shrink-0" />
+                                    <span className="text-[10px] font-semibold text-teal-300 truncate">
+                                      {subGroup.name}
+                                    </span>
+                                  </div>
+                                  <span className="text-[9px] text-slate-400 font-mono pr-1">
+                                    {subGroup.items.length} ürün
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* ÜRÜN LİSTESİ */}
+                              {!isSubCollapsed && (
+                                <div className="divide-y divide-slate-800/40">
+                                  {subGroup.items.map((item, idx) => {
+                                    const isSelected = item.id === selectedStockId
+                                    const unitTry = getTryEquivalent(item.unit_price, item.currency)
+                                    const unitUsd = getUsdEquivalent(unitTry)
+                                    const displayUnit = item.unit === 'Adet' ? 'ad.' : item.unit
+
+                                    return (
+                                      <div 
+                                        key={item.id} 
+                                        onClick={() => setSelectedStockId(item.id)} 
+                                        style={{ animation: 'fadeSlideRight 0.25s both', animationDelay: `${Math.min(idx * 0.02, 0.3)}s` }}
+                                        className={`flex items-center justify-between text-[11px] py-2 px-3 ${hasSubHeader ? 'pl-7' : 'pl-4'} cursor-pointer transition-colors ${isSelected ? 'bg-indigo-900/30 border-l-2 border-l-indigo-400' : 'hover:bg-slate-800/30'} ${item.quantity <= 0 ? 'opacity-60 bg-rose-950/5' : ''}`}
+                                      >
+                                        <div className="flex items-center gap-1.5 min-w-0 pr-2 flex-1">
+                                          <span className={`font-normal truncate ${item.quantity <= 0 ? 'text-slate-400 line-through decoration-slate-600' : 'text-slate-200'}`}>
+                                            {item.name}
+                                          </span>
+                                          {item.sku && (
+                                            <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-mono shrink-0">
+                                              {item.sku}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-3 shrink-0 font-mono text-[10px]">
+                                          <div className="text-slate-400 flex items-center">
+                                            <span className={item.currency === 'USD' ? 'text-indigo-300 font-semibold' : ''}>{formatMoney(unitUsd, 'USD').formatted}</span>
+                                            <span className="mx-1 text-slate-600">/</span>
+                                            <span className={item.currency === 'TRY' ? 'text-indigo-300 font-semibold' : ''}>{formatMoney(unitTry, 'TRY').formatted}</span>
+                                          </div>
+                                          <div className="w-16 text-right">
+                                            {item.quantity <= 0 ? (
+                                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">
+                                                0 {displayUnit}
+                                              </span>
+                                            ) : item.quantity <= 2 ? (
+                                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
+                                                {item.quantity} {displayUnit}
+                                              </span>
+                                            ) : (
+                                              <span className="text-emerald-400 font-medium">
+                                                {item.quantity} <span className="text-[9px] text-emerald-400/70">{displayUnit}</span>
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
                             </div>
-                            <div className="text-emerald-400 font-medium w-16 text-right">
-                              {item.quantity} <span className="text-[9px] text-emerald-400/70">{displayUnit}</span>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
