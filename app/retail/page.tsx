@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Calendar, ChevronLeft, ChevronRight, Save, Wallet, CreditCard, Eye, EyeOff, Landmark, X, Trash2, StickyNote, Loader2, AlertTriangle, Settings, ArrowRightLeft, Package, Search } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, Save, Wallet, CreditCard, Eye, EyeOff, Landmark, X, Trash2, StickyNote, Loader2, AlertTriangle, Settings, ArrowRightLeft, Package, Search, Wrench, ExternalLink } from 'lucide-react'
 import { formatMoney } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import toast, { Toaster } from 'react-hot-toast'
@@ -51,6 +51,17 @@ type CashRegister = { id: string; name: string; currency: string }
 type Warehouse = { id: string; name: string; company_id?: string | null }
 type RawStock = { id: string; name: string; sku: string; quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
 type CardDetail = { id: string; name: string; current_debt: number; card_limit: number; company_id: string | null }
+
+type DeliveredTicketSummary = {
+  id: string;
+  ticket_no: string;
+  customer_name: string;
+  brand_model: string;
+  total_cost: number;
+  payment_method: string | null;
+  payment_status: string;
+  delivered_at: string | null;
+}
 
 type PosSettings = {
   targetCashId: string;
@@ -120,6 +131,7 @@ export default function RetailPOSPage() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
 
   const [transfers, setTransfers] = useState<BankTransfer[]>([])
+  const [deliveredTickets, setDeliveredTickets] = useState<DeliveredTicketSummary[]>([])
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false)
   const [transferForm, setTransferForm] = useState({ type: 'to_bank' as 'to_bank' | 'from_bank', bankId: '', amountStr: '', description: '' })
 
@@ -365,6 +377,30 @@ export default function RetailPOSPage() {
       }
       
       setOpeningCash(formatValue(expectedOpening));
+
+      // Günün Teslim Edilen Teknik Servis Fişlerini Çek (Bilgi amaçlı - Z-Raporuna dahil edilmez)
+      try {
+        const targetDateObj = new Date(dateStr);
+        const prevDate = new Date(targetDateObj.getTime() - 86400000).toISOString().split('T')[0];
+        const nextDate = new Date(targetDateObj.getTime() + 86400000).toISOString().split('T')[0];
+
+        const { data: ticketsData } = await supabase
+          .from('technical_service_tickets')
+          .select('id, ticket_no, customer_name, brand_model, total_cost, payment_method, payment_status, delivered_at')
+          .eq('status', 'delivered')
+          .gte('delivered_at', `${prevDate}T00:00:00Z`)
+          .lte('delivered_at', `${nextDate}T23:59:59Z`)
+          .order('delivered_at', { ascending: false });
+
+        const dayTickets = (ticketsData || []).filter(t => {
+          if (!t.delivered_at) return false;
+          return new Date(t.delivered_at).toLocaleDateString('en-CA') === dateStr;
+        });
+        setDeliveredTickets(dayTickets);
+      } catch (err) {
+        console.error('Teslim edilen servis fişleri yüklenemedi:', err);
+        setDeliveredTickets([]);
+      }
 
       const draftKey = `ctc_pos_draft_${dateStr}`
       const draftStr = localStorage.getItem(draftKey)
@@ -679,6 +715,14 @@ export default function RetailPOSPage() {
   const retailCash = retailRows.reduce((acc, row) => acc + parseValue(row.cash), 0)
   const retailCard = retailRows.reduce((acc, row) => acc + parseValue(row.card), 0)
 
+  const deliveredTicketsTotal = deliveredTickets.reduce((acc, t) => acc + (Number(t.total_cost) || 0), 0)
+  const deliveredTicketsCash = deliveredTickets
+    .filter(t => t.payment_method === 'cash')
+    .reduce((acc, t) => acc + (Number(t.total_cost) || 0), 0)
+  const deliveredTicketsCard = deliveredTickets
+    .filter(t => t.payment_method === 'card')
+    .reduce((acc, t) => acc + (Number(t.total_cost) || 0), 0)
+
   const expenseRows = rows.filter(r => r.categoryId === EXPENSE_CATEGORY_ID)
   const expenseCash = expenseRows.reduce((acc, row) => acc + parseValue(row.cash), 0)
   const expenseCard = expenseRows.reduce((acc, row) => acc + parseValue(row.card), 0)
@@ -989,6 +1033,11 @@ export default function RetailPOSPage() {
                </button>
             )}
             <span className="truncate">{category.name}</span>
+            {category.id === 'servis' && deliveredTickets.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-teal-950/80 border border-teal-300/40 text-teal-200 text-[9px] rounded font-mono shrink-0" title="Bugün teslim edilen servis fişi sayısı">
+                {deliveredTickets.length} Fiş Teslim
+              </span>
+            )}
           </div>
           <div className="flex items-center shrink-0 text-[10px] font-mono font-normal">
             <div className="w-[55px] flex flex-col items-end pr-1 justify-center">
@@ -1193,6 +1242,75 @@ export default function RetailPOSPage() {
             )
           })}
         </div>
+
+        {category.id === 'servis' && (
+          <div className="border-t border-teal-500/20 bg-[#08101d] p-2 flex flex-col">
+            <div className="flex items-center justify-between pb-1 border-b border-slate-800">
+              <div className="flex items-center gap-1.5 text-teal-400 font-bold text-[10px]">
+                <Wrench size={11} className="text-teal-400" />
+                <span>Günün Teslim Edilen Servis Fişleri ({deliveredTickets.length})</span>
+              </div>
+              <span className="text-[9px] text-slate-400 italic">
+                {deliveredTickets.length > 0 ? '* Fişten tahsil edildi' : ''}
+              </span>
+            </div>
+
+            {deliveredTickets.length > 0 ? (
+              <>
+                <div className="divide-y divide-slate-800/60 max-h-40 overflow-y-auto custom-scrollbar my-1">
+                  {deliveredTickets.map(t => (
+                    <div key={t.id} className="py-1.5 flex items-center justify-between text-[10px] hover:bg-slate-800/40 px-1 rounded transition-colors">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-2">
+                        <a
+                          href={`/technical-service?search=${t.ticket_no}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono font-bold text-teal-300 hover:text-teal-200 flex items-center gap-0.5 shrink-0 hover:underline"
+                          title="Teknik Servis sayfasına git"
+                        >
+                          {t.ticket_no}
+                          <ExternalLink size={9} />
+                        </a>
+                        <span className="text-slate-300 truncate font-sans">
+                          {t.brand_model} • <span className="text-slate-400">{t.customer_name}</span>
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 font-mono">
+                        <span className={`text-[8px] px-1.5 py-0.5 rounded font-sans font-medium border ${
+                          t.payment_method === 'cash' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
+                          t.payment_method === 'card' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' :
+                          t.payment_method === 'customer_account' ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
+                          'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}>
+                          {t.payment_method === 'cash' ? 'Nakit' :
+                           t.payment_method === 'card' ? 'K.Kartı' :
+                           t.payment_method === 'customer_account' ? 'Veresiye' : 'Ücretsiz'}
+                        </span>
+                        <span className="text-slate-100 font-bold text-[10px]">
+                          {formatMoney(t.total_cost, 'TRY').formatted}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[9px] font-mono">
+                  <span className="text-slate-400">Fişli Servis Cirosu:</span>
+                  <span className="text-teal-300 font-bold">{formatMoney(deliveredTicketsTotal, 'TRY').formatted}</span>
+                </div>
+                <div className="flex items-center justify-between text-[10px] font-mono font-bold text-slate-200 mt-0.5">
+                  <span className="text-slate-400 font-sans text-[9px]">Günün Toplam Servis Hacmi:</span>
+                  <span className="text-emerald-400">{formatMoney(catCash + catCard + deliveredTicketsTotal, 'TRY').formatted}</span>
+                </div>
+              </>
+            ) : (
+              <div className="py-2 text-center text-slate-400 text-[10px] italic">
+                Bugün teknik servisten teslim edilen fişli cihaz bulunmuyor.
+              </div>
+            )}
+          </div>
+        )}
       </div>
     )
   }
