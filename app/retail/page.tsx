@@ -1093,9 +1093,9 @@ export default function RetailPOSPage() {
       <div 
         key={category.id} 
         style={{ animation: 'fadeInUp 0.4s both', animationDelay: `${0.1 + (index * 0.08)}s` }}
-        className="bg-[#070b14] border border-slate-700 rounded-lg flex flex-col overflow-hidden shadow-lg w-full break-inside-avoid hover:border-slate-500/50 transition-colors"
+        className={`bg-[#070b14] border border-slate-700 rounded-lg flex flex-col shadow-lg w-full break-inside-avoid hover:border-slate-500/50 transition-colors ${catRows.some(r => r.id === activeDropdownId) ? 'z-30 relative' : 'relative'}`}
       >
-        <div className={`${category.color} px-2.5 py-1.5 flex justify-between items-center text-white text-[11px] font-normal`}>
+        <div className={`${category.color} rounded-t-[7px] px-2.5 py-1.5 flex justify-between items-center text-white text-[11px] font-normal`}>
           <div className="flex items-center gap-1.5 overflow-hidden pr-2 flex-1 min-w-0">
             {!isExpenseCat && (
                <button onClick={() => toggleCostColumn(category.id)} className="p-1 bg-black/20 hover:bg-black/40 rounded transition-colors shrink-0">
@@ -1136,9 +1136,11 @@ export default function RetailPOSPage() {
           {catRows.map((row, index) => {
             const isFirst = index === 0;
             const searchQ = (row.description || '').trim().toLocaleLowerCase('tr-TR');
+            const isUpward = index >= 3;
+            const isDropdownOpen = activeDropdownId === row.id && !isExpenseCat;
             
             // Açıklama girerken veya alana tıklandığında mağaza deposundaki ürünleri listele ve filtrele
-            const rowFilteredStocks = (activeDropdownId === row.id && !isExpenseCat)
+            const rowFilteredStocks = isDropdownOpen
               ? storeStocks.filter(s => {
                   if (!searchQ) return true; // Boşken depodaki tüm ürünler listelensin
                   return s.name.toLocaleLowerCase('tr-TR').includes(searchQ) || (s.sku && s.sku.toLocaleLowerCase('tr-TR').includes(searchQ));
@@ -1150,7 +1152,7 @@ export default function RetailPOSPage() {
               : [];
 
             return (
-            <div key={row.id} className="flex text-[11px] hover:bg-slate-800/50 transition-colors group">
+            <div key={row.id} className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${isDropdownOpen ? 'z-40 relative' : ''}`}>
               
               <div className="flex-1 min-w-[50px] relative flex">
                 <div className={`flex items-center w-full bg-transparent border-r border-slate-700 focus-within:bg-indigo-900/20 transition-colors ${row.stockId ? 'bg-emerald-900/10' : ''}`}>
@@ -1195,10 +1197,10 @@ export default function RetailPOSPage() {
                    )}
                 </div>
                 
-                {activeDropdownId === row.id && !isExpenseCat && (
+                {isDropdownOpen && (
                    <div 
                      onMouseDown={(e) => e.stopPropagation()}
-                     className="absolute top-full left-0 z-50 mt-0.5 bg-[#0f172a] border border-indigo-500/50 rounded-xl shadow-2xl overflow-hidden max-h-52 w-full min-w-[240px] sm:min-w-[280px] flex flex-col animate-in fade-in duration-150"
+                     className={`absolute ${isUpward ? 'bottom-full mb-1 origin-bottom' : 'top-full mt-0.5 origin-top'} left-0 z-50 bg-[#0f172a] border border-indigo-500/50 rounded-xl shadow-2xl shadow-black/80 overflow-hidden max-h-56 w-full min-w-[260px] sm:min-w-[320px] flex flex-col animate-in fade-in zoom-in-95 duration-150`}
                    >
                       <div className="px-2.5 py-1.5 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between text-[10px] text-indigo-300 font-normal shrink-0">
                          <div className="flex items-center gap-1.5">
@@ -1314,7 +1316,7 @@ export default function RetailPOSPage() {
         </div>
 
         {category.id === 'servis' && (
-          <div className="border-t border-teal-500/20 bg-[#08101d] p-2 flex flex-col">
+          <div className="border-t border-teal-500/20 bg-[#08101d] rounded-b-[7px] p-2 flex flex-col">
             <div className="flex items-center justify-between pb-1 border-b border-slate-800">
               <div className="flex items-center gap-1.5 text-teal-400 font-bold text-[10px]">
                 <Wrench size={11} className="text-teal-400" />
