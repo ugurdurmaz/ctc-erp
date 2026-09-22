@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe, AlertTriangle, RefreshCw, Filter, Settings, Tags, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ChevronsUpDown, Tag, ArrowUpDown } from 'lucide-react'
+import { Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe, AlertTriangle, RefreshCw, Filter, Settings, Tags, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ChevronsUpDown, Tag, ArrowUpDown, Check, Folder, FolderPlus } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Warehouse = { id: string; name: string; color: string; company_id?: string | null; company?: { name: string; is_personal: boolean } }
@@ -79,6 +79,14 @@ export default function StocksPage() {
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null)
   
   const [categories, setCategories] = useState<StockCategory[]>([])
+  const [subCategories, setSubCategories] = useState<{ id: string; category: string; name: string }[]>([])
+  const [manageCatExpanded, setManageCatExpanded] = useState<Record<string, boolean>>({})
+  const [newCatNameInput, setNewCatNameInput] = useState('')
+  const [newSubCatInputs, setNewSubCatInputs] = useState<Record<string, string>>({})
+  const [inlineEditingCatId, setInlineEditingCatId] = useState<string | null>(null)
+  const [inlineEditingCatName, setInlineEditingCatName] = useState('')
+  const [inlineEditingSubKey, setInlineEditingSubKey] = useState<string | null>(null)
+  const [inlineEditingSubName, setInlineEditingSubName] = useState('')
   const [selectedFilterCategories, setSelectedFilterCategories] = useState<string[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const categoryScrollRef = useRef<HTMLDivElement>(null)
@@ -212,8 +220,52 @@ export default function StocksPage() {
     try {
       const { data, error } = await supabase.from('stock_categories').select('*').eq('warehouse_id', whId).order('name', { ascending: true })
       if (error) throw error
-      setCategories(data || [])
+      const main: StockCategory[] = []
+      const subs: { id: string; category: string; name: string }[] = []
+      ;(data || []).forEach(item => {
+        if (item.name && item.name.startsWith('SUB::')) {
+          const parts = item.name.split('::')
+          if (parts.length >= 3) {
+            subs.push({
+              id: item.id,
+              category: parts[1],
+              name: parts.slice(2).join('::')
+            })
+          }
+        } else {
+          main.push(item)
+        }
+      })
+      setCategories(main)
+      setSubCategories(subs)
     } catch (err) { console.error(err) }
+  }
+
+  const getSubCategoriesForCategory = (catName: string) => {
+    if (!catName) return []
+    const map = new Map<string, { name: string; count: number; id?: string }>()
+
+    // 1. Tanımlı alt kategoriler
+    subCategories
+      .filter(s => s.category.trim().toLowerCase() === catName.trim().toLowerCase())
+      .forEach(s => {
+        map.set(s.name, { name: s.name, count: 0, id: s.id })
+      })
+
+    // 2. Bu depoda mevcut ürünlerde fiilen kullanılan alt kategoriler
+    warehouseStocks
+      .filter(st => (st.category || '').trim().toLowerCase() === catName.trim().toLowerCase() && st.sub_category && st.sub_category.trim())
+      .forEach(st => {
+        const subName = st.sub_category.trim()
+        const existing = map.get(subName)
+        if (existing) {
+          existing.count += 1
+        } else {
+          map.set(subName, { name: subName, count: 1 })
+        }
+      })
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'))
   }
 
   async function fetchTransactions(stockId: string) {
@@ -297,6 +349,176 @@ export default function StocksPage() {
     })
   }
 
+  async function handleCreateCategory(e?: React.FormEvent) {
+    if (e) e.preventDefault()
+    const trimmed = newCatNameInput.trim()
+    if (!trimmed || !selectedWarehouseId) return
+
+    if (categories.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error('Bu isimde bir kategori zaten mevcut.')
+      return
+    }
+
+    try {
+      const { data, error } = await supabase.from('stock_categories').insert([{ name: trimmed, warehouse_id: selectedWarehouseId }]).select().single()
+      if (error) throw error
+      await logActivity('stock_category', 'INSERT', `Yeni stok kategorisi eklendi: ${trimmed}`, data.id, 0, '', null, data, null)
+      toast.success(`"${trimmed}" kategorisi eklendi.`)
+      setNewCatNameInput('')
+      fetchCategories(selectedWarehouseId)
+      setManageCatExpanded(prev => ({ ...prev, [data.id]: true }))
+    } catch (err: any) {
+      toast.error('Kategori eklenemedi: ' + err.message)
+    }
+  }
+
+  async function handleSaveInlineCategory(id: string) {
+    const trimmed = inlineEditingCatName.trim()
+    const oldCat = categories.find(c => c.id === id)
+    if (!oldCat) return
+    if (!trimmed || trimmed === oldCat.name) {
+      setInlineEditingCatId(null)
+      return
+    }
+
+    if (categories.some(c => c.id !== id && c.name.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error('Bu isimde bir kategori zaten var.')
+      return
+    }
+
+    try {
+      const { error } = await supabase.from('stock_categories').update({ name: trimmed }).eq('id', id)
+      if (error) throw error
+
+      // Alt kategorilerin SUB:: prefixlerini güncelle
+      const subsToUpdate = subCategories.filter(s => s.category === oldCat.name)
+      for (const s of subsToUpdate) {
+        await supabase.from('stock_categories').update({ name: `SUB::${trimmed}::${s.name}` }).eq('id', s.id)
+      }
+
+      // Ürünlerdeki kategori ismini güncelle
+      await supabase.from('stocks').update({ category: trimmed }).eq('category', oldCat.name).eq('warehouse_id', selectedWarehouseId)
+
+      await logActivity('stock_category', 'UPDATE', `Kategori güncellendi: ${trimmed}`, id, 0, '', oldCat, { name: trimmed }, null)
+      toast.success('Kategori güncellendi.')
+      setInlineEditingCatId(null)
+      fetchCategories(selectedWarehouseId!)
+      fetchAllStocks()
+    } catch (err: any) {
+      toast.error('Güncelleme başarısız: ' + err.message)
+    }
+  }
+
+  function handleDeleteCategory(id: string, catName: string) {
+    const catStocksCount = warehouseStocks.filter(s => s.category === catName).length
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Kategoriyi Sil',
+      message: `"${catName}" kategorisini ve altındaki tüm alt kategorileri silmek istediğinize emin misiniz? ${catStocksCount > 0 ? `Bu kategoriye ait ${catStocksCount} adet ürünün kategorisi "Kategorisiz" yapılacaktır.` : ''}`,
+      confirmText: 'Evet, Sil',
+      cancelText: 'Vazgeç',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+        try {
+          const catToDelete = categories.find(c => c.id === id)
+          await supabase.from('stocks').update({ category: null, sub_category: null }).eq('category', catName).eq('warehouse_id', selectedWarehouseId)
+          
+          const subsToDelete = subCategories.filter(s => s.category === catName)
+          for (const s of subsToDelete) {
+            await supabase.from('stock_categories').delete().eq('id', s.id)
+          }
+
+          await supabase.from('stock_categories').delete().eq('id', id)
+          await logActivity('stock_category', 'DELETE', `Stok kategorisi silindi: ${catToDelete?.name}`, id, 0, '', catToDelete, null, null)
+          
+          toast.success('Kategori silindi.')
+          setSelectedFilterCategories([])
+          fetchCategories(selectedWarehouseId!)
+          fetchAllStocks()
+        } catch (err: any) { toast.error('Silme başarısız: ' + err.message) }
+      }
+    })
+  }
+
+  async function handleCreateSubCategory(catName: string, catId: string) {
+    const subInput = (newSubCatInputs[catId] || '').trim()
+    if (!subInput || !selectedWarehouseId) return
+
+    const existingSubs = getSubCategoriesForCategory(catName)
+    if (existingSubs.some(s => s.name.toLowerCase() === subInput.toLowerCase())) {
+      toast.error('Bu alt kategori zaten mevcut.')
+      return
+    }
+
+    try {
+      const dbName = `SUB::${catName}::${subInput}`
+      const { data, error } = await supabase.from('stock_categories').insert([{ name: dbName, warehouse_id: selectedWarehouseId }]).select().single()
+      if (error) throw error
+      await logActivity('stock_category', 'INSERT', `Yeni alt kategori eklendi: ${catName} > ${subInput}`, data.id, 0, '', null, data, null)
+      toast.success(`"${subInput}" alt kategorisi eklendi.`)
+      setNewSubCatInputs(prev => ({ ...prev, [catId]: '' }))
+      fetchCategories(selectedWarehouseId)
+    } catch (err: any) {
+      toast.error('Alt kategori eklenemedi: ' + err.message)
+    }
+  }
+
+  async function handleSaveInlineSubCategory(catName: string, oldSubName: string, subId?: string) {
+    const trimmed = inlineEditingSubName.trim()
+    if (!trimmed || trimmed === oldSubName) {
+      setInlineEditingSubKey(null)
+      return
+    }
+
+    try {
+      if (subId) {
+        await supabase.from('stock_categories').update({ name: `SUB::${catName}::${trimmed}` }).eq('id', subId)
+      } else {
+        await supabase.from('stock_categories').insert([{ name: `SUB::${catName}::${trimmed}`, warehouse_id: selectedWarehouseId }])
+      }
+
+      await supabase.from('stocks').update({ sub_category: trimmed }).eq('category', catName).eq('sub_category', oldSubName).eq('warehouse_id', selectedWarehouseId)
+
+      await logActivity('stock_category', 'UPDATE', `Alt kategori güncellendi: ${catName} > ${trimmed}`, subId || null, 0, '', { name: oldSubName }, { name: trimmed }, null)
+      toast.success('Alt kategori güncellendi.')
+      setInlineEditingSubKey(null)
+      fetchCategories(selectedWarehouseId!)
+      fetchAllStocks()
+    } catch (err: any) {
+      toast.error('Güncelleme başarısız: ' + err.message)
+    }
+  }
+
+  function handleDeleteSubCategory(catName: string, subName: string, subId?: string, count: number = 0) {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Alt Kategoriyi Sil',
+      message: `"${subName}" alt kategorisini silmek istediğinize emin misiniz? ${count > 0 ? `Bu alt kategoriye ait ${count} adet ürünün alt kategorisi kaldırılacaktır.` : ''}`,
+      confirmText: 'Evet, Sil',
+      cancelText: 'Vazgeç',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+        try {
+          if (subId) {
+            await supabase.from('stock_categories').delete().eq('id', subId)
+          }
+          await supabase.from('stock_categories').delete().eq('name', `SUB::${catName}::${subName}`).eq('warehouse_id', selectedWarehouseId)
+
+          await supabase.from('stocks').update({ sub_category: null }).eq('category', catName).eq('sub_category', subName).eq('warehouse_id', selectedWarehouseId)
+
+          await logActivity('stock_category', 'DELETE', `Alt kategori silindi: ${catName} > ${subName}`, subId || null, 0, '', { name: subName }, null, null)
+          toast.success('Alt kategori silindi.')
+          fetchCategories(selectedWarehouseId!)
+          fetchAllStocks()
+        } catch (err: any) {
+          toast.error('Silme başarısız: ' + err.message)
+        }
+      }
+    })
+  }
+
   async function handleSaveCategory(e: React.FormEvent) {
     e.preventDefault()
     if (!newCategoryName || !selectedWarehouseId) return
@@ -326,31 +548,6 @@ export default function StocksPage() {
       fetchCategories(selectedWarehouseId)
       fetchAllStocks()
     } catch (err: any) { toast.error('Kategori işlemi başarısız: ' + err.message) }
-  }
-
-  function handleDeleteCategory(id: string, catName: string) {
-    setConfirmDialog({
-      isOpen: true,
-      title: 'Kategoriyi Sil',
-      message: `"${catName}" kategorisini silmek istediğinize emin misiniz? Bu kategoriye ait stokların kategorisi "Kategorisiz" olarak güncellenecektir.`,
-      confirmText: 'Evet, Sil',
-      cancelText: 'Vazgeç',
-      isDanger: true,
-      onConfirm: async () => {
-        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
-        try {
-          const catToDelete = categories.find(c => c.id === id)
-          await supabase.from('stocks').update({ category: null }).eq('category', catName).eq('warehouse_id', selectedWarehouseId)
-          await supabase.from('stock_categories').delete().eq('id', id)
-          await logActivity('stock_category', 'DELETE', `Stok kategorisi silindi: ${catToDelete?.name}`, id, 0, '', catToDelete, null, null)
-          
-          toast.success('Kategori silindi.')
-          setSelectedFilterCategories([])
-          fetchCategories(selectedWarehouseId!)
-          fetchAllStocks()
-        } catch (err: any) { toast.error('Silme başarısız: ' + err.message) }
-      }
-    })
   }
 
   async function handleSaveStock(e: React.FormEvent) {
@@ -1305,36 +1502,290 @@ export default function StocksPage() {
 
       {/* --- MODALLAR --- */}
       
-      {/* KATEGORİ YÖNETİM MODALI */}
+      {/* KATEGORİ & ALT KATEGORİ YÖNETİM MODALI */}
       {isCategoryManageModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 10000 }}>
-          <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-sm p-5 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[80vh]">
-            <div className="flex justify-between items-center mb-4 shrink-0">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2"><Layers size={16} className="text-indigo-400"/> Kategorileri Yönet</h3>
-              <button onClick={() => setIsCategoryManageModalOpen(false)} className="text-slate-400 hover:text-white transition-colors"><X size={18} /></button>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh] overflow-hidden">
+            {/* Modal Başlığı */}
+            <div className="p-4 border-b border-slate-800 bg-[#0a0f1d] flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+                  <Layers size={17} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">Kategori & Alt Kategori Yönetimi</h3>
+                  <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1.5">
+                    <span>Depo:</span>
+                    <span className="text-indigo-400 font-semibold">{warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Seçili Depo'}</span>
+                  </div>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsCategoryManageModalOpen(false)
+                  setInlineEditingCatId(null)
+                  setInlineEditingSubKey(null)
+                }} 
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800/80 transition-colors"
+              >
+                <X size={18} />
+              </button>
             </div>
             
-            <div className="overflow-y-auto custom-scrollbar flex-1 pr-2 space-y-2">
+            {/* Yeni Kategori Yaratma Bölümü */}
+            <div className="p-3.5 bg-[#090d18] border-b border-slate-800/80 shrink-0">
+              <form onSubmit={handleCreateCategory} className="flex gap-2">
+                <div className="relative flex-1">
+                  <FolderPlus size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input 
+                    type="text" 
+                    placeholder="Yeni ana kategori adı (örn: Monitör, Yazıcı)..." 
+                    value={newCatNameInput} 
+                    onChange={(e) => setNewCatNameInput(e.target.value)} 
+                    className="w-full bg-[#070b14] border border-slate-700/80 rounded-lg pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                  />
+                </div>
+                <button 
+                  type="submit" 
+                  disabled={!newCatNameInput.trim()}
+                  className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-md shadow-indigo-950/40 shrink-0 cursor-pointer"
+                >
+                  <Plus size={14} /> Kategori Ekle
+                </button>
+              </form>
+            </div>
+
+            {/* Liste Kontrol Başlığı */}
+            <div className="px-4 py-2 bg-[#0c1222] border-b border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400 shrink-0">
+              <span className="font-semibold text-slate-300">Kategoriler ({categories.length})</span>
+              {categories.length > 0 && (
+                <button 
+                  type="button"
+                  onClick={() => {
+                    const allOpen = categories.every(c => manageCatExpanded[c.id])
+                    const nextState: Record<string, boolean> = {}
+                    categories.forEach(c => { nextState[c.id] = !allOpen })
+                    setManageCatExpanded(nextState)
+                  }}
+                  className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer select-none"
+                >
+                  <ChevronsUpDown size={12} /> Tümünü {categories.every(c => manageCatExpanded[c.id]) ? 'Daralt' : 'Genişlet'}
+                </button>
+              )}
+            </div>
+
+            {/* Akordeon Kategori & Alt Kategori Listesi */}
+            <div className="overflow-y-auto custom-scrollbar flex-1 p-3.5 space-y-2.5">
               {categories.length === 0 ? (
-                <div className="text-center text-slate-500 text-xs py-4">Bu depoda kategori bulunmuyor.</div>
-              ) : categories.map(c => (
-                 <div key={c.id} className="flex items-center justify-between bg-[#070b14] border border-slate-800 p-2.5 rounded-lg">
-                   <span className="text-xs text-slate-200">{c.name}</span>
-                   <div className="flex items-center gap-2">
-                     <button onClick={() => { 
-                       setEditingStockCatId(c.id); 
-                       setNewCategoryName(c.name); 
-                       setIsCategoryModalOpen(true); 
-                       setIsCategoryManageModalOpen(false); 
-                     }} className="text-slate-500 hover:text-indigo-400 transition-colors" title="Düzenle"><Edit3 size={14} /></button>
-                     <button onClick={() => handleDeleteCategory(c.id, c.name)} className="text-slate-500 hover:text-rose-400 transition-colors" title="Sil"><Trash2 size={14} /></button>
-                   </div>
-                 </div>
-              ))}
+                <div className="text-center text-slate-500 text-xs py-8 border border-dashed border-slate-800 rounded-xl">
+                  Bu depoda henüz kategori bulunmuyor. Yukarıdaki kutudan ilk kategorinizi ekleyebilirsiniz.
+                </div>
+              ) : categories.map(c => {
+                const isExpanded = !!manageCatExpanded[c.id]
+                const subs = getSubCategoriesForCategory(c.name)
+                const catProductCount = warehouseStocks.filter(s => s.category === c.name).length
+                const isEditingThisCat = inlineEditingCatId === c.id
+
+                return (
+                  <div key={c.id} className="border border-slate-800/90 rounded-xl overflow-hidden bg-[#070b14] transition-all">
+                    {/* Kategori Başlığı / Satırı */}
+                    <div className={`p-2.5 flex items-center justify-between gap-2 transition-colors ${isExpanded ? 'bg-slate-800/40 border-b border-slate-800/60' : 'hover:bg-slate-800/20'}`}>
+                      {isEditingThisCat ? (
+                        <div className="flex items-center gap-2 flex-1">
+                          <input 
+                            type="text" 
+                            autoFocus
+                            value={inlineEditingCatName} 
+                            onChange={(e) => setInlineEditingCatName(e.target.value)} 
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveInlineCategory(c.id)
+                              if (e.key === 'Escape') setInlineEditingCatId(null)
+                            }}
+                            className="flex-1 bg-[#050811] border border-indigo-500 rounded px-2.5 py-1 text-xs text-white focus:outline-none"
+                          />
+                          <button 
+                            type="button" 
+                            onClick={() => handleSaveInlineCategory(c.id)} 
+                            className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                            title="Kaydet"
+                          >
+                            <Check size={13} />
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => setInlineEditingCatId(null)} 
+                            className="p-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                            title="İptal"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div 
+                            onClick={() => setManageCatExpanded(prev => ({ ...prev, [c.id]: !prev[c.id] }))}
+                            className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer select-none"
+                          >
+                            <span className="text-slate-500 hover:text-indigo-400 transition-colors">
+                              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </span>
+                            <Folder size={14} className="text-indigo-400 shrink-0" />
+                            <span className="text-xs font-semibold text-slate-200 truncate">{c.name}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono shrink-0">
+                              {catProductCount} ürün
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-400 border border-teal-800/40 font-mono shrink-0">
+                              {subs.length} alt kat.
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button 
+                              type="button"
+                              onClick={() => { 
+                                setInlineEditingCatId(c.id); 
+                                setInlineEditingCatName(c.name); 
+                              }} 
+                              className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-indigo-300 transition-colors cursor-pointer" 
+                              title="Kategori Adını Düzenle"
+                            >
+                              <Edit3 size={13} />
+                            </button>
+                            <button 
+                              type="button"
+                              onClick={() => handleDeleteCategory(c.id, c.name)} 
+                              className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer" 
+                              title="Kategoriyi Sil"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Akordeon: Alt Kategoriler İçeriği */}
+                    {isExpanded && (
+                      <div className="bg-[#050811] p-3 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 uppercase tracking-wider">
+                            <Tag size={11} className="text-teal-400" /> Alt Kategoriler ({subs.length})
+                          </span>
+                        </div>
+
+                        {subs.length === 0 ? (
+                          <div className="text-[11px] text-slate-500 italic py-1 pl-1">
+                            Henüz alt kategori eklenmemiş. Aşağıdan ekleyebilirsiniz.
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {subs.map(sub => {
+                              const subKey = `${c.name}__${sub.name}`
+                              const isEditingThisSub = inlineEditingSubKey === subKey
+
+                              return (
+                                <div key={subKey} className="flex items-center justify-between bg-[#0a0f1d] border border-slate-800/80 rounded-lg px-2.5 py-1.5 text-xs group/sub">
+                                  {isEditingThisSub ? (
+                                    <div className="flex items-center gap-2 flex-1">
+                                      <input 
+                                        type="text" 
+                                        autoFocus
+                                        value={inlineEditingSubName} 
+                                        onChange={(e) => setInlineEditingSubName(e.target.value)} 
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') handleSaveInlineSubCategory(c.name, sub.name, sub.id)
+                                          if (e.key === 'Escape') setInlineEditingSubKey(null)
+                                        }}
+                                        className="flex-1 bg-[#070b14] border border-teal-500 rounded px-2 py-0.5 text-xs text-white focus:outline-none"
+                                      />
+                                      <button 
+                                        type="button" 
+                                        onClick={() => handleSaveInlineSubCategory(c.name, sub.name, sub.id)} 
+                                        className="p-1 rounded bg-teal-600 hover:bg-teal-500 text-white transition-colors"
+                                        title="Kaydet"
+                                      >
+                                        <Check size={12} />
+                                      </button>
+                                      <button 
+                                        type="button" 
+                                        onClick={() => setInlineEditingSubKey(null)} 
+                                        className="p-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                                        title="İptal"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-teal-400"></span>
+                                        <span className="text-slate-300 font-medium truncate">{sub.name}</span>
+                                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">
+                                          {sub.count} ürün
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover/sub:opacity-100 transition-opacity">
+                                        <button 
+                                          type="button"
+                                          onClick={() => {
+                                            setInlineEditingSubKey(subKey)
+                                            setInlineEditingSubName(sub.name)
+                                          }}
+                                          className="p-1 text-slate-400 hover:text-teal-300 hover:bg-slate-800 rounded transition-colors"
+                                          title="Alt Kategoriyi Düzenle"
+                                        >
+                                          <Edit3 size={12} />
+                                        </button>
+                                        <button 
+                                          type="button"
+                                          onClick={() => handleDeleteSubCategory(c.name, sub.name, sub.id, sub.count)}
+                                          className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors"
+                                          title="Alt Kategoriyi Sil"
+                                        >
+                                          <Trash2 size={12} />
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {/* Yeni Alt Kategori Ekleme Formu */}
+                        <form 
+                          onSubmit={(e) => {
+                            e.preventDefault()
+                            handleCreateSubCategory(c.name, c.id)
+                          }}
+                          className="flex gap-2 pt-1 border-t border-slate-800/60"
+                        >
+                          <input 
+                            type="text" 
+                            placeholder={`${c.name} için yeni alt kategori adı (örn: USB 3.0)...`}
+                            value={newSubCatInputs[c.id] || ''}
+                            onChange={(e) => setNewSubCatInputs(prev => ({ ...prev, [c.id]: e.target.value }))}
+                            className="flex-1 bg-[#080d19] border border-slate-700/60 rounded px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
+                          />
+                          <button 
+                            type="submit" 
+                            disabled={!(newSubCatInputs[c.id] || '').trim()}
+                            className="bg-teal-600/80 hover:bg-teal-600 disabled:opacity-40 text-white px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1 transition-all active:scale-95 shrink-0 cursor-pointer"
+                          >
+                            <Plus size={13} /> Ekle
+                          </button>
+                        </form>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>
       )}
+
 
       {/* KATEGORİ EKLE/DÜZENLE MODALI */}
       {isCategoryModalOpen && (
@@ -1407,12 +1858,38 @@ export default function StocksPage() {
                     {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </div>
-                <button type="button" onClick={() => { setEditingStockCatId(null); setNewCategoryName(''); setIsCategoryModalOpen(true); }} className="bg-slate-800 hover:bg-slate-700 p-2 rounded text-white transition-colors active:scale-95"><Plus size={14}/></button>
+                <button 
+                  type="button" 
+                  onClick={() => setIsCategoryManageModalOpen(true)} 
+                  className="bg-slate-800 hover:bg-slate-700 p-2 rounded text-indigo-400 hover:text-indigo-300 transition-colors active:scale-95 shrink-0"
+                  title="Kategorileri ve Alt Kategorileri Yönet"
+                >
+                  <Settings size={14}/>
+                </button>
               </div>
               
               <div>
-                <label className="block text-slate-400 mb-1">Alt Kategori</label>
-                <input type="text" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors" />
+                <label className="block text-slate-400 mb-1 flex items-center justify-between">
+                  <span>Alt Kategori</span>
+                  {category && getSubCategoriesForCategory(category).length > 0 && (
+                    <span className="text-[9px] text-teal-400 font-mono">
+                      {getSubCategoriesForCategory(category).length} seçenek
+                    </span>
+                  )}
+                </label>
+                <input 
+                  type="text" 
+                  list="stock-subcategories-datalist"
+                  placeholder={category ? (getSubCategoriesForCategory(category).length > 0 ? "Seçin veya yeni yazın..." : "Alt kategori (opsiyonel)...") : "Önce kategori seçin"}
+                  value={subCategory} 
+                  onChange={(e) => setSubCategory(e.target.value)} 
+                  className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors" 
+                />
+                <datalist id="stock-subcategories-datalist">
+                  {category && getSubCategoriesForCategory(category).map(sub => (
+                    <option key={sub.name} value={sub.name}>{sub.name} ({sub.count} ürün)</option>
+                  ))}
+                </datalist>
               </div>
               
               <div>
