@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { logActivity } from '@/lib/audit'
-import { formatMoney } from '@/lib/utils'
+import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { Key, Plus, Trash2, X, Edit3, Search, Building, Globe, CheckCircle2, AlertCircle, RefreshCw, Wallet, Download, Landmark, Check, ChevronDown, ChevronUp, Clock, CreditCard, Inbox, AlertTriangle, Home } from 'lucide-react'
 
@@ -417,7 +417,7 @@ export default function SubscriptionsPage() {
   }
 
   function openAddModal() { setEditingId(null); setCompanyId('common'); setSubWalletId(''); setUsername(''); setFullName(''); setPhone(''); setReferenceNote(''); setStartDate(getLocalTodayISO()); setSalePrice(''); setCurrency('TRY'); setIsModalOpen(true) }
-  function openEditModal(sub: Subscription) { setEditingId(sub.id); setCompanyId(sub.company_id || 'common'); setSubWalletId(sub.wallet_id || ''); setUsername(sub.username); setFullName(sub.full_name); setPhone(sub.phone || ''); setReferenceNote(sub.reference_note || ''); setStartDate(sub.start_date); setSalePrice(sub.sale_price.toString()); setCurrency(sub.currency); setIsModalOpen(true) }
+  function openEditModal(sub: Subscription) { setEditingId(sub.id); setCompanyId(sub.company_id || 'common'); setSubWalletId(sub.wallet_id || ''); setUsername(sub.username); setFullName(sub.full_name); setPhone(formatPhoneNumber(sub.phone || '')); setReferenceNote(sub.reference_note || ''); setStartDate(sub.start_date); setSalePrice(sub.sale_price.toString()); setCurrency(sub.currency); setIsModalOpen(true) }
 
   async function handleSaveSub(e: React.FormEvent) {
     e.preventDefault()
@@ -469,7 +469,8 @@ export default function SubscriptionsPage() {
       }
     }
 
-    const payload: any = { company_id: finalCompId, username, full_name: fullName, phone, reference_note: referenceNote, start_date: startDate, end_date: endDate, sale_price: parseFloat(salePrice) || 0, currency, is_active: true }
+    const formattedPhone = formatPhoneNumber(phone).trim()
+    const payload: any = { company_id: finalCompId, username, full_name: fullName, phone: formattedPhone, reference_note: referenceNote, start_date: startDate, end_date: endDate, sale_price: parseFloat(salePrice) || 0, currency, is_active: true }
     if (!editingId) { payload.wallet_id = subWalletId || null; payload.cost_price = finalCost; payload.is_paid = false }
 
     try {
@@ -963,7 +964,7 @@ export default function SubscriptionsPage() {
               </div>
               <div><label className="block text-slate-400 mb-1">Kullanıcı Adı (Username) *</label><input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-pink-500 transition-colors" /></div>
               <div><label className="block text-slate-400 mb-1">Ad Soyad / Firma Adı *</label><input type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-pink-500 transition-colors" /></div>
-              <div><label className="block text-slate-400 mb-1">Telefon</label><input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white font-mono focus:outline-none focus:border-pink-500 transition-colors" /></div>
+              <div><label className="block text-slate-400 mb-1">Telefon</label><input type="tel" placeholder="05XX XXX XX XX" maxLength={14} value={phone} onChange={(e) => setPhone(formatPhoneNumber(e.target.value))} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white font-mono focus:outline-none focus:border-pink-500 transition-colors" /></div>
               <div><label className="block text-slate-400 mb-1">Başlangıç Tarihi</label><input type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-pink-500 transition-colors" /></div>
               <div className="col-span-2"><label className="block text-slate-400 mb-1">Referans / Satın Alınan Paket Notu</label><input type="text" value={referenceNote} onChange={(e) => setReferenceNote(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-pink-500 transition-colors" /></div>
               <div className="col-span-2 mt-2 pt-3 border-t border-slate-800">

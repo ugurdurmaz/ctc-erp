@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
-import { formatMoney } from '@/lib/utils'
+import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { 
   Wrench, Plus, Search, Filter, RefreshCw, Printer, MessageSquare, 
@@ -561,7 +561,7 @@ export default function TechnicalServicePage() {
       const c = customers.find(item => item.id === cid)
       if (c) {
         setCustomerName(c.name)
-        setCustomerPhone(c.phone || '')
+        setCustomerPhone(formatPhoneNumber(c.phone || ''))
       }
     }
   }
@@ -577,6 +577,7 @@ export default function TechnicalServicePage() {
     setSubmitting(true)
     try {
       let finalCustomerId = customerId && customerId !== 'new' ? customerId : null
+      const formattedCustomerPhone = formatPhoneNumber(customerPhone).trim()
 
       // Eğer yeni müşteri girildiyse ve customers tablosunda yoksa telefon veya isimle kontrol et (mükerrer önleme)
       if (!finalCustomerId && customerName) {
@@ -592,7 +593,7 @@ export default function TechnicalServicePage() {
             .from('customers')
             .insert([{
               name: customerName.trim(),
-              phone: customerPhone.trim(),
+              phone: formattedCustomerPhone,
               currency: 'TRY',
               balance: 0
             }])
@@ -615,7 +616,7 @@ export default function TechnicalServicePage() {
         company_id: companyId || null,
         customer_id: finalCustomerId,
         customer_name: customerName.trim(),
-        customer_phone: customerPhone.trim(),
+        customer_phone: formattedCustomerPhone,
         device_type: deviceType,
         brand_model: brandModel.trim(),
         serial_no: serialNo.trim(),
@@ -703,7 +704,7 @@ export default function TechnicalServicePage() {
     // Kabul Bilgilerini Düzenleme (Intake Edit) State'leri
     setIsEditingIntake(false)
     setEditCustomerName(t.customer_name || '')
-    setEditCustomerPhone(t.customer_phone || '')
+    setEditCustomerPhone(formatPhoneNumber(t.customer_phone || ''))
     setEditDeviceType(t.device_type || 'Laptop')
     setEditBrandModel(t.brand_model || '')
     setEditSerialNo(t.serial_no || '')
@@ -847,7 +848,7 @@ export default function TechnicalServicePage() {
       // Kabul bilgilerinde düzeltme yapıldıysa güncelle
       if (isEditingIntake) {
         updates.customer_name = editCustomerName.trim()
-        updates.customer_phone = editCustomerPhone.trim()
+        updates.customer_phone = formatPhoneNumber(editCustomerPhone).trim()
         updates.device_type = editDeviceType
         updates.brand_model = editBrandModel.trim()
         updates.serial_no = editSerialNo.trim()
@@ -1765,10 +1766,11 @@ export default function TechnicalServicePage() {
                   <div>
                     <label className="block text-slate-300 font-bold mb-1">Telefon Numarası</label>
                     <input
-                      type="text"
+                      type="tel"
                       value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
-                      placeholder="0532..."
+                      onChange={(e) => setCustomerPhone(formatPhoneNumber(e.target.value))}
+                      placeholder="05XX XXX XX XX"
+                      maxLength={14}
                       className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-xl text-white focus:outline-none focus:border-indigo-500 font-mono"
                     />
                   </div>
@@ -2093,9 +2095,11 @@ export default function TechnicalServicePage() {
                     <div>
                       <label className="block text-slate-400 text-[10px] font-bold mb-1">Telefon Numarası</label>
                       <input
-                        type="text"
+                        type="tel"
                         value={editCustomerPhone}
-                        onChange={(e) => setEditCustomerPhone(e.target.value)}
+                        onChange={(e) => setEditCustomerPhone(formatPhoneNumber(e.target.value))}
+                        placeholder="05XX XXX XX XX"
+                        maxLength={14}
                         className="w-full px-2.5 py-1.5 bg-[#070b14] border border-slate-800 rounded-xl text-white text-xs font-mono focus:border-amber-500"
                       />
                     </div>

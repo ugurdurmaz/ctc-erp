@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
-import { formatMoney } from '@/lib/utils'
+import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { Building2, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, Store } from 'lucide-react'
 
@@ -277,7 +277,7 @@ export default function SuppliersPage() {
 
   async function openEditModal(supp: Supplier, e: React.MouseEvent) {
     e.stopPropagation()
-    setEditingId(supp.id); setCompanyName(supp.company_name); setContactName(supp.contact_name || ''); setPhone(supp.phone || ''); setEmail(supp.email || ''); setTaxOffice(supp.tax_office || ''); setTaxId(supp.tax_id || ''); setAddress(supp.address || ''); setIsModalOpen(true)
+    setEditingId(supp.id); setCompanyName(supp.company_name); setContactName(supp.contact_name || ''); setPhone(formatPhoneNumber(supp.phone || '')); setEmail(supp.email || ''); setTaxOffice(supp.tax_office || ''); setTaxId(supp.tax_id || ''); setAddress(supp.address || ''); setIsModalOpen(true)
 
     const currentCompId = supp.company_id || (supp.tax_number && supp.tax_number.includes('-') ? supp.tax_number : null) || 'common'
     setSuppCompanyId(currentCompId)
@@ -304,10 +304,11 @@ export default function SuppliersPage() {
     const initialBalance = parseFloat(openingBalance) || 0
     const initialCompId = suppCompanyId === 'common' || !suppCompanyId ? null : suppCompanyId
     const rateVal = openingCurrency === 'TRY' ? 1 : (parseFloat(openingExchangeRate) || 1)
+    const formattedPhone = formatPhoneNumber(phone).trim()
     const payload: any = { 
       company_name: companyName, 
       contact_name: contactName, 
-      phone, 
+      phone: formattedPhone, 
       email, 
       tax_office: taxOffice, 
       tax_id: taxId, 
@@ -1275,7 +1276,7 @@ export default function SuppliersPage() {
                 <input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none transition-colors" />
               </div>
 
-              <div><label className="block text-slate-400 mb-1">Telefon</label><input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none font-mono transition-colors" /></div>
+              <div><label className="block text-slate-400 mb-1">Telefon</label><input type="tel" placeholder="05XX XXX XX XX" maxLength={14} value={phone} onChange={(e) => setPhone(formatPhoneNumber(e.target.value))} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-amber-500 font-mono transition-colors" /></div>
               <div><label className="block text-slate-400 mb-1">E-Posta</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none transition-colors" /></div>
               <div><label className="block text-slate-400 mb-1">Vergi Dairesi</label><input type="text" value={taxOffice} onChange={(e) => setTaxOffice(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none transition-colors" /></div>
               <div><label className="block text-slate-400 mb-1">Vergi / TCKN</label><input type="text" value={taxId} onChange={(e) => setTaxId(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none font-mono transition-colors" /></div>

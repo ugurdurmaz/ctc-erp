@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { formatMoney } from '@/lib/utils'
+import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { Users, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, MessageSquare, Copy, Download, ExternalLink, Check } from 'lucide-react'
 
@@ -316,7 +316,7 @@ export default function CustomersPage() {
 
   async function openEditModal(cust: Customer, e: React.MouseEvent) {
     e.stopPropagation()
-    setEditingId(cust.id); setCustomerName(cust.name); setContactName(cust.contact_name || ''); setPhone(cust.phone || ''); setEmail(cust.email || ''); setTaxOffice(cust.tax_office || ''); setTaxId(cust.tax_id || ''); setAddress(cust.address || ''); setIsModalOpen(true)
+    setEditingId(cust.id); setCustomerName(cust.name); setContactName(cust.contact_name || ''); setPhone(formatPhoneNumber(cust.phone || '')); setEmail(cust.email || ''); setTaxOffice(cust.tax_office || ''); setTaxId(cust.tax_id || ''); setAddress(cust.address || ''); setIsModalOpen(true)
 
     const { data: txs } = await supabase.from('customer_transactions')
        .select('amount, company_id').eq('customer_id', cust.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
@@ -334,7 +334,8 @@ export default function CustomersPage() {
     e.preventDefault(); if (!customerName) return
     const initialBalance = parseFloat(openingBalance) || 0
     const initialCompId = openingCompanyId === 'common' ? null : openingCompanyId
-    const payload = { name: customerName, contact_name: contactName, phone, email, tax_office: taxOffice, tax_id: taxId, address, currency: 'TRY' }
+    const formattedPhone = formatPhoneNumber(phone).trim()
+    const payload = { name: customerName, contact_name: contactName, phone: formattedPhone, email, tax_office: taxOffice, tax_id: taxId, address, currency: 'TRY' }
     
     try {
       if (editingId) {
@@ -1099,7 +1100,7 @@ export default function CustomersPage() {
             <form onSubmit={handleSaveCustomer} className="grid grid-cols-2 gap-3 text-[11px]">
               <div className="col-span-2"><label className="block text-slate-400 mb-1">Müşteri / Firma Adı *</label><input type="text" required value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors" /></div>
               <div className="col-span-2"><label className="block text-slate-400 mb-1">Yetkili Kişi</label><input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none transition-colors" /></div>
-              <div><label className="block text-slate-400 mb-1">Telefon</label><input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none font-mono transition-colors" /></div>
+              <div><label className="block text-slate-400 mb-1">Telefon</label><input type="tel" placeholder="05XX XXX XX XX" maxLength={14} value={phone} onChange={(e) => setPhone(formatPhoneNumber(e.target.value))} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500 font-mono transition-colors" /></div>
               <div><label className="block text-slate-400 mb-1">E-Posta</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none transition-colors" /></div>
               <div><label className="block text-slate-400 mb-1">Vergi Dairesi</label><input type="text" value={taxOffice} onChange={(e) => setTaxOffice(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none transition-colors" /></div>
               <div><label className="block text-slate-400 mb-1">Vergi / TCKN</label><input type="text" value={taxId} onChange={(e) => setTaxId(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none font-mono transition-colors" /></div>
