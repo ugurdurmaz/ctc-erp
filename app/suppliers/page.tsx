@@ -25,7 +25,7 @@ type InvoiceLine = {
 type SupplierTransaction = {
   id: string; supplier_id: string; company_id?: string | null; tx_date: string; description: string;
   tx_type: 'debt' | 'payment'; amount: number; is_detailed?: boolean;
-  invoice_lines?: InvoiceLine[]; payment_source_type?: string; 
+  invoice_lines?: InvoiceLine[] | any; payment_source_type?: string; 
   payment_source_id?: string; currency?: string; exchange_rate?: number;
   running_balance?: number; company?: { name: string; is_personal: boolean }
 }
@@ -405,6 +405,10 @@ export default function SuppliersPage() {
       toast.error('Bu hareket Mağaza modülünden otomatik yansımıştır. Değişiklik yapmak için lütfen Mağaza sayfasından ilgili günü güncelleyin.');
       return;
     }
+    if (t.invoice_lines?.is_wallet_credit || (t.description && /Kredi Alımı\s*\(\d+\s*adet\)/i.test(t.description))) {
+      toast.error('Bu hareket Abonelik Cüzdanı kredi alımıdır. Doğrudan düzenlenemez; miktarı değiştirmek için hareketi silebilir veya Abonelik sayfasından yeni kredi yükleyebilirsiniz.');
+      return;
+    }
     setEditingTxId(t.id)
     if (t.is_detailed) {
       setInvDate(t.tx_date); setInvDesc(t.description); setInvLines(t.invoice_lines || []); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
@@ -478,10 +482,21 @@ export default function SuppliersPage() {
       toast.error('Bu hareket Mağaza modülünden otomatik yansımıştır. Değişiklik yapmak için lütfen Mağaza sayfasından ilgili günü güncelleyin.');
       return;
     }
+
+    const isWalletCredit = !!(
+      txToDelete?.invoice_lines?.is_wallet_credit || 
+      (txToDelete?.description && /Kredi Alımı\s*\(\d+\s*adet\)/i.test(txToDelete.description))
+    )
+
+    let dialogMessage = 'Bu cari hareketi silmek istediğinize emin misiniz? Bakiyeler ve varsa ilgili stok işlemleri geri alınacaktır.'
+    if (isWalletCredit) {
+      dialogMessage = 'Bu hareket Abonelik Cüzdanı kredi alımıdır. Silindiğinde ilgili cüzdandaki krediler de otomatik olarak düşülecektir. Onaylıyor musunuz?'
+    }
+
     setConfirmDialog({
       isOpen: true,
-      title: 'Hareketi Sil',
-      message: 'Bu cari hareketi silmek istediğinize emin misiniz? Bakiyeler ve varsa ilgili stok işlemleri geri alınacaktır.',
+      title: isWalletCredit ? 'Kredi Alım Hareketini Sil' : 'Hareketi Sil',
+      message: dialogMessage,
       confirmText: 'Evet, Sil',
       cancelText: 'Vazgeç',
       isDanger: true,
@@ -500,6 +515,89 @@ export default function SuppliersPage() {
                 await supabase.from('stock_transactions').delete().eq('id', line.stockTxId);
                 affectedStocks.add(line.targetStockId);
                 oldDataPayload.related_stock_txs.push({ stockId: line.targetStockId, qty_restored: parseFloat(line.quantity) })
+              }
+            }
+          }
+
+          // Cüzdan Kredi Alımı Senkronizasyonu
+          if (isWalletCredit) {
+            let targetWalletId = oldTx.invoice_lines?.wallet_id
+            let qtyToRemove = parseInt(oldTx.invoice_lines?.qty || '0')
+
+            if (!qtyToRemove && oldTx.description) {
+              const match = oldTx.description.match(/Kredi Alımı\s*\((\d+)\s*adet\)/i)
+              if (match) qtyToRemove = parseInt(match[1])
+            }
+
+            let targetWallet: any = null
+            if (targetWalletId) {
+              const { data } = await supabase.from('credit_wallets').select('*').eq('id', targetWalletId).maybeSingle()
+              targetWallet = data
+            }
+
+            if (!targetWallet && oldTx.description) {
+              const nameMatch = oldTx.description.match(/^(.*?)\s+Kredi Alımı/i)
+              const walletName = nameMatch ? nameMatch[1].trim() : ''
+              if (walletName) {
+                const { data } = await supabase.from('credit_wallets').select('*').ilike('name', walletName).maybeSingle()
+                targetWallet = data
+              }
+            }
+
+            if (!targetWallet && oldTx.supplier_id) {
+              const { data } = await supabase.from('credit_wallets').select('*').eq('supplier_id', oldTx.supplier_id).maybeSingle()
+              targetWallet = data
+            }
+
+            if (targetWallet) {
+              if (targetWallet.balance < qtyToRemove) {
+                toast.error(`Bu alımdan yüklenen kredilerin bir kısmı veya tamamı aboneliklerde kullanılmıştır! (Cüzdan Bakiyesi: ${targetWallet.balance}, Silinmek İstenen: ${qtyToRemove}). Lütfen önce ilgili abonelikleri iptal edin.`)
+                return
+              }
+
+              let newLots = [...(targetWallet.fifo_lots || [])]
+              const lotIndexByTx = newLots.findIndex((l: any) => l.supp_tx_id === txId || l.id === txId)
+              if (lotIndexByTx >= 0) {
+                newLots.splice(lotIndexByTx, 1)
+              } else {
+                const lotIndexByQty = newLots.findIndex((l: any) => !l.is_opening && Number(l.qty) === qtyToRemove)
+                if (lotIndexByQty >= 0) {
+                  newLots.splice(lotIndexByQty, 1)
+                } else {
+                  let remainingToDeduct = qtyToRemove
+                  for (let i = newLots.length - 1; i >= 0 && remainingToDeduct > 0; i--) {
+                    if (newLots[i].is_opening) continue
+                    if (newLots[i].qty <= remainingToDeduct) {
+                      remainingToDeduct -= newLots[i].qty
+                      newLots.splice(i, 1)
+                    } else {
+                      newLots[i].qty -= remainingToDeduct
+                      remainingToDeduct = 0
+                    }
+                  }
+                }
+              }
+
+              const recalculatedBalance = newLots.reduce((acc: number, l: any) => acc + (Number(l.qty) || 0), 0)
+              let newUnitCost = 0
+              if (newLots.length > 0) {
+                let pTry = newLots[0].price * (newLots[0].exRate || 1)
+                if (targetWallet.currency === 'TRY') newUnitCost = pTry
+                else if (targetWallet.currency === 'USD') newUnitCost = pTry / (rates.USD || 1)
+                else if (targetWallet.currency === 'EUR') newUnitCost = pTry / (rates.EUR || 1)
+              }
+
+              await supabase.from('credit_wallets').update({
+                balance: recalculatedBalance,
+                unit_cost: newUnitCost,
+                fifo_lots: newLots
+              }).eq('id', targetWallet.id)
+
+              oldDataPayload.related_wallet = {
+                wallet_id: targetWallet.id,
+                wallet_name: targetWallet.name,
+                deducted_credits: qtyToRemove,
+                new_balance: recalculatedBalance
               }
             }
           }
@@ -527,7 +625,7 @@ export default function SuppliersPage() {
             oldTx.company_id
           )
 
-          toast.success('Hareket silindi ve bakiyeler güncellendi.')
+          toast.success(isWalletCredit ? 'Kredi alım hareketi silindi ve cüzdan bakiyesi güncellendi.' : 'Hareket silindi ve bakiyeler güncellendi.')
           fetchTransactions(selectedSupplierId!); fetchSuppliers(); fetchPaymentSources(); fetchStocks()
         } catch (err: any) { toast.error("Silme işleminde hata oluştu: " + err.message) }
       }

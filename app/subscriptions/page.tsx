@@ -282,8 +282,22 @@ export default function SubscriptionsPage() {
     const amountInCurrency = qty * price
 
     const suppTxPayload: any = {
-      supplier_id: wallet.supplier_id, tx_date: getLocalTodayISO(), description: `${wallet.name} Kredi Alımı (${qty} adet)`,
-      tx_type: 'debt', amount: amountInCurrency, currency: loadCurrency, exchange_rate: exRate
+      supplier_id: wallet.supplier_id,
+      tx_date: getLocalTodayISO(),
+      description: `${wallet.name} Kredi Alımı (${qty} adet)`,
+      tx_type: 'debt',
+      amount: amountInCurrency,
+      currency: loadCurrency,
+      exchange_rate: exRate,
+      invoice_lines: {
+        is_wallet_credit: true,
+        wallet_id: wallet.id,
+        wallet_name: wallet.name,
+        qty: qty,
+        unit_price: price,
+        currency: loadCurrency,
+        exchange_rate: exRate
+      }
     }
     if (wallet.company_id) {
       suppTxPayload.company_id = wallet.company_id
@@ -295,7 +309,15 @@ export default function SubscriptionsPage() {
     await recalculateAbsoluteSupplierBalance(wallet.supplier_id)
 
     const currentLots = wallet.fifo_lots || []
-    const newLot = { qty, price, currency: loadCurrency, exRate }
+    const newLot = {
+      id: suppTx?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `lot_${Date.now()}`),
+      supp_tx_id: suppTx?.id || null,
+      qty,
+      price,
+      currency: loadCurrency,
+      exRate,
+      created_at: new Date().toISOString()
+    }
     const updatedLots = [...currentLots, newLot]
 
     let nextCostToDisplay = price
@@ -314,6 +336,84 @@ export default function SubscriptionsPage() {
 
     toast.success(`${qty} adet kredi FIFO kuyruğuna eklendi ve tedarikçi borçlandırıldı.`)
     setIsLoadModalOpen(false); fetchWallets(); fetchSuppliers()
+  }
+
+  async function handleDeleteLoadedLot(wallet: CreditWallet, lot: any) {
+    if (wallet.balance < lot.qty) {
+      toast.error(`Bu alımdan yüklenen kredilerin bir kısmı veya tamamı aboneliklerde kullanılmıştır! (Cüzdan Bakiyesi: ${wallet.balance}, Silinmek İstenen: ${lot.qty}). Lütfen önce ilgili abonelikleri iptal edin.`)
+      return
+    }
+
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Kredi Alımını ve Cari Borcu İptal Et',
+      message: `Bu ${lot.qty} adetlik kredi alımını silmek ve tedarikçideki (${wallet.supplier?.company_name || 'Tedarikçi'}) ilgili cari borç kaydını kaldırmak istediğinize emin misiniz?`,
+      confirmText: 'Evet, Sil ve İptal Et',
+      cancelText: 'Vazgeç',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+        try {
+          if (lot.supp_tx_id) {
+            await supabase.from('supplier_transactions').delete().eq('id', lot.supp_tx_id)
+          } else {
+            const { data: matchedTxs } = await supabase.from('supplier_transactions')
+              .select('*')
+              .eq('supplier_id', wallet.supplier_id)
+              .ilike('description', `%${wallet.name} Kredi Alımı%`)
+              .order('created_at', { ascending: false })
+
+            if (matchedTxs && matchedTxs.length > 0) {
+              await supabase.from('supplier_transactions').delete().eq('id', matchedTxs[0].id)
+            }
+          }
+
+          await recalculateAbsoluteSupplierBalance(wallet.supplier_id)
+
+          const newLots = [...(wallet.fifo_lots || [])]
+          const actualIndex = newLots.findIndex((l: any) => 
+            (lot.supp_tx_id && l.supp_tx_id === lot.supp_tx_id) || 
+            (lot.id && l.id === lot.id) || 
+            (!l.is_opening && l.qty === lot.qty && l.price === lot.price)
+          )
+          if (actualIndex >= 0) {
+            newLots.splice(actualIndex, 1)
+          }
+
+          const recalculatedBalance = newLots.reduce((acc: number, l: any) => acc + (Number(l.qty) || 0), 0)
+          let newUnitCost = 0
+          if (newLots.length > 0) {
+            let pTry = newLots[0].price * (newLots[0].exRate || 1)
+            if (wallet.currency === 'TRY') newUnitCost = pTry
+            else if (wallet.currency === 'USD') newUnitCost = pTry / (rates.USD || 1)
+            else if (wallet.currency === 'EUR') newUnitCost = pTry / (rates.EUR || 1)
+          }
+
+          await supabase.from('credit_wallets').update({
+            balance: recalculatedBalance,
+            unit_cost: newUnitCost,
+            fifo_lots: newLots
+          }).eq('id', wallet.id)
+
+          await logActivity(
+            'subscription_wallet',
+            'DELETE',
+            `Cüzdandan Kredi Alımı İptal Edildi (${lot.qty} Adet): ${wallet.name}`,
+            wallet.id,
+            lot.qty * lot.price,
+            lot.currency || wallet.currency,
+            wallet,
+            { balance: recalculatedBalance, fifo_lots: newLots }
+          )
+
+          toast.success(`${lot.qty} adet kredi alımı ve tedarikçi borç kaydı başarıyla silindi.`)
+          fetchWallets()
+          fetchSuppliers()
+        } catch (err: any) {
+          toast.error('İşlem iptal edilemedi: ' + err.message)
+        }
+      }
+    })
   }
 
   function openAddModal() { setEditingId(null); setCompanyId('common'); setSubWalletId(''); setUsername(''); setFullName(''); setPhone(''); setReferenceNote(''); setStartDate(getLocalTodayISO()); setSalePrice(''); setCurrency('TRY'); setIsModalOpen(true) }
@@ -942,6 +1042,48 @@ export default function SubscriptionsPage() {
                     <input type="number" step="0.01" placeholder="0.00" value={walletOpeningCost} onChange={(e) => setWalletOpeningCost(e.target.value)} className="w-full bg-[#070b14] border border-slate-800 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" />
                  </div>
               </div>
+
+              {editingWalletId && (() => {
+                const currentWallet = wallets.find(w => w.id === editingWalletId)
+                const lots = currentWallet?.fifo_lots || []
+                const nonOpeningLots = lots.filter((l: any) => !l.is_opening)
+                return (
+                  <div className="mt-3 pt-3 border-t border-slate-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-bold text-slate-300">Cüzdan Hareketleri & Kredi Lotları</span>
+                      <span className="text-[10px] text-indigo-400 font-mono font-bold bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                        Toplam Bakiye: {currentWallet?.balance || 0} Kredi
+                      </span>
+                    </div>
+                    {nonOpeningLots.length === 0 ? (
+                      <p className="text-[10px] text-slate-500 italic bg-slate-950/40 p-2 rounded border border-slate-800/40">Sonradan yüklenmiş ek kredi hareketi bulunmuyor.</p>
+                    ) : (
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                        {nonOpeningLots.map((lot: any, idx: number) => (
+                          <div key={lot.id || idx} className="flex items-center justify-between p-2 rounded bg-slate-900/60 border border-slate-800/80 text-[11px]">
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-slate-200">
+                                +{lot.qty} Adet @ {formatMoney(lot.price, lot.currency || currentWallet?.currency || 'TRY').formatted}
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                Tedarikçi Alımı {lot.created_at ? `(${formatDateTR(lot.created_at.split('T')[0])})` : ''}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteLoadedLot(currentWallet!, lot)}
+                              className="text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-rose-500/10 transition"
+                              title="Bu kredi alımını ve tedarikçi borcunu sil"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button type="button" onClick={() => setIsWalletModalOpen(false)} className="px-3 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
