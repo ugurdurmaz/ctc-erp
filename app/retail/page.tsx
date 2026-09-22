@@ -539,7 +539,9 @@ export default function RetailPOSPage() {
           newRows.push({
             id: r.id, categoryId: r.category_id, description: r.description || '', 
             stockId: r.stock_id || null, supplierId: matchedSupplierId, quantity: r.quantity ? String(r.quantity) : '', 
-            cost: formatValue(r.cost), cash: formatValue(r.cash), card: formatValue(r.card)
+            cost: (r.cost !== null && r.cost !== undefined && r.cost !== '') ? ((Number(r.cost) === 0 && (parseValue(r.cash) > 0 || parseValue(r.card) > 0)) ? '0,00' : formatValue(r.cost)) : '',
+            cash: formatValue(r.cash), 
+            card: formatValue(r.card)
           })
         })
 
@@ -808,13 +810,24 @@ export default function RetailPOSPage() {
     const invalidRows = rows.filter(r => {
       if (r.categoryId === EXPENSE_CATEGORY_ID) return false;
       const hasSale = parseValue(r.cash) > 0 || parseValue(r.card) > 0;
-      const hasCost = parseValue(r.cost) > 0;
-      return hasSale && !hasCost;
+      if (!hasSale) return false;
+
+      // Servis ve Oyun & Program kategorileri işçilik/hizmet olduğu için maliyeti boş bırakılsa dahi 0 TL kabul edilir
+      const isServiceOrProgram = r.categoryId === 'servis' || r.categoryId === 'oyun_prog';
+      
+      const isCostEmpty = r.cost === undefined || r.cost === null || r.cost.trim() === '';
+      if (isCostEmpty) {
+        return !isServiceOrProgram; // Servis/Oyun için geçerli, diğer ürünlerde maliyet zorunlu
+      }
+      
+      // 0 veya pozitif bir maliyet girilmişse geçerlidir
+      const parsedCost = parseValue(r.cost);
+      return isNaN(parsedCost) || parsedCost < 0;
     });
 
     if (invalidRows.length > 0) {
       toast.error(
-        'HATA: Günü kaydedemezsiniz! Satış girdiğiniz ürünlerin Maliyet kutucukları boş bırakılamaz.',
+        'HATA: Günü kaydedemezsiniz! Satış girdiğiniz ürünlerin Maliyet kutucukları boş bırakılamaz. (Maliyetsiz işlemler için 0 yazabilirsiniz)',
         { duration: 6000, icon: '⚠️' }
       );
       return; 
@@ -1009,7 +1022,7 @@ export default function RetailPOSPage() {
   const handleInputBlur = (id: string, field: 'cost' | 'cash' | 'card', value: string) => {
     if (!value || value.trim() === '') return
     const parsedValue = parseValue(value)
-    if (!isNaN(parsedValue) && parsedValue > 0) {
+    if (!isNaN(parsedValue) && parsedValue >= 0) {
       const formattedStr = parsedValue.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       setRows(prev => prev.map(row => row.id === id ? { ...row, [field]: formattedStr } : row))
     }
