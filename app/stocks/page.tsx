@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe, AlertTriangle, RefreshCw, Filter, Settings, Tags } from 'lucide-react'
+import { Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe, AlertTriangle, RefreshCw, Filter, Settings, Tags, ChevronLeft, ChevronRight } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Warehouse = { id: string; name: string; color: string; company_id?: string | null; company?: { name: string; is_personal: boolean } }
@@ -81,6 +81,7 @@ export default function StocksPage() {
   const [categories, setCategories] = useState<StockCategory[]>([])
   const [selectedFilterCategories, setSelectedFilterCategories] = useState<string[]>([])
   const [searchTerm, setSearchTerm] = useState('')
+  const categoryScrollRef = useRef<HTMLDivElement>(null)
 
   const [allStocks, setAllStocks] = useState<StockItem[]>([])
   const [selectedStockId, setSelectedStockId] = useState<string | null>(null)
@@ -684,21 +685,57 @@ export default function StocksPage() {
           </div>
 
           {categories.length > 0 && (
-            <div className="px-2 py-1.5 border-b border-slate-800/50 bg-[#070b14] flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar flex-1">
-                <Filter size={12} className="text-slate-500 shrink-0 mx-1" />
-                {categories.map(c => {
-                  const isActive = selectedFilterCategories.includes(c.name)
-                  return (
-                    <button key={c.id} onClick={() => setSelectedFilterCategories(p => p.includes(c.name) ? p.filter(n => n !== c.name) : [...p, c.name])} className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border ${isActive ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-slate-400'}`}>
-                      {c.name}
-                    </button>
-                  )
-                })}
+            <div className="px-2 py-1.5 border-b border-slate-800/50 bg-[#070b14] flex items-center justify-between gap-1 shrink-0">
+              <div className="flex items-center gap-1 min-w-0 flex-1">
+                <Filter size={12} className="text-slate-500 shrink-0 ml-0.5 mr-0.5" />
+                <div 
+                  ref={categoryScrollRef}
+                  onWheel={(e) => {
+                    if (e.deltaY !== 0) {
+                      e.currentTarget.scrollLeft += e.deltaY;
+                    }
+                  }}
+                  className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 py-0.5"
+                >
+                  {categories.map(c => {
+                    const isActive = selectedFilterCategories.includes(c.name)
+                    return (
+                      <button 
+                        key={c.id} 
+                        onClick={() => setSelectedFilterCategories(p => p.includes(c.name) ? p.filter(n => n !== c.name) : [...p, c.name])} 
+                        className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none shrink-0 cursor-pointer ${isActive ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm shadow-indigo-600/30' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-slate-400 hover:text-slate-200'}`}
+                      >
+                        {c.name}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-              <button onClick={() => setIsCategoryManageModalOpen(true)} className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded transition-colors shrink-0 ml-2">
-                <Settings size={12} /> Yönet
-              </button>
+
+              <div className="flex items-center gap-0.5 shrink-0 pl-1 border-l border-slate-800/80">
+                <button 
+                  type="button" 
+                  onClick={() => categoryScrollRef.current?.scrollBy({ left: -100, behavior: 'smooth' })} 
+                  className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer"
+                  title="Sola kaydır"
+                >
+                  <ChevronLeft size={12} />
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => categoryScrollRef.current?.scrollBy({ left: 100, behavior: 'smooth' })} 
+                  className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer"
+                  title="Sağa kaydır"
+                >
+                  <ChevronRight size={12} />
+                </button>
+                <button 
+                  onClick={() => setIsCategoryManageModalOpen(true)} 
+                  className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded transition-colors shrink-0 ml-1 cursor-pointer"
+                >
+                  <Settings size={12} /> Yönet
+                </button>
+              </div>
             </div>
           )}
           
