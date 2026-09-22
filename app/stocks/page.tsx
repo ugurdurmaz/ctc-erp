@@ -795,7 +795,7 @@ export default function StocksPage() {
 
       <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
         {/* SOL SÜTUN */}
-        <div style={{ animation: 'fadeInUp 0.4s both 0.1s' }} className="w-full lg:w-[450px] bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col shrink-0 shadow-lg">
+        <div style={{ animation: 'fadeInUp 0.4s both 0.1s' }} className="w-full lg:w-[480px] xl:w-[560px] 2xl:w-[620px] bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col shrink-0 shadow-lg">
           <div className="p-3 border-b border-slate-800/80 bg-[#0a0f1d] rounded-t-xl flex flex-col gap-3 shrink-0">
             <div className="flex justify-between items-start">
               <div>
