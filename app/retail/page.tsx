@@ -192,12 +192,18 @@ export default function RetailPOSPage() {
       if (supData) setSuppliers(supData)
 
       let initialWhId = ''
+      let initialCashId = ''
+      let initialCompanyId = ''
+      let initialBankId = ''
       const savedSettings = localStorage.getItem('ctc_pos_config')
       let parsedSettings: any = null
       if (savedSettings) {
         try {
           parsedSettings = JSON.parse(savedSettings)
           initialWhId = parsedSettings.targetWarehouseId || ''
+          initialCashId = parsedSettings.targetCashId || ''
+          initialCompanyId = parsedSettings.companyId || ''
+          initialBankId = parsedSettings.targetBankId || ''
         } catch (e) {}
       }
 
@@ -206,13 +212,28 @@ export default function RetailPOSPage() {
         if (found) initialWhId = found.id
       }
 
-      setPosSettings({
-         targetCashId: parsedSettings?.targetCashId || '',
-         targetBankId: parsedSettings?.targetBankId || '',
-         companyId: parsedSettings?.companyId || '',
+      if (!initialCashId && cData && cData.length > 0) {
+        const found = cData.find(c => c.name.toLocaleLowerCase('tr-TR').includes('mağaza')) || cData[0]
+        if (found) initialCashId = found.id
+      }
+
+      if (!initialCompanyId && compData && compData.length > 0) {
+        initialCompanyId = compData[0].id
+      }
+
+      if (!initialBankId && bData && bData.length > 0) {
+        initialBankId = bData[0].id
+      }
+
+      const activeConfig: PosSettings = {
+         targetCashId: initialCashId,
+         targetBankId: initialBankId,
+         companyId: initialCompanyId,
          targetWarehouseId: initialWhId,
          targetCreditCardId: parsedSettings?.targetCreditCardId || ''
-      })
+      }
+      setPosSettings(activeConfig)
+      localStorage.setItem('ctc_pos_config', JSON.stringify(activeConfig))
       
       if (bData && bData.length > 0) setTransferForm(prev => ({ ...prev, bankId: bData[0].id }))
     }
@@ -300,13 +321,20 @@ export default function RetailPOSPage() {
     let firstDayOpening = 0;
     const savedSettings = localStorage.getItem('ctc_pos_config');
     const parsedSettings = savedSettings ? JSON.parse(savedSettings) : {};
+    const activeCashId = parsedSettings?.targetCashId || posSettings.targetCashId;
     
-    if (parsedSettings.targetCashId) {
+    if (activeCashId) {
       const { data: initTx } = await supabase.from('cash_transactions')
         .select('amount')
-        .eq('cash_register_id', parsedSettings.targetCashId)
+        .eq('cash_register_id', activeCashId)
         .eq('description', 'Açılış Bakiyesi / Devir')
-        .limit(1).single();
+        .limit(1).maybeSingle();
+      if (initTx) firstDayOpening = Number(initTx.amount);
+    } else {
+      const { data: initTx } = await supabase.from('cash_transactions')
+        .select('amount')
+        .eq('description', 'Açılış Bakiyesi / Devir')
+        .limit(1).maybeSingle();
       if (initTx) firstDayOpening = Number(initTx.amount);
     }
 
@@ -352,27 +380,56 @@ export default function RetailPOSPage() {
     
     try {
       let expectedOpening = 0;
-      const { data: summary } = await supabase.from('pos_daily_summaries').select('*').eq('date', dateStr).single()
-      
-      if (summary) {
-        expectedOpening = Number(summary.opening_cash);
+      const { data: summary } = await supabase.from('pos_daily_summaries').select('*').eq('date', dateStr).maybeSingle()
+
+      // Bağlı kasanın açılış bakiyesi hareketini ('Açılış Bakiyesi / Devir') kontrol et
+      const savedSettings = localStorage.getItem('ctc_pos_config');
+      const parsedSettings = savedSettings ? JSON.parse(savedSettings) : {};
+      const activeCashId = parsedSettings?.targetCashId || posSettings.targetCashId;
+
+      let cashInitAmount = 0;
+      let cashInitDate = '';
+      if (activeCashId) {
+        const { data: initTx } = await supabase
+          .from('cash_transactions')
+          .select('amount, tx_date')
+          .eq('cash_register_id', activeCashId)
+          .eq('description', 'Açılış Bakiyesi / Devir')
+          .maybeSingle();
+        if (initTx) {
+          cashInitAmount = Number(initTx.amount) || 0;
+          cashInitDate = initTx.tx_date || '';
+        }
       } else {
-        const { data: lastSummary } = await supabase.from('pos_daily_summaries').select('date').lt('date', dateStr).order('date', { ascending: false }).limit(1).single()
+        const { data: initTx } = await supabase
+          .from('cash_transactions')
+          .select('amount, tx_date')
+          .eq('description', 'Açılış Bakiyesi / Devir')
+          .maybeSingle();
+        if (initTx) {
+          cashInitAmount = Number(initTx.amount) || 0;
+          cashInitDate = initTx.tx_date || '';
+        }
+      }
+
+      if (summary && Number(summary.opening_cash) > 0) {
+        expectedOpening = Number(summary.opening_cash);
+      } else if (cashInitDate && dateStr === cashInitDate && cashInitAmount > 0) {
+        expectedOpening = cashInitAmount;
+      } else {
+        const { data: lastSummary } = await supabase
+          .from('pos_daily_summaries')
+          .select('date')
+          .lt('date', dateStr)
+          .order('date', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
         if (lastSummary) {
           expectedOpening = await getClosingCashForDate(lastSummary.date);
         } else {
-          let initialCash = 0;
-          const savedSettings = localStorage.getItem('ctc_pos_config');
-          const parsedSettings = savedSettings ? JSON.parse(savedSettings) : {};
-          
-          if (parsedSettings.targetCashId) {
-            const { data: tCash } = await supabase.from('cash_registers').select('balance').eq('id', parsedSettings.targetCashId).single();
-            if (tCash) {
-              initialCash = tCash.balance;
-            }
-          }
-          expectedOpening = initialCash;
-          setIsFirstDayOfSystem(true)
+          expectedOpening = cashInitAmount;
+          setIsFirstDayOfSystem(true);
         }
       }
       
