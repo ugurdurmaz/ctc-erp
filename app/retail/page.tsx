@@ -1335,18 +1335,8 @@ export default function RetailPOSPage() {
         
         {/* SOL GRUP */}
         <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
-          <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-700 px-3 py-1.5 rounded-lg relative group">
-            <span className="text-slate-400 font-sans font-bold text-[10px] uppercase">Dünden Devir:</span>
-            <input 
-              type="text" 
-              value={openingCash}
-              readOnly
-              title="Bu alan otomatik hesaplanır. İlk gün devri ise Ayarlar'da seçtiğiniz bağlı kasanın mevcut bakiyesinden alınır."
-              className="w-20 bg-transparent text-slate-400 text-right font-bold cursor-not-allowed select-none opacity-80 focus:outline-none"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 bg-indigo-950/30 border border-indigo-500/30 px-3 py-1.5 rounded-lg">
+          {/* KASA */}
+          <div className="flex items-center gap-2 bg-indigo-950/30 border border-indigo-500/30 px-3 py-1.5 rounded-lg" title={`Dünden Devir: ${openingCash || '0,00'} ₺`}>
             <span className="text-slate-400 font-sans font-bold text-[10px] uppercase">Kasa:</span>
             <span className="text-indigo-400 font-black text-sm">{formatMoney(calculatedKasa, 'TRY').formatted}</span>
             <button onClick={() => setIsTransferModalOpen(true)} className="ml-1 bg-indigo-600/20 hover:bg-indigo-600/50 text-indigo-300 p-1 rounded transition-colors" title="Bankaya Para Yatır / Çek">
@@ -1356,20 +1346,65 @@ export default function RetailPOSPage() {
           
           <div className="hidden md:block w-px h-5 bg-slate-800 mx-0.5"></div>
           
-          <div className="flex items-center gap-2 bg-emerald-950/30 border border-emerald-500/30 px-3 py-1.5 rounded-lg">
-            <Wallet size={14} className="text-emerald-500"/>
-            <span className="text-slate-400 font-sans font-bold text-[10px] uppercase">Nakit Satış:</span>
-            <span className="text-emerald-400 font-bold">{formatMoney(grandTotalCash, 'TRY').formatted}</span>
+          {/* NAKİT SATIŞ & TAHSİLAT */}
+          <div className="flex items-center gap-2 bg-emerald-950/30 border border-emerald-500/30 px-2.5 py-1.5 rounded-lg" title={`Toplam Nakit: ${formatMoney(grandTotalCash + deliveredTicketsCash, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCash, 'TRY').formatted}, Servis: ${formatMoney(deliveredTicketsCash, 'TRY').formatted})`}>
+            <Wallet size={14} className="text-emerald-500 shrink-0"/>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400 font-sans font-bold text-[9px] uppercase">Nakit:</span>
+                <span className="text-emerald-400 font-bold">{formatMoney(grandTotalCash + deliveredTicketsCash, 'TRY').formatted}</span>
+              </div>
+              <div className="flex items-center gap-1 text-[8px] font-sans text-slate-400 leading-none mt-0.5">
+                <span>Mğz: <b className="text-emerald-300 font-normal font-mono">{formatMoney(grandTotalCash, 'TRY').formatted}</b></span>
+                {deliveredTicketsCash > 0 && (
+                  <>
+                    <span>•</span>
+                    <span>Srv: <b className="text-teal-300 font-normal font-mono">{formatMoney(deliveredTicketsCash, 'TRY').formatted}</b></span>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
           
-          <div className="flex items-center gap-2 bg-purple-950/30 border border-purple-500/30 px-3 py-1.5 rounded-lg">
-            <CreditCard size={14} className="text-purple-500"/>
-            <span className="text-slate-400 font-sans font-bold text-[10px] uppercase">Kredi Kartı:</span>
-            <span className="text-purple-400 font-bold">{formatMoney(grandTotalCard, 'TRY').formatted}</span>
+          {/* KREDİ KARTI SATIŞ & TAHSİLAT */}
+          <div className="flex items-center gap-2 bg-purple-950/30 border border-purple-500/30 px-2.5 py-1.5 rounded-lg" title={`Toplam Kredi Kartı: ${formatMoney(grandTotalCard + deliveredTicketsCard, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCard, 'TRY').formatted}, Servis: ${formatMoney(deliveredTicketsCard, 'TRY').formatted})`}>
+            <CreditCard size={14} className="text-purple-500 shrink-0"/>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400 font-sans font-bold text-[9px] uppercase">K.Kartı:</span>
+                <span className="text-purple-400 font-bold">{formatMoney(grandTotalCard + deliveredTicketsCard, 'TRY').formatted}</span>
+              </div>
+              <div className="flex items-center gap-1 text-[8px] font-sans text-slate-400 leading-none mt-0.5">
+                <span>Mğz: <b className="text-purple-300 font-normal font-mono">{formatMoney(grandTotalCard, 'TRY').formatted}</b></span>
+                {deliveredTicketsCard > 0 && (
+                  <>
+                    <span>•</span>
+                    <span>Srv: <b className="text-teal-300 font-normal font-mono">{formatMoney(deliveredTicketsCard, 'TRY').formatted}</b></span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* SERVİS FİŞLERİ TAHSİLAT KUTUSU */}
+          <div className="flex items-center gap-2 bg-teal-950/30 border border-teal-500/30 px-2.5 py-1.5 rounded-lg" title={`Bugün teslim edilen ${deliveredTickets.length} servis fişinden tahsil edilen toplam tutar`}>
+            <Wrench size={14} className="text-teal-400 shrink-0"/>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <span className="text-teal-300 font-sans font-bold text-[9px] uppercase">Servis Fişleri:</span>
+                <span className="text-teal-300 font-bold">{formatMoney(deliveredTicketsTotal, 'TRY').formatted}</span>
+              </div>
+              <div className="flex items-center gap-1 text-[8px] font-mono text-slate-400 leading-none mt-0.5">
+                <span className="text-emerald-400">N: {formatMoney(deliveredTicketsCash, 'TRY').formatted}</span>
+                <span>•</span>
+                <span className="text-purple-400">K: {formatMoney(deliveredTicketsCard, 'TRY').formatted}</span>
+              </div>
+            </div>
           </div>
           
           <div className="hidden lg:block w-px h-5 bg-slate-800 mx-0.5"></div>
           
+          {/* TOPLAM GİDER */}
           <div className="flex items-center gap-2 bg-amber-950/30 border border-amber-500/30 px-3 py-1.5 rounded-lg">
             <span className="text-slate-400 font-sans font-bold text-[10px] uppercase">Toplam Gider:</span>
             <span className="text-amber-400 font-bold">{formatMoney(expenseGrandTotal, 'TRY').formatted}</span>
