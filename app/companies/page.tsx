@@ -2,21 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/lib/audit'
 import toast, { Toaster } from 'react-hot-toast'
 import { Building2, Plus, Trash2, Edit3, Building, Home, Info, AlertTriangle, RefreshCw } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean; created_at: string }
 
-// Ortak Log Atma Fonksiyonu
-async function logActivity(module: string, action: string, description: string, recordId: string | null = null, amount: number = 0, currency: string = '', oldData: any = null, newData: any = null, companyId: string | null = null) {
-  try {
-    await supabase.from('audit_logs').insert([{
-      module, action, description, record_id: recordId, amount, currency, old_data: oldData, new_data: newData, company_id: companyId
-    }])
-  } catch (err) {
-    console.error("Log kaydı atılamadı:", err)
-  }
-}
+
 
 export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([])

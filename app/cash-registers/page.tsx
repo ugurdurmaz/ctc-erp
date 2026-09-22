@@ -14,15 +14,7 @@ type BankAccount = { id: string; bank_name: string; account_name: string; balanc
 function getLocalTodayISO() { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}` }
 function formatDateTR(dateStr: string) { if (!dateStr) return ''; const parts = dateStr.split('-'); if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`; return dateStr }
 
-async function logActivity(module: string, action: string, description: string, recordId: string | null = null, amount: number = 0, currency: string = '', oldData: any = null, newData: any = null, companyId: string | null = null) {
-  try {
-    await supabase.from('audit_logs').insert([{
-      module, action, description, record_id: recordId, amount, currency, old_data: oldData, new_data: newData, company_id: companyId
-    }])
-  } catch (err) {
-    console.error("Log kaydı atılamadı:", err)
-  }
-}
+import { logActivity } from '@/lib/audit'
 
 export default function CashRegistersPage() {
   const [companies, setCompanies] = useState<Company[]>([])

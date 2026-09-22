@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Calendar, ChevronLeft, ChevronRight, Save, Wallet, CreditCard, Eye, EyeOff, Landmark, X, Trash2, StickyNote, Loader2, AlertTriangle, Settings, ArrowRightLeft, Package, Search, Wrench, ExternalLink } from 'lucide-react'
 import { formatMoney } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/lib/audit'
 import toast, { Toaster } from 'react-hot-toast'
 
 const CATEGORIES = [
@@ -937,6 +938,27 @@ export default function RetailPOSPage() {
       setIsDraftRestored(false)
 
       toast.success('Gün başarıyla kaydedildi, Ciro, Stoklar ve Bakiyeler güncellendi.')
+
+      const dateParts = currentDate.split('-')
+      const formattedDate = dateParts.length === 3 ? `${dateParts[2]}.${dateParts[1]}.${dateParts[0]}` : currentDate
+
+      await logActivity(
+        'retail',
+        'UPDATE',
+        `Mağaza Gün Sonu Kaydedildi (Tarih: ${formattedDate}, Nakit Ciro: ${formatMoney(grandTotalCash).formatted}, Kart Ciro: ${formatMoney(grandTotalCard).formatted})`,
+        null,
+        grandTotalCash + grandTotalCard,
+        'TRY',
+        null,
+        {
+          date: currentDate,
+          cash_total: grandTotalCash,
+          card_total: grandTotalCard,
+          expense_total: expenseGrandTotal,
+          rows_count: filledRows.length
+        },
+        finalCompId
+      )
 
       setTimeout(() => setSaveStatus('idle'), 3000)
     } catch (error) {

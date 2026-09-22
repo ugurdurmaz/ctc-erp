@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/lib/audit'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { Briefcase, Plus, Trash2, X, Edit3, Search, Building, Home, Globe, AlertTriangle } from 'lucide-react'
@@ -9,16 +10,7 @@ import { Briefcase, Plus, Trash2, X, Edit3, Search, Building, Home, Globe, Alert
 type Company = { id: string; name: string; is_personal: boolean }
 type ServiceItem = { id: string; name: string; unit_price: number; vat_rate: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; company?: { name: string; is_personal: boolean } }
 
-// Ortak Log Atma Fonksiyonu
-async function logActivity(module: string, action: string, description: string, recordId: string | null = null, amount: number = 0, currency: string = '', oldData: any = null, newData: any = null, companyId: string | null = null) {
-  try {
-    await supabase.from('audit_logs').insert([{
-      module, action, description, record_id: recordId, amount, currency, old_data: oldData, new_data: newData, company_id: companyId
-    }])
-  } catch (err) {
-    console.error("Log kaydı atılamadı:", err)
-  }
-}
+
 
 export default function ServicesPage() {
   const [companies, setCompanies] = useState<Company[]>([])

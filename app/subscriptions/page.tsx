@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/lib/audit'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { Key, Plus, Trash2, X, Edit3, Search, Building, Globe, CheckCircle2, AlertCircle, RefreshCw, Wallet, Download, Landmark, Check, ChevronDown, ChevronUp, Clock, CreditCard, Inbox, AlertTriangle, Home } from 'lucide-react'
@@ -26,15 +27,7 @@ function formatDateTR(dateStr: string) { if (!dateStr) return ''; const parts = 
 function addOneYear(dateStr: string) { const d = new Date(dateStr); d.setFullYear(d.getFullYear() + 1); return d.toISOString().split('T')[0]; }
 function getDaysRemaining(endDateStr: string) { const end = new Date(endDateStr).getTime(); const now = new Date().getTime(); return Math.ceil((end - now) / (1000 * 3600 * 24)); }
 
-async function logActivity(module: string, action: string, description: string, recordId: string | null = null, amount: number = 0, currency: string = '', oldData: any = null, newData: any = null, companyId: string | null = null) {
-  try {
-    await supabase.from('audit_logs').insert([{
-      module, action, description, record_id: recordId, amount, currency, old_data: oldData, new_data: newData, company_id: companyId
-    }])
-  } catch (err) {
-    console.error("Log kaydı atılamadı:", err)
-  }
-}
+
 
 export default function SubscriptionsPage() {
   const [companies, setCompanies] = useState<Company[]>([])
