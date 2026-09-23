@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { History, Undo2, Search, Filter, ShieldAlert, Trash2, Edit3, PlusCircle, ArrowRightLeft, Check, ChevronDown, User } from 'lucide-react'
+import { History, Undo2, Search, Filter, ShieldAlert, Trash2, Edit3, PlusCircle, ArrowRightLeft, Check, ChevronDown, User, X } from 'lucide-react'
 
 type AuditLog = {
   id: string; module: string; action: string; description: string;
@@ -114,11 +114,11 @@ export default function ActivityLogPage() {
   }
 
   function getActionIcon(action: string) {
-    if (action === 'INSERT') return <PlusCircle size={14} />
-    if (action === 'UPDATE') return <Edit3 size={14} />
-    if (action === 'DELETE') return <Trash2 size={14} />
-    if (action === 'ROLLBACK') return <Undo2 size={14} />
-    return <ArrowRightLeft size={14} />
+    if (action === 'INSERT') return <PlusCircle size={11} />
+    if (action === 'UPDATE') return <Edit3 size={11} />
+    if (action === 'DELETE') return <Trash2 size={11} />
+    if (action === 'ROLLBACK') return <Undo2 size={11} />
+    return <ArrowRightLeft size={11} />
   }
 
   function confirmRollback(log: AuditLog) {
@@ -189,37 +189,51 @@ export default function ActivityLogPage() {
     <div className="flex flex-col h-[calc(100vh-32px)] relative max-w-[1600px] mx-auto">
       <Toaster position="bottom-right" containerStyle={{ zIndex: 99999999 }} toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px' } }} />
 
-      {/* ÜST BAR */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#0d1322] border border-slate-800/80 p-5 rounded-2xl shadow-xl shrink-0 mb-4 overflow-hidden relative">
+      {/* ÜST BAR (Kompakt) */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2.5 bg-[#0d1322] border border-slate-800/80 px-4 py-2.5 rounded-xl shadow-md shrink-0 mb-2 overflow-hidden relative">
         <div className="absolute top-0 right-0 w-64 h-full bg-gradient-to-l from-indigo-500/5 to-transparent pointer-events-none" />
         
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl shadow-inner border border-indigo-500/20">
-            <History size={24} />
+        <div className="flex items-center gap-2.5">
+          <div className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/20 shrink-0">
+            <History size={18} />
           </div>
           <div>
-            <h1 className="text-lg lg:text-xl font-black text-white flex items-center gap-2">Sistem Denetim Günlüğü</h1>
-            <p className="text-[11px] text-slate-400 mt-1">Sistemdeki tüm hareketlerin, hangi kullanıcı tarafından ne zaman yapıldığının kayıtları.</p>
+            <h1 className="text-sm lg:text-base font-bold text-white flex items-center gap-2 leading-none">
+              Sistem Denetim Günlüğü
+              <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700/60">
+                {filteredLogs.length} Kayıt
+              </span>
+            </h1>
+            <p className="text-[10px] text-slate-400 mt-1">Sistemdeki tüm hareketlerin kullanıcı, tutar ve zaman kayıtları.</p>
           </div>
         </div>
 
-        <div className="bg-indigo-500/10 border border-indigo-500/20 px-4 py-2.5 rounded-xl flex items-center gap-2 max-w-sm">
-          <ShieldAlert size={16} className="text-indigo-400 shrink-0" />
-          <p className="text-[10px] text-indigo-300 leading-relaxed font-medium">Bu ekran sistemin denetim günlüğüdür. Hangi kullanıcının hangi işlemi yaptığı şeffafça izlenir.</p>
+        <div className="hidden md:flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3 py-1.5 rounded-lg text-indigo-300 text-[10px]">
+          <ShieldAlert size={13} className="text-indigo-400 shrink-0" />
+          <span>Şeffaf denetim ve anlık geri alma (rollback) günlüğü</span>
         </div>
       </div>
 
-      {/* ARAMA VE ÇOKLU SEÇİMLİ FİLTRELEME */}
-      <div className="flex flex-wrap items-center gap-3 mb-4 shrink-0">
-        <div className="relative w-full max-w-md">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+      {/* ARAMA VE ÇOKLU SEÇİMLİ FİLTRELEME (Kompakt) */}
+      <div className="flex flex-wrap items-center gap-2 mb-2 shrink-0">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
           <input 
             type="text" 
             placeholder="İşlem açıklaması, kullanıcı veya modül ara..." 
             value={searchTerm} 
             onChange={(e) => setSearchTerm(e.target.value)} 
-            className="w-full bg-[#0d1322] border border-slate-800/80 rounded-xl pl-9 pr-3 py-2.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500/50 transition-all shadow-sm" 
+            className="w-full bg-[#0d1322] border border-slate-800/80 rounded-lg pl-8 pr-7 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/50 transition-all shadow-sm" 
           />
+          {searchTerm && (
+            <button 
+              type="button" 
+              onClick={() => setSearchTerm('')} 
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-0.5"
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
 
         {/* KULLANICI SEÇİM DROPDOWN */}
@@ -227,25 +241,25 @@ export default function ActivityLogPage() {
           <button 
             type="button"
             onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
-            className="flex items-center gap-2 bg-[#0d1322] border border-slate-800/80 hover:border-slate-700 text-slate-300 rounded-xl px-4 py-2.5 text-[11px] font-bold shadow-sm transition-all cursor-pointer"
+            className="flex items-center gap-1.5 bg-[#0d1322] border border-slate-800/80 hover:border-slate-700 text-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition-all cursor-pointer"
           >
-            <User size={14} className="text-emerald-400" />
-            <span>
+            <User size={13} className="text-emerald-400" />
+            <span className="truncate max-w-[130px]">
               {selectedUser === 'all' 
                 ? 'Tüm Kullanıcılar' 
                 : profiles.find(p => p.full_name === selectedUser || p.email === selectedUser)?.full_name || selectedUser}
             </span>
-            <ChevronDown size={14} className="text-slate-500 ml-1" />
+            <ChevronDown size={13} className="text-slate-500 ml-0.5" />
           </button>
 
           {isUserDropdownOpen && (
-            <div className="absolute top-full left-0 mt-2 w-64 bg-[#0f172a] border border-slate-800 rounded-xl shadow-2xl py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+            <div className="absolute top-full left-0 mt-1 w-64 bg-[#0f172a] border border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
               <div 
                 onClick={() => { setSelectedUser('all'); setIsUserDropdownOpen(false); }}
-                className="flex items-center justify-between px-3.5 py-2 hover:bg-slate-800/50 cursor-pointer text-slate-300 text-[11px] border-b border-slate-800/80 mb-1"
+                className="flex items-center justify-between px-3 py-1.5 hover:bg-slate-800/50 cursor-pointer text-slate-300 text-xs border-b border-slate-800/80 mb-1"
               >
                 <span className="font-bold">Tüm Kullanıcılar</span>
-                {selectedUser === 'all' && <Check size={14} className="text-emerald-400" />}
+                {selectedUser === 'all' && <Check size={13} className="text-emerald-400" />}
               </div>
 
               {profiles.map((p) => {
@@ -254,13 +268,13 @@ export default function ActivityLogPage() {
                   <div 
                     key={p.id}
                     onClick={() => { setSelectedUser(p.full_name); setIsUserDropdownOpen(false); }}
-                    className="flex items-center justify-between px-3.5 py-2 hover:bg-slate-800/50 cursor-pointer text-slate-300 text-[11px] transition-colors"
+                    className="flex items-center justify-between px-3 py-1.5 hover:bg-slate-800/50 cursor-pointer text-slate-300 text-xs transition-colors"
                   >
                     <div className="flex flex-col">
                       <span className="font-medium text-slate-200">{p.full_name}</span>
                       <span className="text-[9px] text-slate-500 font-mono">{p.email} • {p.role === 'admin' ? 'Yönetici' : 'Kasiyer'}</span>
                     </div>
-                    {isSelected && <Check size={14} className="text-emerald-400 shrink-0" />}
+                    {isSelected && <Check size={13} className="text-emerald-400 shrink-0" />}
                   </div>
                 )
               })}
@@ -273,25 +287,25 @@ export default function ActivityLogPage() {
           <button 
             type="button"
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="flex items-center gap-2 bg-[#0d1322] border border-slate-800/80 hover:border-slate-700 text-slate-300 rounded-xl px-4 py-2.5 text-[11px] font-bold shadow-sm transition-all cursor-pointer"
+            className="flex items-center gap-1.5 bg-[#0d1322] border border-slate-800/80 hover:border-slate-700 text-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition-all cursor-pointer"
           >
-            <Filter size={14} className="text-indigo-400" />
+            <Filter size={13} className="text-indigo-400" />
             <span>
               {selectedModules.length === 0 
                 ? 'Tüm Modüller' 
-                : `${selectedModules.length} Modül Seçildi`}
+                : `${selectedModules.length} Modül`}
             </span>
-            <ChevronDown size={14} className="text-slate-500 ml-1" />
+            <ChevronDown size={13} className="text-slate-500 ml-0.5" />
           </button>
 
           {isDropdownOpen && (
-            <div className="absolute top-full right-0 mt-2 w-60 bg-[#0f172a] border border-slate-800 rounded-xl shadow-2xl py-2 z-50 animate-in fade-in zoom-in-95 duration-150 max-h-72 overflow-y-auto custom-scrollbar">
+            <div className="absolute top-full right-0 mt-1 w-56 bg-[#0f172a] border border-slate-800 rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 max-h-72 overflow-y-auto custom-scrollbar">
               <div 
                 onClick={() => setSelectedModules([])}
-                className="flex items-center justify-between px-3.5 py-2 hover:bg-slate-800/50 cursor-pointer text-slate-300 text-[11px] border-b border-slate-800/80 mb-1"
+                className="flex items-center justify-between px-3 py-1.5 hover:bg-slate-800/50 cursor-pointer text-slate-300 text-xs border-b border-slate-800/80 mb-1"
               >
                 <span className="font-bold">Tümünü Göster</span>
-                {selectedModules.length === 0 && <Check size={14} className="text-indigo-400" />}
+                {selectedModules.length === 0 && <Check size={13} className="text-indigo-400" />}
               </div>
 
               {MODULE_OPTIONS.map((mod) => {
@@ -300,11 +314,11 @@ export default function ActivityLogPage() {
                   <div 
                     key={mod.id}
                     onClick={() => toggleModule(mod.id)}
-                    className="flex items-center justify-between px-3.5 py-2 hover:bg-slate-800/50 cursor-pointer text-slate-300 text-[11px] transition-colors"
+                    className="flex items-center justify-between px-3 py-1.5 hover:bg-slate-800/50 cursor-pointer text-slate-300 text-xs transition-colors"
                   >
                     <span>{mod.label}</span>
-                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-700 bg-[#070b14]'}`}>
-                      {isSelected && <Check size={10} />}
+                    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-700 bg-[#070b14]'}`}>
+                      {isSelected && <Check size={9} />}
                     </div>
                   </div>
                 )
@@ -312,79 +326,144 @@ export default function ActivityLogPage() {
             </div>
           )}
         </div>
+
+        {/* FİLTRE TEMİZLE BUTONU (Eğer aktif filtre varsa) */}
+        {(searchTerm || selectedModules.length > 0 || selectedUser !== 'all') && (
+          <button 
+            type="button"
+            onClick={() => { setSearchTerm(''); setSelectedModules([]); setSelectedUser('all'); }}
+            className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-rose-400 px-2.5 py-1.5 rounded-lg bg-slate-800/40 hover:bg-slate-800/80 border border-slate-700/50 transition-colors cursor-pointer"
+            title="Filtreleri Sıfırla"
+          >
+            <X size={12} />
+            <span>Filtreleri Temizle</span>
+          </button>
+        )}
       </div>
 
-      {/* LİSTE */}
-      <div className="flex-1 bg-[#0d1322] border border-slate-800/80 rounded-2xl flex flex-col min-w-0 overflow-hidden shadow-xl relative">
-        <div className="overflow-y-auto flex-1 custom-scrollbar p-3">
+      {/* LİSTE KONTEYNERİ (Yüksek Yoğunluklu / Kompakt Tablo Tasarımı) */}
+      <div className="flex-1 bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col min-w-0 overflow-hidden shadow-xl relative">
+        
+        {/* MASAÜSTÜ TABLO BAŞLIĞI */}
+        <div className="hidden lg:flex items-center justify-between gap-2.5 px-3 py-1.5 bg-[#090e1a] border-b border-slate-800/80 text-[10px] font-bold uppercase tracking-wider text-slate-400 select-none shrink-0">
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <span className="w-16 shrink-0 text-center">İşlem</span>
+            <span className="flex-1">Açıklama</span>
+          </div>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <span className="w-24 text-center">Modül</span>
+            <span className="w-36">Kullanıcı</span>
+            <span className="w-32">Tarih & Saat</span>
+            <span className="w-20 text-right">Tutar</span>
+            <span className="w-20 text-right">Aksiyon</span>
+          </div>
+        </div>
+
+        {/* LİSTE SATIRLARI */}
+        <div className="overflow-y-auto flex-1 custom-scrollbar divide-y divide-slate-800/50">
           {loading ? (
              <div className="flex justify-center items-center h-40 text-slate-500 text-xs font-mono animate-pulse">Günlükler yükleniyor...</div>
           ) : filteredLogs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-slate-500 opacity-60">
-              <History size={40} className="mb-3 opacity-30" />
-              <p className="text-sm font-bold text-slate-400">Gösterilecek kayıt bulunamadı.</p>
-              <p className="text-[11px] mt-1">Henüz bir işlem yapılmamış veya arama/filtre kriterinize uygun sonuç yok.</p>
+            <div className="flex flex-col items-center justify-center h-full p-8 text-slate-500 opacity-60">
+              <History size={36} className="mb-2 opacity-30" />
+              <p className="text-xs font-bold text-slate-400">Gösterilecek kayıt bulunamadı.</p>
+              <p className="text-[10px] mt-1">Henüz bir işlem yapılmamış veya arama/filtre kriterinize uygun sonuç yok.</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {filteredLogs.map((log) => {
-                const isRollback = log.action === 'ROLLBACK'
-                const user = getUserInfo(log)
+            filteredLogs.map((log) => {
+              const isRollback = log.action === 'ROLLBACK'
+              const user = getUserInfo(log)
 
-                return (
-                  <div key={log.id} className={`flex flex-col lg:flex-row justify-between lg:items-center p-3.5 rounded-xl border transition-colors ${isRollback ? 'bg-[#0f172a]/50 border-purple-500/20' : 'bg-[#070b14] border-slate-800/50 hover:border-slate-700'}`}>
-                    
-                    <div className="flex items-start gap-4 flex-1 min-w-0 pr-4">
-                      <div className={`mt-0.5 px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 text-[10px] font-bold tracking-widest shrink-0 ${getActionColors(log.action)}`}>
-                        {getActionIcon(log.action)} {log.action}
-                      </div>
-                      
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className={`text-sm font-bold truncate ${isRollback ? 'text-purple-400' : 'text-slate-200'}`}>{log.description}</span>
-                        <div className="flex flex-wrap items-center gap-2.5 mt-2 text-[10px] font-mono">
-                          <span className="text-slate-400">{new Date(log.created_at).toLocaleString('tr-TR')}</span>
-                          <span className="w-1 h-1 rounded-full bg-slate-700"></span>
-                          <span className="uppercase tracking-wider text-slate-500">Modül: <span className="text-indigo-400 font-semibold">{log.module}</span></span>
-                          <span className="w-1 h-1 rounded-full bg-slate-700"></span>
-                          
-                          {/* KULLANICI ROZETİ */}
-                          <div 
-                            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-800/90 border border-slate-700/80 text-slate-200" 
-                            title={user.email ? `${user.name} (${user.email})` : user.name}
-                          >
-                            <User size={11} className={user.role === 'admin' ? 'text-amber-400' : 'text-emerald-400'} />
-                            <span className="font-sans font-medium text-slate-200">{user.name}</span>
-                            {user.roleLabel && (
-                              <span className="text-[9px] px-1 py-0.2 rounded bg-slate-700 text-slate-400 font-mono">
-                                {user.roleLabel}
-                              </span>
-                            )}
-                          </div>
-                        </div>
+              return (
+                <div 
+                  key={log.id} 
+                  className={`group flex flex-col lg:flex-row lg:items-center justify-between gap-1.5 lg:gap-2.5 px-3 py-1.5 transition-colors ${
+                    isRollback 
+                      ? 'bg-purple-950/15 hover:bg-purple-950/25 text-purple-300' 
+                      : 'hover:bg-slate-800/40'
+                  }`}
+                >
+                  
+                  {/* SOL: İŞLEM TÜRÜ VE AÇIKLAMA */}
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    {/* AKSİYON ROZETİ */}
+                    <div className="w-16 shrink-0">
+                      <span className={`inline-flex items-center justify-center gap-1 w-full py-0.5 rounded border text-[9px] font-bold tracking-wider uppercase font-mono ${getActionColors(log.action)}`}>
+                        {getActionIcon(log.action)}
+                        <span>{log.action}</span>
+                      </span>
+                    </div>
+
+                    {/* AÇIKLAMA */}
+                    <span 
+                      className={`text-xs font-semibold truncate ${isRollback ? 'text-purple-300' : 'text-slate-200 group-hover:text-white transition-colors'}`}
+                      title={log.description}
+                    >
+                      {log.description}
+                    </span>
+                  </div>
+
+                  {/* SAĞ: MODÜL, KULLANICI, TARİH, TUTAR, AKSİYON */}
+                  <div className="flex items-center justify-between lg:justify-end gap-2.5 shrink-0 pl-7 lg:pl-0">
+                    {/* MODÜL */}
+                    <div className="w-24 text-center shrink-0">
+                      <span className="inline-block px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 text-[10px] font-mono text-indigo-300 font-semibold truncate max-w-full">
+                        {log.module}
+                      </span>
+                    </div>
+
+                    {/* KULLANICI */}
+                    <div className="w-36 shrink-0">
+                      <div 
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800/70 border border-slate-700/60 text-slate-200 text-[10px] truncate" 
+                        title={user.email ? `${user.name} (${user.email})` : user.name}
+                      >
+                        <User size={10} className={`shrink-0 ${user.role === 'admin' ? 'text-amber-400' : 'text-emerald-400'}`} />
+                        <span className="font-medium truncate">{user.name}</span>
+                        {user.roleLabel && (
+                          <span className="text-[8px] px-1 py-0.2 rounded bg-slate-700/80 text-slate-400 font-mono shrink-0 ml-auto">
+                            {user.roleLabel}
+                          </span>
+                        )}
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between lg:justify-end gap-5 mt-4 lg:mt-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-800 shrink-0">
-                      {log.amount > 0 && (
-                        <div className="text-right font-mono">
-                          <div className="text-xs text-slate-400">İşlem Tutarı</div>
-                          <div className="text-sm font-bold text-slate-200">{formatMoney(log.amount, log.currency).formatted}</div>
-                        </div>
+                    {/* TARİH & SAAT */}
+                    <div className="w-32 shrink-0 text-slate-400 font-mono text-[10px]">
+                      {new Date(log.created_at).toLocaleString('tr-TR')}
+                    </div>
+
+                    {/* TUTAR */}
+                    <div className="w-20 text-right shrink-0 font-mono">
+                      {log.amount > 0 ? (
+                        <span className="text-xs font-bold text-slate-200">
+                          {formatMoney(log.amount, log.currency).formatted}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-600">-</span>
                       )}
-                      
+                    </div>
+
+                    {/* GERİ AL BUTONU */}
+                    <div className="w-20 flex justify-end shrink-0">
                       <button 
                         onClick={() => confirmRollback(log)}
                         disabled={isRollback}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${isRollback ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed border border-transparent' : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 active:scale-95 shadow-sm'}`}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                          isRollback 
+                            ? 'bg-slate-800/30 text-slate-600 cursor-not-allowed border border-transparent' 
+                            : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 active:scale-95 shadow-sm'
+                        }`}
+                        title={isRollback ? 'Zaten geri alınmış' : 'İşlemi geri al'}
                       >
-                        <Undo2 size={14} /> Geri Al
+                        <Undo2 size={11} /> Geri Al
                       </button>
                     </div>
-
                   </div>
-                )
-              })}
-            </div>
+
+                </div>
+              )
+            })
           )}
         </div>
       </div>
