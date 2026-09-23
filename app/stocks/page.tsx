@@ -84,7 +84,7 @@ export default function StocksPage() {
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'in_stock' | 'critical' | 'out_of_stock'>('all')
   const [sortBy, setSortBy] = useState<'capacity' | 'name_asc' | 'qty_desc' | 'qty_asc' | 'price_desc' | 'price_asc'>('capacity')
-  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({})
   const [collapsedSubCategories, setCollapsedSubCategories] = useState<Record<string, boolean>>({})
 
   const [allStocks, setAllStocks] = useState<StockItem[]>([])
@@ -148,8 +148,28 @@ export default function StocksPage() {
       setSelectedStockId(null)
       setSelectedFilterCategories([])
       setSearchTerm('')
+
+      // Depoya ait kayıtlı akordeon açık/kapalı durumlarını yükle (varsayılan: hepsi kapalı)
+      try {
+        const saved = localStorage.getItem('ctc_stock_accordion_state')
+        if (saved) {
+          const parsed = JSON.parse(saved)
+          const whData = parsed?.warehouses?.[selectedWarehouseId] || (parsed?.categories ? parsed : null)
+          if (whData) {
+            setOpenCategories(whData.categories || {})
+            setCollapsedSubCategories(whData.subCategories || {})
+            return
+          }
+        }
+      } catch (e) {
+        console.error('Error loading accordion state:', e)
+      }
+      setOpenCategories({})
+      setCollapsedSubCategories({})
     } else {
       setCategories([])
+      setOpenCategories({})
+      setCollapsedSubCategories({})
     }
   }, [selectedWarehouseId])
 
@@ -194,7 +214,16 @@ export default function StocksPage() {
 
       setWarehouses(whList)
       if (whList && whList.length > 0 && !selectedWarehouseId) {
-        setSelectedWarehouseId(whList[0].id)
+        let initialWhId = whList[0].id
+        try {
+          const savedWhId = localStorage.getItem('ctc_stock_selected_warehouse')
+          if (savedWhId && whList.some(w => w.id === savedWhId)) {
+            initialWhId = savedWhId
+          }
+        } catch (e) {
+          console.error(e)
+        }
+        setSelectedWarehouseId(initialWhId)
       }
     } catch (err) { console.error(err) }
   }
@@ -916,24 +945,65 @@ export default function StocksPage() {
     return result;
   }, [filteredStocks, sortBy]);
 
+  const saveAccordionState = (
+    whId: string | null,
+    cats: Record<string, boolean>,
+    subs: Record<string, boolean>
+  ) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = localStorage.getItem('ctc_stock_accordion_state');
+      const parsed = saved ? JSON.parse(saved) : {};
+      const warehouses = parsed.warehouses || {};
+      if (whId) {
+        warehouses[whId] = {
+          categories: cats,
+          subCategories: subs
+        };
+      }
+      const updated = {
+        ...parsed,
+        warehouses,
+        categories: cats,
+        subCategories: subs
+      };
+      localStorage.setItem('ctc_stock_accordion_state', JSON.stringify(updated));
+    } catch (e) {
+      console.error('Error saving accordion state to localStorage:', e);
+    }
+  };
+
   const toggleCategory = (catName: string) => {
-    setCollapsedCategories(prev => ({ ...prev, [catName]: !prev[catName] }));
+    setOpenCategories(prev => {
+      const currentState = searchTerm.trim().length > 0
+        ? (prev[catName] !== undefined ? prev[catName] : true)
+        : !!prev[catName];
+      const next = { ...prev, [catName]: !currentState };
+      saveAccordionState(selectedWarehouseId, next, collapsedSubCategories);
+      return next;
+    });
   };
 
   const toggleSubCategory = (subKey: string) => {
-    setCollapsedSubCategories(prev => ({ ...prev, [subKey]: !prev[subKey] }));
+    setCollapsedSubCategories(prev => {
+      const next = { ...prev, [subKey]: !prev[subKey] };
+      saveAccordionState(selectedWarehouseId, openCategories, next);
+      return next;
+    });
   };
 
-  const isAllCollapsed = groupedHierarchy.length > 0 && groupedHierarchy.every(g => !!collapsedCategories[g.name]);
+  const isAllOpen = groupedHierarchy.length > 0 && groupedHierarchy.every(g => !!openCategories[g.name]);
 
   const toggleAll = () => {
-    if (isAllCollapsed) {
-      setCollapsedCategories({});
+    if (isAllOpen) {
+      setOpenCategories({});
       setCollapsedSubCategories({});
+      saveAccordionState(selectedWarehouseId, {}, {});
     } else {
-      const allC: Record<string, boolean> = {};
-      groupedHierarchy.forEach(g => { allC[g.name] = true });
-      setCollapsedCategories(allC);
+      const allOpen: Record<string, boolean> = {};
+      groupedHierarchy.forEach(g => { allOpen[g.name] = true; });
+      setOpenCategories(allOpen);
+      saveAccordionState(selectedWarehouseId, allOpen, collapsedSubCategories);
     }
   };
 
@@ -955,7 +1025,10 @@ export default function StocksPage() {
             return (
               <div 
                 key={wh.id} 
-                onClick={() => setSelectedWarehouseId(wh.id)} 
+                onClick={() => {
+                  setSelectedWarehouseId(wh.id);
+                  try { localStorage.setItem('ctc_stock_selected_warehouse', wh.id); } catch {}
+                }} 
                 style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.1 + (index * 0.05)}s` }}
                 className={`flex flex-col px-3 py-1.5 rounded-lg cursor-pointer transition-all border whitespace-nowrap bg-gradient-to-r group ${wh.color} ${isSelected ? 'border-indigo-400 ring-1 ring-indigo-400/50 shadow-inner -translate-y-0.5' : 'border-slate-800/80 opacity-60 hover:opacity-100 hover:-translate-y-0.5'}`}
               >
@@ -1052,7 +1125,7 @@ export default function StocksPage() {
                   type="button"
                   onClick={toggleAll}
                   className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-indigo-300 transition-colors cursor-pointer"
-                  title={isAllCollapsed ? "Tümünü Genişlet" : "Tümünü Daralt"}
+                  title={isAllOpen ? "Tümünü Daralt" : "Tümünü Genişlet"}
                 >
                   <ChevronsUpDown size={13} />
                 </button>
@@ -1124,7 +1197,12 @@ export default function StocksPage() {
               </div>
             ) : (
               groupedHierarchy.map((catGroup) => {
-                const isCatCollapsed = !!collapsedCategories[catGroup.name];
+                const isSearchActive = searchTerm.trim().length > 0;
+                const isCatOpen = isSearchActive 
+                  ? true 
+                  : selectedFilterCategories.length > 0 
+                    ? (selectedFilterCategories.includes(catGroup.name) ? (openCategories[catGroup.name] !== false) : false)
+                    : !!openCategories[catGroup.name];
 
                 return (
                   <div key={catGroup.name} className="border-b border-slate-800/80 last:border-b-0">
@@ -1135,7 +1213,7 @@ export default function StocksPage() {
                     >
                       <div className="flex items-center gap-2 min-w-0 pr-2">
                         <span className="text-slate-500 group-hover:text-indigo-400 transition-transform">
-                          {isCatCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                          {isCatOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                         </span>
                         <Layers size={13} className="text-indigo-400 shrink-0" />
                         <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-wide truncate">
@@ -1153,7 +1231,7 @@ export default function StocksPage() {
                     </div>
 
                     {/* KATEGORİ İÇERİĞİ */}
-                    {!isCatCollapsed && (
+                    {isCatOpen && (
                       <div className="bg-[#070b14]/50">
                         {catGroup.subGroups.map((subGroup) => {
                           const subKey = `${catGroup.name}__${subGroup.name}`;
