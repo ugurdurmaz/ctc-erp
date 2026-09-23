@@ -84,6 +84,8 @@ export default function StocksPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const categoryScrollRef = useRef<HTMLDivElement>(null)
   const subCategoryScrollRef = useRef<HTMLDivElement>(null)
+  const categoryRowRef = useRef<HTMLDivElement>(null)
+  const subCategoryRowRef = useRef<HTMLDivElement>(null)
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'in_stock' | 'critical' | 'out_of_stock'>('all')
   const [sortBy, setSortBy] = useState<'capacity' | 'name_asc' | 'qty_desc' | 'qty_asc' | 'price_desc' | 'price_asc'>('capacity')
@@ -313,6 +315,39 @@ export default function StocksPage() {
 
     return list.sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'))
   }, [selectedFilterCategories, categories, subCategories, warehouseStocks])
+
+  // Kategoriler ve Alt Kategoriler barında mouse tekerleği döndürüldüğünde sayfanın aşağı-yukarı kaymasını önleyip sadece yatay kaydırma
+  useEffect(() => {
+    const catRow = categoryRowRef.current
+    const subCatRow = subCategoryRowRef.current
+
+    const handleWheelScroll = (targetRef: React.RefObject<HTMLDivElement | null>, e: WheelEvent) => {
+      const el = targetRef.current
+      if (!el) return
+
+      if (Math.abs(e.deltaY) >= Math.abs(e.deltaX) && e.deltaY !== 0) {
+        e.preventDefault()
+        e.stopPropagation()
+        const delta = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY
+        el.scrollLeft += delta
+      }
+    }
+
+    const onCatWheel = (e: WheelEvent) => handleWheelScroll(categoryScrollRef, e)
+    const onSubCatWheel = (e: WheelEvent) => handleWheelScroll(subCategoryScrollRef, e)
+
+    if (catRow) {
+      catRow.addEventListener('wheel', onCatWheel, { passive: false, capture: true })
+    }
+    if (subCatRow) {
+      subCatRow.addEventListener('wheel', onSubCatWheel, { passive: false, capture: true })
+    }
+
+    return () => {
+      if (catRow) catRow.removeEventListener('wheel', onCatWheel, { capture: true })
+      if (subCatRow) subCatRow.removeEventListener('wheel', onSubCatWheel, { capture: true })
+    }
+  }, [categories, availableFilterSubCategories])
 
   async function fetchTransactions(stockId: string) {
     try {
@@ -1162,18 +1197,13 @@ export default function StocksPage() {
           {categories.length > 0 && (
             <div className="px-2 py-1.5 border-b border-slate-800/50 bg-[#070b14] flex flex-col gap-1.5 shrink-0">
               {/* KATEGORİLER SATIRI */}
-              <div className="flex items-center justify-between gap-1">
+              <div ref={categoryRowRef} className="flex items-center justify-between gap-1">
                 <div className="flex items-center gap-1 min-w-0 flex-1">
                   <Filter size={12} className="text-slate-500 shrink-0 ml-0.5 mr-0.5" />
                   <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider shrink-0 mr-1">Kat:</span>
                   <div 
                     ref={categoryScrollRef}
-                    onWheel={(e) => {
-                      if (e.deltaY !== 0) {
-                        e.currentTarget.scrollLeft += e.deltaY;
-                      }
-                    }}
-                    className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 py-0.5"
+                    className="flex items-center gap-1.5 overflow-x-auto no-scrollbar overscroll-contain flex-1 py-0.5"
                   >
                     {categories.map(c => {
                       const isActive = selectedFilterCategories.includes(c.name)
@@ -1228,18 +1258,13 @@ export default function StocksPage() {
 
               {/* ALT KATEGORİLER SATIRI (Kategoriler gibi seçilebilir!) */}
               {availableFilterSubCategories.length > 0 && (
-                <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-800/40">
+                <div ref={subCategoryRowRef} className="flex items-center justify-between gap-1 pt-1 border-t border-slate-800/40">
                   <div className="flex items-center gap-1 min-w-0 flex-1">
                     <Tag size={11} className="text-teal-500/80 shrink-0 ml-0.5 mr-0.5" />
                     <span className="text-[9px] font-bold text-teal-400/80 uppercase tracking-wider shrink-0 mr-1">Alt Kat:</span>
                     <div 
                       ref={subCategoryScrollRef}
-                      onWheel={(e) => {
-                        if (e.deltaY !== 0) {
-                          e.currentTarget.scrollLeft += e.deltaY;
-                        }
-                      }}
-                      className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 py-0.5"
+                      className="flex items-center gap-1.5 overflow-x-auto no-scrollbar overscroll-contain flex-1 py-0.5"
                     >
                       {availableFilterSubCategories.map(sub => {
                         const isActive = selectedFilterSubCategories.includes(sub.name)
