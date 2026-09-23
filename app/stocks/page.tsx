@@ -79,8 +79,11 @@ export default function StocksPage() {
   const [inlineEditingSubKey, setInlineEditingSubKey] = useState<string | null>(null)
   const [inlineEditingSubName, setInlineEditingSubName] = useState('')
   const [selectedFilterCategories, setSelectedFilterCategories] = useState<string[]>([])
+  const [selectedFilterSubCategories, setSelectedFilterSubCategories] = useState<string[]>([])
+  const [isCustomSubCat, setIsCustomSubCat] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const categoryScrollRef = useRef<HTMLDivElement>(null)
+  const subCategoryScrollRef = useRef<HTMLDivElement>(null)
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'in_stock' | 'critical' | 'out_of_stock'>('all')
   const [sortBy, setSortBy] = useState<'capacity' | 'name_asc' | 'qty_desc' | 'qty_asc' | 'price_desc' | 'price_asc'>('capacity')
@@ -147,6 +150,7 @@ export default function StocksPage() {
       fetchCategories(selectedWarehouseId)
       setSelectedStockId(null)
       setSelectedFilterCategories([])
+      setSelectedFilterSubCategories([])
       setSearchTerm('')
 
       // Depoya ait kayıtlı akordeon açık/kapalı durumlarını yükle (varsayılan: hepsi kapalı)
@@ -261,6 +265,8 @@ export default function StocksPage() {
     } catch (err) { console.error(err) }
   }
 
+  const warehouseStocks = allStocks.filter(s => s.warehouse_id === selectedWarehouseId)
+
   const getSubCategoriesForCategory = (catName: string) => {
     if (!catName) return []
     const map = new Map<string, { name: string; count: number; id?: string }>()
@@ -287,6 +293,26 @@ export default function StocksPage() {
 
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'))
   }
+
+  // Filtreleme için kullanılabilir alt kategoriler (kategori seçimine duyarlı)
+  const availableFilterSubCategories = useMemo(() => {
+    const list: { name: string; category: string; count: number }[] = []
+    const targetCategories = selectedFilterCategories.length > 0 
+      ? categories.filter(c => selectedFilterCategories.includes(c.name))
+      : categories
+
+    targetCategories.forEach(c => {
+      const subs = getSubCategoriesForCategory(c.name)
+      subs.forEach(s => {
+        const existing = list.find(it => it.name === s.name)
+        if (!existing) {
+          list.push({ name: s.name, category: c.name, count: s.count })
+        }
+      })
+    })
+
+    return list.sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'))
+  }, [selectedFilterCategories, categories, subCategories, warehouseStocks])
 
   async function fetchTransactions(stockId: string) {
     try {
@@ -792,7 +818,7 @@ export default function StocksPage() {
 
   function openAddStock() {
     if (!selectedWarehouseId) { toast.error('Lütfen önce bir depo seçin.'); return }
-    setEditingStockId(null); setName(''); setSku(''); setCategory(''); setSubCategory(''); setQuantity(''); setUnitPrice(''); setVatRate('20'); setIsStockModalOpen(true)
+    setEditingStockId(null); setName(''); setSku(''); setCategory(''); setSubCategory(''); setIsCustomSubCat(false); setQuantity(''); setUnitPrice(''); setVatRate('20'); setIsStockModalOpen(true)
   }
   
   async function openEditStock(item: StockItem, e: React.MouseEvent) {
@@ -803,6 +829,7 @@ export default function StocksPage() {
     setSku(item.sku || '')
     setCategory(item.category || '')
     setSubCategory(item.sub_category || '')
+    setIsCustomSubCat(false)
     setCurrency(item.currency || 'TRY')
     setUnit(item.unit || 'Adet')
     setUnitPrice(item.unit_price.toString())
@@ -824,8 +851,6 @@ export default function StocksPage() {
     setIsStockModalOpen(true)
   }
 
-  const warehouseStocks = allStocks.filter(s => s.warehouse_id === selectedWarehouseId)
-  
   // Doğal kapasite algılama (TB, GB, MB, KB)
   function parseCapacity(name: string): number | null {
     const match = name.match(/(\d+(?:[.,]\d+)?)\s*(tb|gb|mb|kb)/i);
@@ -880,12 +905,13 @@ export default function StocksPage() {
 
   const filteredStocks = statusFilteredStocks.filter(s => {
     const catMatch = selectedFilterCategories.length === 0 || selectedFilterCategories.includes(s.category || 'Kategorisiz')
+    const subCatMatch = selectedFilterSubCategories.length === 0 || selectedFilterSubCategories.includes(s.sub_category || '')
     const searchStr = searchTerm.toLowerCase().trim()
     const searchMatch = !searchStr || 
       s.name.toLowerCase().includes(searchStr) || 
       (s.sku && s.sku.toLowerCase().includes(searchStr)) ||
       (s.sub_category && s.sub_category.toLowerCase().includes(searchStr))
-    return catMatch && searchMatch
+    return catMatch && subCatMatch && searchMatch
   })
 
   const quickSearchStocks = warehouseStocks.filter(s => 
@@ -1134,57 +1160,133 @@ export default function StocksPage() {
           </div>
 
           {categories.length > 0 && (
-            <div className="px-2 py-1.5 border-b border-slate-800/50 bg-[#070b14] flex items-center justify-between gap-1 shrink-0">
-              <div className="flex items-center gap-1 min-w-0 flex-1">
-                <Filter size={12} className="text-slate-500 shrink-0 ml-0.5 mr-0.5" />
-                <div 
-                  ref={categoryScrollRef}
-                  onWheel={(e) => {
-                    if (e.deltaY !== 0) {
-                      e.currentTarget.scrollLeft += e.deltaY;
-                    }
-                  }}
-                  className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 py-0.5"
-                >
-                  {categories.map(c => {
-                    const isActive = selectedFilterCategories.includes(c.name)
-                    return (
-                      <button 
-                        key={c.id} 
-                        onClick={() => setSelectedFilterCategories(p => p.includes(c.name) ? p.filter(n => n !== c.name) : [...p, c.name])} 
-                        className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none shrink-0 cursor-pointer ${isActive ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm shadow-indigo-600/30' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-slate-400 hover:text-slate-200'}`}
+            <div className="px-2 py-1.5 border-b border-slate-800/50 bg-[#070b14] flex flex-col gap-1.5 shrink-0">
+              {/* KATEGORİLER SATIRI */}
+              <div className="flex items-center justify-between gap-1">
+                <div className="flex items-center gap-1 min-w-0 flex-1">
+                  <Filter size={12} className="text-slate-500 shrink-0 ml-0.5 mr-0.5" />
+                  <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider shrink-0 mr-1">Kat:</span>
+                  <div 
+                    ref={categoryScrollRef}
+                    onWheel={(e) => {
+                      if (e.deltaY !== 0) {
+                        e.currentTarget.scrollLeft += e.deltaY;
+                      }
+                    }}
+                    className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 py-0.5"
+                  >
+                    {categories.map(c => {
+                      const isActive = selectedFilterCategories.includes(c.name)
+                      return (
+                        <button 
+                          key={c.id} 
+                          onClick={() => setSelectedFilterCategories(p => p.includes(c.name) ? p.filter(n => n !== c.name) : [...p, c.name])} 
+                          className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none shrink-0 cursor-pointer ${isActive ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm shadow-indigo-600/30 font-bold' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-slate-400 hover:text-slate-200'}`}
+                        >
+                          {c.name}
+                        </button>
+                      )
+                    })}
+                    {selectedFilterCategories.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFilterCategories([])}
+                        className="text-[9px] text-slate-500 hover:text-rose-400 px-1 py-0.5 rounded transition-colors whitespace-nowrap"
+                        title="Kategori filtrelerini temizle"
                       >
-                        {c.name}
+                        Temizle
                       </button>
-                    )
-                  })}
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-0.5 shrink-0 pl-1 border-l border-slate-800/80">
+                  <button 
+                    type="button" 
+                    onClick={() => categoryScrollRef.current?.scrollBy({ left: -100, behavior: 'smooth' })} 
+                    className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer" 
+                    title="Sola kaydır"
+                  >
+                    <ChevronLeft size={12} />
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={() => categoryScrollRef.current?.scrollBy({ left: 100, behavior: 'smooth' })} 
+                    className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer" 
+                    title="Sağa kaydır"
+                  >
+                    <ChevronRight size={12} />
+                  </button>
+                  <button 
+                    onClick={() => setIsCategoryManageModalOpen(true)} 
+                    className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded transition-colors shrink-0 ml-1 cursor-pointer"
+                  >
+                    <Settings size={12} /> Yönet
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center gap-0.5 shrink-0 pl-1 border-l border-slate-800/80">
-                <button 
-                  type="button" 
-                  onClick={() => categoryScrollRef.current?.scrollBy({ left: -100, behavior: 'smooth' })} 
-                  className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer"
-                  title="Sola kaydır"
-                >
-                  <ChevronLeft size={12} />
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => categoryScrollRef.current?.scrollBy({ left: 100, behavior: 'smooth' })} 
-                  className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer"
-                  title="Sağa kaydır"
-                >
-                  <ChevronRight size={12} />
-                </button>
-                <button 
-                  onClick={() => setIsCategoryManageModalOpen(true)} 
-                  className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded transition-colors shrink-0 ml-1 cursor-pointer"
-                >
-                  <Settings size={12} /> Yönet
-                </button>
-              </div>
+              {/* ALT KATEGORİLER SATIRI (Kategoriler gibi seçilebilir!) */}
+              {availableFilterSubCategories.length > 0 && (
+                <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-800/40">
+                  <div className="flex items-center gap-1 min-w-0 flex-1">
+                    <Tag size={11} className="text-teal-500/80 shrink-0 ml-0.5 mr-0.5" />
+                    <span className="text-[9px] font-bold text-teal-400/80 uppercase tracking-wider shrink-0 mr-1">Alt Kat:</span>
+                    <div 
+                      ref={subCategoryScrollRef}
+                      onWheel={(e) => {
+                        if (e.deltaY !== 0) {
+                          e.currentTarget.scrollLeft += e.deltaY;
+                        }
+                      }}
+                      className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 py-0.5"
+                    >
+                      {availableFilterSubCategories.map(sub => {
+                        const isActive = selectedFilterSubCategories.includes(sub.name)
+                        return (
+                          <button 
+                            key={sub.name} 
+                            onClick={() => setSelectedFilterSubCategories(p => p.includes(sub.name) ? p.filter(n => n !== sub.name) : [...p, sub.name])} 
+                            className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none shrink-0 cursor-pointer ${isActive ? 'bg-teal-600 border-teal-500 text-white shadow-sm shadow-teal-600/30 font-bold' : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/80 text-teal-400/80 hover:text-teal-200'}`}
+                            title={`${sub.category} > ${sub.name}`}
+                          >
+                            {sub.name} {sub.count > 0 ? `(${sub.count})` : ''}
+                          </button>
+                        )
+                      })}
+                      {selectedFilterSubCategories.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFilterSubCategories([])}
+                          className="text-[9px] text-slate-500 hover:text-rose-400 px-1 py-0.5 rounded transition-colors whitespace-nowrap"
+                          title="Alt kategori filtrelerini temizle"
+                        >
+                          Temizle
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-0.5 shrink-0 pl-1 border-l border-slate-800/80">
+                    <button 
+                      type="button" 
+                      onClick={() => subCategoryScrollRef.current?.scrollBy({ left: -100, behavior: 'smooth' })} 
+                      className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer" 
+                      title="Alt kategorileri sola kaydır"
+                    >
+                      <ChevronLeft size={11} />
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => subCategoryScrollRef.current?.scrollBy({ left: 100, behavior: 'smooth' })} 
+                      className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer" 
+                      title="Alt kategorileri sağa kaydır"
+                    >
+                      <ChevronRight size={11} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           
@@ -1200,8 +1302,13 @@ export default function StocksPage() {
                 const isSearchActive = searchTerm.trim().length > 0;
                 const isCatOpen = isSearchActive 
                   ? true 
-                  : selectedFilterCategories.length > 0 
-                    ? (selectedFilterCategories.includes(catGroup.name) ? (openCategories[catGroup.name] !== false) : false)
+                  : (selectedFilterCategories.length > 0 || selectedFilterSubCategories.length > 0)
+                    ? (
+                        selectedFilterCategories.includes(catGroup.name) || 
+                        catGroup.subGroups.some(sg => selectedFilterSubCategories.includes(sg.name))
+                          ? (openCategories[catGroup.name] !== false)
+                          : false
+                      )
                     : !!openCategories[catGroup.name];
 
                 return (
@@ -1235,7 +1342,8 @@ export default function StocksPage() {
                       <div className="bg-[#070b14]/50">
                         {catGroup.subGroups.map((subGroup) => {
                           const subKey = `${catGroup.name}__${subGroup.name}`;
-                          const isSubCollapsed = !!collapsedSubCategories[subKey];
+                          const isSubFiltered = selectedFilterSubCategories.includes(subGroup.name);
+                          const isSubCollapsed = isSubFiltered ? false : !!collapsedSubCategories[subKey];
                           const hasSubHeader = !!subGroup.name;
 
                           return (
@@ -1922,7 +2030,15 @@ export default function StocksPage() {
               <div className="flex items-end gap-1">
                 <div className="flex-1">
                   <label className="block text-slate-400 mb-1">Kategori</label>
-                  <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors">
+                  <select 
+                    value={category} 
+                    onChange={(e) => { 
+                      setCategory(e.target.value); 
+                      setSubCategory(''); 
+                      setIsCustomSubCat(false); 
+                    }} 
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors text-xs"
+                  >
                     <option value="">Seçiniz</option>
                     {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
@@ -1938,27 +2054,61 @@ export default function StocksPage() {
               </div>
               
               <div>
-                <label className="block text-slate-400 mb-1 flex items-center justify-between">
-                  <span>Alt Kategori</span>
-                  {category && getSubCategoriesForCategory(category).length > 0 && (
-                    <span className="text-[9px] text-teal-400 font-mono">
-                      {getSubCategoriesForCategory(category).length} seçenek
-                    </span>
-                  )}
-                </label>
-                <input 
-                  type="text" 
-                  list="stock-subcategories-datalist"
-                  placeholder={category ? (getSubCategoriesForCategory(category).length > 0 ? "Seçin veya yeni yazın..." : "Alt kategori (opsiyonel)...") : "Önce kategori seçin"}
-                  value={subCategory} 
-                  onChange={(e) => setSubCategory(e.target.value)} 
-                  className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors" 
-                />
-                <datalist id="stock-subcategories-datalist">
-                  {category && getSubCategoriesForCategory(category).map(sub => (
-                    <option key={sub.name} value={sub.name}>{sub.name} ({sub.count} ürün)</option>
-                  ))}
-                </datalist>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-400">Alt Kategori</label>
+                  <div className="flex items-center gap-1.5">
+                    {category && getSubCategoriesForCategory(category).length > 0 && (
+                      <span className="text-[9px] text-teal-400 font-mono">
+                        {getSubCategoriesForCategory(category).length} seçenek
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomSubCat(!isCustomSubCat)}
+                      className="text-[9px] text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer underline"
+                      title={isCustomSubCat ? "Listeden seç" : "Yeni alt kategori yaz"}
+                    >
+                      {isCustomSubCat ? 'Listeden Seç' : '+ Yeni Yaz'}
+                    </button>
+                  </div>
+                </div>
+
+                {isCustomSubCat ? (
+                  <input 
+                    type="text" 
+                    placeholder="Yeni alt kategori adı yazın..."
+                    value={subCategory} 
+                    onChange={(e) => setSubCategory(e.target.value)} 
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors text-xs" 
+                  />
+                ) : (
+                  <select 
+                    value={subCategory} 
+                    onChange={(e) => {
+                      if (e.target.value === '__NEW__') {
+                        setIsCustomSubCat(true);
+                        setSubCategory('');
+                      } else {
+                        setSubCategory(e.target.value);
+                      }
+                    }} 
+                    disabled={!category}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <option value="">{category ? 'Seçiniz (Opsiyonel)' : 'Önce Kategori Seçin'}</option>
+                    {category && getSubCategoriesForCategory(category).map(sub => (
+                      <option key={sub.name} value={sub.name}>
+                        {sub.name} {sub.count > 0 ? `(${sub.count} ürün)` : ''}
+                      </option>
+                    ))}
+                    {subCategory && category && !getSubCategoriesForCategory(category).some(s => s.name === subCategory) && (
+                      <option value={subCategory}>{subCategory}</option>
+                    )}
+                    {category && (
+                      <option value="__NEW__" className="text-indigo-400 font-semibold">✍️ + Yeni Alt Kategori Yaz...</option>
+                    )}
+                  </select>
+                )}
               </div>
               
               <div>
