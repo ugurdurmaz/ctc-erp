@@ -901,309 +901,7 @@ export default function ExpensesPage() {
       </div>
 
       {/* ========================================================================================= */}
-      {/* --- BU AYIN SABİT GİDERLERİ TAKİP ŞERİDİ (CURRENT MONTH RECURRING TRACKER) --- */}
-      {/* ========================================================================================= */}
-      <div style={{ animation: 'fadeInDown 0.4s both 0.1s' }} className="bg-gradient-to-r from-[#0d1322] via-[#0a1020] to-[#0d1322] border border-indigo-500/20 rounded-xl p-3 mb-3 shadow-lg shrink-0">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pb-2.5 mb-2.5 border-b border-slate-800/80">
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/30">
-              <Calendar size={16} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-200 capitalize">{currentMonthName} Sabit Gider Takibi</span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${paidRecurringCount === totalRecurringCount && totalRecurringCount > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'}`}>
-                  {paidRecurringCount} / {totalRecurringCount} Ödendi
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-400">
-                Aylık düzenli kira, aidat, fatura ve taahhütlerin güncel ödeme durumu
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            {/* Filtre Butonları */}
-            <div className="flex items-center gap-1 bg-[#070b14] border border-slate-800 p-0.5 rounded-lg text-[10px]">
-              <button 
-                onClick={() => setTrackerFilter('all')} 
-                className={`px-2 py-1 rounded transition-colors font-medium ${trackerFilter === 'all' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-              >
-                Tümü ({totalRecurringCount})
-              </button>
-              <button 
-                onClick={() => setTrackerFilter('pending')} 
-                className={`px-2 py-1 rounded transition-colors font-medium flex items-center gap-1 ${trackerFilter === 'pending' ? 'bg-amber-900/40 text-amber-300 border border-amber-500/30' : 'text-slate-400 hover:text-amber-400'}`}
-              >
-                <Clock size={10} /> Bekleyenler ({pendingRecurringCount})
-              </button>
-              <button 
-                onClick={() => setTrackerFilter('paid')} 
-                className={`px-2 py-1 rounded transition-colors font-medium flex items-center gap-1 ${trackerFilter === 'paid' ? 'bg-emerald-900/40 text-emerald-300 border border-emerald-500/30' : 'text-slate-400 hover:text-emerald-400'}`}
-              >
-                <CheckCircle2 size={10} /> Ödenenler ({paidRecurringCount})
-              </button>
-            </div>
-
-            {/* Görünüm Geçişi: Liste / Kart */}
-            <div className="flex items-center gap-0.5 bg-[#070b14] border border-slate-800 p-0.5 rounded-lg">
-              <button
-                onClick={() => setTrackerLayout('list')}
-                className={`p-1 rounded transition-colors ${trackerLayout === 'list' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}
-                title="Yoğun Liste Görünümü (Çoklu Ürün)"
-              >
-                <List size={13} />
-              </button>
-              <button
-                onClick={() => setTrackerLayout('grid')}
-                className={`p-1 rounded transition-colors ${trackerLayout === 'grid' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}
-                title="Kart / Izgara Görünümü"
-              >
-                <LayoutGrid size={13} />
-              </button>
-            </div>
-
-            {totalRecurringCount > 0 && (
-              <div className="hidden xl:flex items-center gap-4 text-xs font-mono bg-[#070b14] px-3 py-1 rounded-lg border border-slate-800">
-                <div>
-                  <span className="text-[9px] text-slate-500 block font-sans">Kalan Bekleyen:</span>
-                  <span className="font-bold text-amber-400">{formatMoney(pendingRecurringTotalTRY, 'TRY').formatted}</span>
-                </div>
-                <div className="w-px h-6 bg-slate-800"></div>
-                <div>
-                  <span className="text-[9px] text-slate-500 block font-sans">Ödenen:</span>
-                  <span className="font-bold text-emerald-400">{formatMoney(paidRecurringTotalTRY, 'TRY').formatted}</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Çoklu Ürün Sığması İçin Liste / Kart Görünümü */}
-        {totalRecurringCount === 0 ? (
-          <div className="flex items-center justify-between py-2 px-3 bg-[#070b14]/70 border border-dashed border-slate-800 rounded-lg">
-            <div className="flex items-center gap-2 text-slate-400 text-xs">
-              <Sparkles size={14} className="text-indigo-400" />
-              <span>Henüz tanımlı sabit gider şablonunuz bulunmuyor. Sol paneldeki <strong>Sabit Şablonlar</strong> sekmesinden Kira, Fatura vb. ekleyebilirsiniz.</span>
-            </div>
-            <button 
-              onClick={openAddTemplateModal}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold px-3 py-1 rounded-md transition-all active:scale-95 flex items-center gap-1 shrink-0"
-            >
-              <Plus size={12} /> Şablon Ekle
-            </button>
-          </div>
-        ) : trackerLayout === 'list' ? (
-          /* ========================================================================= */
-          /* --- YOĞUN LİSTE GÖRÜNÜMÜ (COMPACT HIGH-DENSITY TABLE) --- */
-          /* ========================================================================= */
-          <div className="border border-slate-800/80 rounded-xl overflow-hidden bg-[#070b14]/80 max-h-56 overflow-y-auto custom-scrollbar">
-            <table className="w-full text-left text-[11px] border-collapse">
-              <thead className="sticky top-0 bg-[#0a0f1d] z-10 text-[10px] text-slate-400 border-b border-slate-800/80 shadow-sm">
-                <tr>
-                  <th className="py-2 px-3 font-semibold w-48">Durum / Vade</th>
-                  <th className="py-2 px-3 font-semibold">Sabit Gider Tanımı</th>
-                  <th className="py-2 px-3 font-semibold w-40">Merkez</th>
-                  <th className="py-2 px-3 font-semibold w-32">Kategori</th>
-                  <th className="py-2 px-3 font-semibold w-44">Ödeme Kaynağı</th>
-                  <th className="py-2 px-3 font-semibold text-right w-32">Tutar</th>
-                  <th className="py-2 px-3 font-semibold text-center w-28">Hızlı İşlem</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/40">
-                {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays }) => {
-                  const comp = companies.find(c => c.id === tmpl.company_id)
-                  const isPersonal = comp?.is_personal
-                  const catName = getCategoryName(tmpl.category_id)
-
-                  let dueBadge = null
-                  if (isPaid) {
-                    dueBadge = (
-                      <span className="inline-flex items-center gap-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                        <CheckCircle2 size={11} className="shrink-0" /> Ödendi ({formatDateTR(matchedExpense!.tx_date)})
-                      </span>
-                    )
-                  } else if (diffDays < 0) {
-                    dueBadge = (
-                      <span className="inline-flex items-center gap-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30">
-                        <AlertTriangle size={11} className="shrink-0" /> {Math.abs(diffDays)} gün gecikti (Ayın {tmpl.due_day}'i)
-                      </span>
-                    )
-                  } else if (diffDays === 0) {
-                    dueBadge = (
-                      <span className="inline-flex items-center gap-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 animate-pulse">
-                        <Clock size={11} className="shrink-0" /> Bugün son gün!
-                      </span>
-                    )
-                  } else {
-                    dueBadge = (
-                      <span className="inline-flex items-center gap-1.5 text-[9px] font-medium px-2 py-0.5 rounded-full bg-slate-800/90 text-slate-300 border border-slate-700">
-                        <Calendar size={11} className="text-slate-400 shrink-0" /> {diffDays} gün kaldı (Ayın {tmpl.due_day}'i)
-                      </span>
-                    )
-                  }
-
-                  return (
-                    <tr 
-                      key={tmpl.id} 
-                      className={`hover:bg-slate-800/30 transition-colors ${isPaid ? 'opacity-85' : ''}`}
-                    >
-                      <td className="py-2 px-3 align-middle">{dueBadge}</td>
-                      <td className="py-2 px-3 align-middle">
-                        <div className="font-bold text-slate-200 truncate max-w-[280px]" title={tmpl.title}>
-                          {tmpl.title}
-                        </div>
-                        {tmpl.note && (
-                          <div className="text-[9px] text-slate-500 truncate max-w-[280px]">
-                            {tmpl.note}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 align-middle">
-                        <span className={`inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded font-bold truncate max-w-[140px] ${isPersonal ? 'bg-slate-800 text-slate-300' : 'bg-indigo-950/70 text-indigo-300 border border-indigo-800/50'}`}>
-                          {isPersonal ? <Home size={9} /> : <Building size={9} />}
-                          {comp?.name || 'Ortak'}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 align-middle text-slate-400 text-[10px] truncate max-w-[120px]">
-                        {catName}
-                      </td>
-                      <td className="py-2 px-3 align-middle text-[10px]">
-                        {isPaid ? (
-                          <span className="inline-flex items-center gap-1 text-slate-400 truncate max-w-[170px]">
-                            {matchedExpense?.payment_source_type === 'card' ? <CreditCard size={11} className="text-amber-400 shrink-0" /> : matchedExpense?.payment_source_type === 'bank' ? <Landmark size={11} className="text-blue-400 shrink-0" /> : <Wallet size={11} className="text-emerald-400 shrink-0" />}
-                            <span className="truncate">{getPaymentSourceName(matchedExpense!.payment_source_type, matchedExpense!.payment_source_id)}</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-slate-400 truncate max-w-[170px]">
-                            {tmpl.default_source_type === 'card' && <CreditCard size={11} className="text-amber-400 shrink-0" />}
-                            {tmpl.default_source_type === 'bank' && <Landmark size={11} className="text-blue-400 shrink-0" />}
-                            {tmpl.default_source_type === 'cash' && <Wallet size={11} className="text-emerald-400 shrink-0" />}
-                            <span className="truncate">{tmpl.default_source_id ? getPaymentSourceName(tmpl.default_source_type || '', tmpl.default_source_id) : 'Ödeme Kaynağı Seç'}</span>
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 align-middle text-right font-mono font-bold text-[12px]">
-                        <span className={isPaid ? 'text-emerald-400' : 'text-rose-400'}>
-                          {formatMoney(tmpl.amount, tmpl.currency).formatted}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 align-middle text-center">
-                        {isPaid ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                            <Check size={11} /> Ödendi
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => openQuickPayModal(tmpl)}
-                            className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-md transition-all active:scale-95 inline-flex items-center gap-1 shadow-sm shadow-indigo-950/40"
-                            title="Kredi Kartı veya Bankadan Hızlı Öde"
-                          >
-                            <Zap size={10} className="text-amber-300" /> Hızlı Öde
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          /* ========================================================================= */
-          /* --- ALTERNATİF KART / IZGARA GÖRÜNÜMÜ --- */
-          /* ========================================================================= */
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 max-h-48 overflow-y-auto custom-scrollbar p-0.5">
-            {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays }) => {
-              const comp = companies.find(c => c.id === tmpl.company_id)
-              const isPersonal = comp?.is_personal
-              const catName = getCategoryName(tmpl.category_id)
-
-              let dueStatusBadge = null
-              if (isPaid) {
-                dueStatusBadge = (
-                  <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                    <CheckCircle2 size={10} /> Ödendi ({formatDateTR(matchedExpense!.tx_date)})
-                  </span>
-                )
-              } else if (diffDays < 0) {
-                dueStatusBadge = (
-                  <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30">
-                    <AlertTriangle size={10} /> {Math.abs(diffDays)} gün gecikti
-                  </span>
-                )
-              } else if (diffDays === 0) {
-                dueStatusBadge = (
-                  <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 animate-pulse">
-                    <Clock size={10} /> Bugün son gün!
-                  </span>
-                )
-              } else {
-                dueStatusBadge = (
-                  <span className="inline-flex items-center gap-1 text-[9px] font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                    <Calendar size={10} /> {diffDays} gün kaldı (Ayın {tmpl.due_day}'i)
-                  </span>
-                )
-              }
-
-              return (
-                <div 
-                  key={tmpl.id}
-                  className={`p-2.5 rounded-xl border transition-all flex flex-col justify-between ${isPaid ? 'bg-[#070b14]/90 border-slate-800/80 hover:border-slate-700' : 'bg-[#0a0f1e] border-indigo-500/30 hover:border-indigo-400 shadow-md'}`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-1 mb-1">
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold truncate max-w-[120px] flex items-center gap-1 ${isPersonal ? 'bg-slate-800 text-slate-300' : 'bg-indigo-950/60 text-indigo-300 border border-indigo-800/50'}`}>
-                        {isPersonal ? <Home size={9} /> : <Building size={9} />}
-                        {comp?.name || 'Ortak'}
-                      </span>
-                      <span className="text-[9px] text-slate-500 truncate">{catName}</span>
-                    </div>
-
-                    <h4 className="text-[12px] font-bold text-slate-200 truncate mt-1" title={tmpl.title}>
-                      {tmpl.title}
-                    </h4>
-
-                    <div className="text-[13px] font-mono font-bold text-rose-400 mt-0.5">
-                      {formatMoney(tmpl.amount, tmpl.currency).formatted}
-                    </div>
-
-                    <div className="mt-1.5">{dueStatusBadge}</div>
-                  </div>
-
-                  <div className="mt-2 pt-2 border-t border-slate-800/60 flex items-center justify-between gap-2">
-                    {isPaid ? (
-                      <div className="text-[9px] text-slate-500 truncate flex items-center gap-1">
-                        {matchedExpense?.payment_source_type === 'card' ? <CreditCard size={10} className="text-amber-400" /> : matchedExpense?.payment_source_type === 'bank' ? <Landmark size={10} className="text-blue-400" /> : <Wallet size={10} className="text-emerald-400" />}
-                        <span className="truncate">{getPaymentSourceName(matchedExpense!.payment_source_type, matchedExpense!.payment_source_id)}</span>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="text-[9px] text-slate-400 flex items-center gap-1 truncate">
-                          {tmpl.default_source_type === 'card' && <CreditCard size={10} className="text-amber-400" />}
-                          {tmpl.default_source_type === 'bank' && <Landmark size={10} className="text-blue-400" />}
-                          {tmpl.default_source_type === 'cash' && <Wallet size={10} className="text-emerald-400" />}
-                          <span className="truncate">{tmpl.default_source_id ? getPaymentSourceName(tmpl.default_source_type || '', tmpl.default_source_id) : 'Ödeme Seç'}</span>
-                        </div>
-                        <button
-                          onClick={() => openQuickPayModal(tmpl)}
-                          className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 rounded-md transition-all active:scale-95 flex items-center gap-1 shadow-md shadow-indigo-950/40 shrink-0"
-                          title="Kredi Kartı veya Bankadan Hızlı Öde"
-                        >
-                          <Zap size={10} className="text-amber-300" /> Hızlı Öde
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================================= */}
-      {/* --- ANA ÇALIŞMA ALANI: SOL PANEL & SAĞ LİSTE --- */}
+      {/* --- ANA ÇALIŞMA ALANI: SOL PANEL & SAĞ ALAN --- */}
       {/* ========================================================================================= */}
       <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
         
@@ -1467,9 +1165,314 @@ export default function ExpensesPage() {
           </div>
         </div>
 
-        {/* SAĞ PANEL: GİDER EKLEME FORMU & GİDERLER TABLOSU */}
-        <div style={{ animation: 'fadeInUp 0.4s both 0.3s' }} className="flex-1 bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col min-w-0 shadow-lg">
-          <div className="p-4 overflow-y-auto custom-scrollbar flex-1 flex flex-col">
+        {/* SAĞ PANEL ALANI: ÜSTTE SABİT GİDER TAKİBİ, ALTTA GİDER FORMU & TABLOSU */}
+        <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-0">
+          
+          {/* ========================================================================================= */}
+          {/* --- BU AYIN SABİT GİDERLERİ TAKİP ŞERİDİ (CURRENT MONTH RECURRING TRACKER) --- */}
+          {/* ========================================================================================= */}
+          <div style={{ animation: 'fadeInDown 0.4s both 0.1s' }} className="bg-gradient-to-r from-[#0d1322] via-[#0a1020] to-[#0d1322] border border-indigo-500/20 rounded-xl p-3 shadow-lg shrink-0">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 pb-2.5 mb-2.5 border-b border-slate-800/80">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/30">
+                  <Calendar size={16} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-200 capitalize">{currentMonthName} Sabit Gider Takibi</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${paidRecurringCount === totalRecurringCount && totalRecurringCount > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'}`}>
+                      {paidRecurringCount} / {totalRecurringCount} Ödendi
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    Aylık düzenli kira, aidat, fatura ve taahhütlerin güncel ödeme durumu
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                {/* Filtre Butonları */}
+                <div className="flex items-center gap-1 bg-[#070b14] border border-slate-800 p-0.5 rounded-lg text-[10px]">
+                  <button 
+                    onClick={() => setTrackerFilter('all')} 
+                    className={`px-2 py-1 rounded transition-colors font-medium ${trackerFilter === 'all' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                  >
+                    Tümü ({totalRecurringCount})
+                  </button>
+                  <button 
+                    onClick={() => setTrackerFilter('pending')} 
+                    className={`px-2 py-1 rounded transition-colors font-medium flex items-center gap-1 ${trackerFilter === 'pending' ? 'bg-amber-900/40 text-amber-300 border border-amber-500/30' : 'text-slate-400 hover:text-amber-400'}`}
+                  >
+                    <Clock size={10} /> Bekleyenler ({pendingRecurringCount})
+                  </button>
+                  <button 
+                    onClick={() => setTrackerFilter('paid')} 
+                    className={`px-2 py-1 rounded transition-colors font-medium flex items-center gap-1 ${trackerFilter === 'paid' ? 'bg-emerald-900/40 text-emerald-300 border border-emerald-500/30' : 'text-slate-400 hover:text-emerald-400'}`}
+                  >
+                    <CheckCircle2 size={10} /> Ödenenler ({paidRecurringCount})
+                  </button>
+                </div>
+
+                {/* Görünüm Geçişi: Liste / Kart */}
+                <div className="flex items-center gap-0.5 bg-[#070b14] border border-slate-800 p-0.5 rounded-lg">
+                  <button
+                    onClick={() => setTrackerLayout('list')}
+                    className={`p-1 rounded transition-colors ${trackerLayout === 'list' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}
+                    title="Yoğun Liste Görünümü (Çoklu Ürün)"
+                  >
+                    <List size={13} />
+                  </button>
+                  <button
+                    onClick={() => setTrackerLayout('grid')}
+                    className={`p-1 rounded transition-colors ${trackerLayout === 'grid' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}
+                    title="Kart / Izgara Görünümü"
+                  >
+                    <LayoutGrid size={13} />
+                  </button>
+                </div>
+
+                {totalRecurringCount > 0 && (
+                  <div className="hidden 2xl:flex items-center gap-3 text-xs font-mono bg-[#070b14] px-2.5 py-1 rounded-lg border border-slate-800">
+                    <div>
+                      <span className="text-[9px] text-slate-500 block font-sans">Kalan:</span>
+                      <span className="font-bold text-amber-400">{formatMoney(pendingRecurringTotalTRY, 'TRY').formatted}</span>
+                    </div>
+                    <div className="w-px h-5 bg-slate-800"></div>
+                    <div>
+                      <span className="text-[9px] text-slate-500 block font-sans">Ödenen:</span>
+                      <span className="font-bold text-emerald-400">{formatMoney(paidRecurringTotalTRY, 'TRY').formatted}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Çoklu Ürün Sığması İçin Liste / Kart Görünümü */}
+            {totalRecurringCount === 0 ? (
+              <div className="flex items-center justify-between py-2 px-3 bg-[#070b14]/70 border border-dashed border-slate-800 rounded-lg">
+                <div className="flex items-center gap-2 text-slate-400 text-xs">
+                  <Sparkles size={14} className="text-indigo-400" />
+                  <span>Henüz tanımlı sabit gider şablonunuz bulunmuyor. Sol paneldeki <strong>Sabit Şablonlar</strong> sekmesinden ekleyebilirsiniz.</span>
+                </div>
+                <button 
+                  onClick={openAddTemplateModal}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold px-3 py-1 rounded-md transition-all active:scale-95 flex items-center gap-1 shrink-0"
+                >
+                  <Plus size={12} /> Şablon Ekle
+                </button>
+              </div>
+            ) : trackerLayout === 'list' ? (
+              /* ========================================================================= */
+              /* --- YOĞUN LİSTE GÖRÜNÜMÜ (COMPACT HIGH-DENSITY TABLE) --- */
+              /* ========================================================================= */
+              <div className="border border-slate-800/80 rounded-xl overflow-hidden bg-[#070b14]/80 max-h-52 overflow-y-auto custom-scrollbar">
+                <table className="w-full text-left text-[11px] border-collapse">
+                  <thead className="sticky top-0 bg-[#0a0f1d] z-10 text-[10px] text-slate-400 border-b border-slate-800/80 shadow-sm">
+                    <tr>
+                      <th className="py-2 px-3 font-semibold w-44">Durum / Vade</th>
+                      <th className="py-2 px-3 font-semibold">Sabit Gider Tanımı</th>
+                      <th className="py-2 px-3 font-semibold w-36">Merkez</th>
+                      <th className="py-2 px-3 font-semibold w-28">Kategori</th>
+                      <th className="py-2 px-3 font-semibold w-40">Ödeme Kaynağı</th>
+                      <th className="py-2 px-3 font-semibold text-right w-28">Tutar</th>
+                      <th className="py-2 px-3 font-semibold text-center w-24">Hızlı İşlem</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/40">
+                    {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays }) => {
+                      const comp = companies.find(c => c.id === tmpl.company_id)
+                      const isPersonal = comp?.is_personal
+                      const catName = getCategoryName(tmpl.category_id)
+
+                      let dueBadge = null
+                      if (isPaid) {
+                        dueBadge = (
+                          <span className="inline-flex items-center gap-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            <CheckCircle2 size={11} className="shrink-0" /> Ödendi ({formatDateTR(matchedExpense!.tx_date)})
+                          </span>
+                        )
+                      } else if (diffDays < 0) {
+                        dueBadge = (
+                          <span className="inline-flex items-center gap-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                            <AlertTriangle size={11} className="shrink-0" /> {Math.abs(diffDays)} gün gecikti (Ayın {tmpl.due_day}'i)
+                          </span>
+                        )
+                      } else if (diffDays === 0) {
+                        dueBadge = (
+                          <span className="inline-flex items-center gap-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 animate-pulse">
+                            <Clock size={11} className="shrink-0" /> Bugün son gün!
+                          </span>
+                        )
+                      } else {
+                        dueBadge = (
+                          <span className="inline-flex items-center gap-1.5 text-[9px] font-medium px-2 py-0.5 rounded-full bg-slate-800/90 text-slate-300 border border-slate-700">
+                            <Calendar size={11} className="text-slate-400 shrink-0" /> {diffDays} gün kaldı (Ayın {tmpl.due_day}'i)
+                          </span>
+                        )
+                      }
+
+                      return (
+                        <tr 
+                          key={tmpl.id} 
+                          className={`hover:bg-slate-800/30 transition-colors ${isPaid ? 'opacity-85' : ''}`}
+                        >
+                          <td className="py-2 px-3 align-middle">{dueBadge}</td>
+                          <td className="py-2 px-3 align-middle">
+                            <div className="font-bold text-slate-200 truncate max-w-[240px]" title={tmpl.title}>
+                              {tmpl.title}
+                            </div>
+                            {tmpl.note && (
+                              <div className="text-[9px] text-slate-500 truncate max-w-[240px]">
+                                {tmpl.note}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 align-middle">
+                            <span className={`inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded font-bold truncate max-w-[130px] ${isPersonal ? 'bg-slate-800 text-slate-300' : 'bg-indigo-950/70 text-indigo-300 border border-indigo-800/50'}`}>
+                              {isPersonal ? <Home size={9} /> : <Building size={9} />}
+                              {comp?.name || 'Ortak'}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 align-middle text-slate-400 text-[10px] truncate max-w-[110px]">
+                            {catName}
+                          </td>
+                          <td className="py-2 px-3 align-middle text-[10px]">
+                            {isPaid ? (
+                              <span className="inline-flex items-center gap-1 text-slate-400 truncate max-w-[150px]">
+                                {matchedExpense?.payment_source_type === 'card' ? <CreditCard size={11} className="text-amber-400 shrink-0" /> : matchedExpense?.payment_source_type === 'bank' ? <Landmark size={11} className="text-blue-400 shrink-0" /> : <Wallet size={11} className="text-emerald-400 shrink-0" />}
+                                <span className="truncate">{getPaymentSourceName(matchedExpense!.payment_source_type, matchedExpense!.payment_source_id)}</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-slate-400 truncate max-w-[150px]">
+                                {tmpl.default_source_type === 'card' && <CreditCard size={11} className="text-amber-400 shrink-0" />}
+                                {tmpl.default_source_type === 'bank' && <Landmark size={11} className="text-blue-400 shrink-0" />}
+                                {tmpl.default_source_type === 'cash' && <Wallet size={11} className="text-emerald-400 shrink-0" />}
+                                <span className="truncate">{tmpl.default_source_id ? getPaymentSourceName(tmpl.default_source_type || '', tmpl.default_source_id) : 'Ödeme Kaynağı Seç'}</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 align-middle text-right font-mono font-bold text-[12px]">
+                            <span className={isPaid ? 'text-emerald-400' : 'text-rose-400'}>
+                              {formatMoney(tmpl.amount, tmpl.currency).formatted}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 align-middle text-center">
+                            {isPaid ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                <Check size={11} /> Ödendi
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => openQuickPayModal(tmpl)}
+                                className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-md transition-all active:scale-95 inline-flex items-center gap-1 shadow-sm shadow-indigo-950/40"
+                                title="Kredi Kartı veya Bankadan Hızlı Öde"
+                              >
+                                <Zap size={10} className="text-amber-300" /> Hızlı Öde
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              /* ========================================================================= */
+              /* --- ALTERNATİF KART / IZGARA GÖRÜNÜMÜ --- */
+              /* ========================================================================= */
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-2.5 max-h-48 overflow-y-auto custom-scrollbar p-0.5">
+                {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays }) => {
+                  const comp = companies.find(c => c.id === tmpl.company_id)
+                  const isPersonal = comp?.is_personal
+                  const catName = getCategoryName(tmpl.category_id)
+
+                  let dueStatusBadge = null
+                  if (isPaid) {
+                    dueStatusBadge = (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                        <CheckCircle2 size={10} /> Ödendi ({formatDateTR(matchedExpense!.tx_date)})
+                      </span>
+                    )
+                  } else if (diffDays < 0) {
+                    dueStatusBadge = (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                        <AlertTriangle size={10} /> {Math.abs(diffDays)} gün gecikti
+                      </span>
+                    )
+                  } else if (diffDays === 0) {
+                    dueStatusBadge = (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 animate-pulse">
+                        <Clock size={10} /> Bugün son gün!
+                      </span>
+                    )
+                  } else {
+                    dueStatusBadge = (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                        <Calendar size={10} /> {diffDays} gün kaldı (Ayın {tmpl.due_day}'i)
+                      </span>
+                    )
+                  }
+
+                  return (
+                    <div 
+                      key={tmpl.id}
+                      className={`p-2.5 rounded-xl border transition-all flex flex-col justify-between ${isPaid ? 'bg-[#070b14]/90 border-slate-800/80 hover:border-slate-700' : 'bg-[#0a0f1e] border-indigo-500/30 hover:border-indigo-400 shadow-md'}`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold truncate max-w-[120px] flex items-center gap-1 ${isPersonal ? 'bg-slate-800 text-slate-300' : 'bg-indigo-950/60 text-indigo-300 border border-indigo-800/50'}`}>
+                            {isPersonal ? <Home size={9} /> : <Building size={9} />}
+                            {comp?.name || 'Ortak'}
+                          </span>
+                          <span className="text-[9px] text-slate-500 truncate">{catName}</span>
+                        </div>
+
+                        <h4 className="text-[12px] font-bold text-slate-200 truncate mt-1" title={tmpl.title}>
+                          {tmpl.title}
+                        </h4>
+
+                        <div className="text-[13px] font-mono font-bold text-rose-400 mt-0.5">
+                          {formatMoney(tmpl.amount, tmpl.currency).formatted}
+                        </div>
+
+                        <div className="mt-1.5">{dueStatusBadge}</div>
+                      </div>
+
+                      <div className="mt-2 pt-2 border-t border-slate-800/60 flex items-center justify-between gap-2">
+                        {isPaid ? (
+                          <div className="text-[9px] text-slate-500 truncate flex items-center gap-1">
+                            {matchedExpense?.payment_source_type === 'card' ? <CreditCard size={10} className="text-amber-400" /> : matchedExpense?.payment_source_type === 'bank' ? <Landmark size={10} className="text-blue-400" /> : <Wallet size={10} className="text-emerald-400" />}
+                            <span className="truncate">{getPaymentSourceName(matchedExpense!.payment_source_type, matchedExpense!.payment_source_id)}</span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-[9px] text-slate-400 flex items-center gap-1 truncate">
+                              {tmpl.default_source_type === 'card' && <CreditCard size={10} className="text-amber-400" />}
+                              {tmpl.default_source_type === 'bank' && <Landmark size={10} className="text-blue-400" />}
+                              {tmpl.default_source_type === 'cash' && <Wallet size={10} className="text-emerald-400" />}
+                              <span className="truncate">{tmpl.default_source_id ? getPaymentSourceName(tmpl.default_source_type || '', tmpl.default_source_id) : 'Ödeme Seç'}</span>
+                            </div>
+                            <button
+                              onClick={() => openQuickPayModal(tmpl)}
+                              className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 rounded-md transition-all active:scale-95 flex items-center gap-1 shadow-md shadow-indigo-950/40 shrink-0"
+                              title="Kredi Kartı veya Bankadan Hızlı Öde"
+                            >
+                              <Zap size={10} className="text-amber-300" /> Hızlı Öde
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* SAĞ PANEL: GİDER EKLEME FORMU & GİDERLER TABLOSU */}
+          <div style={{ animation: 'fadeInUp 0.4s both 0.2s' }} className="flex-1 bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col min-w-0 shadow-lg min-h-0 overflow-hidden">
+            <div className="p-4 overflow-y-auto custom-scrollbar flex-1 flex flex-col">
             
             {/* Gider Ekleme Formu */}
             <div className="mb-4 bg-[#070b14] p-3 rounded-xl border border-slate-800 shrink-0 hover:border-slate-700 transition-colors">
@@ -1681,6 +1684,7 @@ export default function ExpensesPage() {
           </div>
         </div>
 
+        </div>
       </div>
 
       {/* ========================================================================================= */}
