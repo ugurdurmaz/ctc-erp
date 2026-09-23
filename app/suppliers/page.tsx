@@ -36,7 +36,7 @@ type SupplierTransaction = {
 
 type BankAccount = { id: string; bank_name: string; balance: number; currency: string }
 type CashRegister = { id: string; name: string; balance: number; currency: string }
-type CreditCardItem = { id: string; name: string; current_debt: number }
+type CreditCardItem = { id: string; name: string; current_debt: number; company_id?: string | null }
 type StockItem = { id: string; name: string; unit_price: number; vat_rate: number; warehouse_id: string; currency: string; quantity: number }
 
 function getLocalTodayISO() {
@@ -160,8 +160,14 @@ export default function SuppliersPage() {
   async function fetchPaymentSources() {
     const { data: bData } = await supabase.from('bank_accounts').select('id, bank_name, balance, currency')
     const { data: cData } = await supabase.from('cash_registers').select('id, name, balance, currency')
-    const { data: cdData } = await supabase.from('credit_cards').select('id, name, current_debt')
-    setBanks(bData || []); setCashes(cData || []); setCards(cdData || [])
+    const { data: cdData } = await supabase.from('credit_cards').select('id, name, current_debt, company_id')
+    setBanks(bData || []); setCashes(cData || [])
+    const filteredCards = (cdData || []).filter((c: any) => {
+      if (!isRestricted) return true
+      if (!c.company_id) return false
+      return profile?.allowed_companies?.includes(c.company_id)
+    })
+    setCards(filteredCards)
   }
 
   async function fetchSuppliers() {

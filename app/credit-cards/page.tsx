@@ -62,8 +62,12 @@ function formatDateTR(dateStr: string) {
 }
 
 import { logActivity } from '@/lib/audit'
+import { useAuth } from '@/lib/auth-context'
 
 export default function CreditCardsPage() {
+  const { profile, isAdmin } = useAuth()
+  const isRestricted = !isAdmin && !!profile?.allowed_companies && profile.allowed_companies.length > 0
+
   const [companies, setCompanies] = useState<Company[]>([])
   const [cards, setCards] = useState<Card[]>([])
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
@@ -90,23 +94,60 @@ export default function CreditCardsPage() {
     isOpen: boolean; title: string; message: string; confirmText: string; cancelText: string; isDanger: boolean; onConfirm: () => void;
   }>({ isOpen: false, title: '', message: '', confirmText: '', cancelText: '', isDanger: false, onConfirm: () => {} })
 
-  useEffect(() => { fetchCompanies(); fetchCards() }, [])
-  useEffect(() => { if (selectedCardId) fetchTransactions(selectedCardId) }, [selectedCardId])
+  useEffect(() => { 
+    fetchCompanies()
+    fetchCards() 
+  }, [isRestricted, profile?.allowed_companies])
 
-  async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name', { ascending: true }); setCompanies(data || []) }
+  useEffect(() => { 
+    if (selectedCardId) fetchTransactions(selectedCardId) 
+  }, [selectedCardId])
+
+  async function fetchCompanies() { 
+    const { data } = await supabase.from('companies').select('*').order('name', { ascending: true })
+    let comps = data || []
+    if (isRestricted) {
+      comps = comps.filter(c => profile?.allowed_companies?.includes(c.id))
+    }
+    setCompanies(comps) 
+  }
 
   async function fetchCards() {
     try {
       const { data, error } = await supabase.from('credit_cards').select('*, company:companies(name, is_personal)').order('created_at', { ascending: true })
       if (error) throw error
-      if (data && data.length > 0) {
-        setCards(data)
-        if (!selectedCardId) setSelectedCardId(data[0].id)
-      } else { setCards([]) }
-    } catch (err) { console.error(err) } finally { setLoading(false) }
+      
+      // Kısıtlı kullanıcı (örn. İbrahim) Ortak / Bağımsız kartları ve yetkisiz şirket kartlarını göremez
+      const filtered = (data || []).filter(c => {
+        if (!isRestricted) return true
+        if (!c.company_id) return false
+        return profile?.allowed_companies?.includes(c.company_id)
+      })
+
+      setCards(filtered)
+      if (filtered.length > 0) {
+        setSelectedCardId(prev => {
+          if (prev && filtered.some(c => c.id === prev)) return prev
+          return filtered[0].id
+        })
+      } else { 
+        setSelectedCardId(null) 
+      }
+    } catch (err) { 
+      console.error(err) 
+    } finally { 
+      setLoading(false) 
+    }
   }
 
   async function fetchTransactions(cardId: string) {
+    const targetCard = cards.find(c => c.id === cardId)
+    if (isRestricted && targetCard) {
+      if (!targetCard.company_id || !profile?.allowed_companies?.includes(targetCard.company_id)) {
+        setTransactions([])
+        return
+      }
+    }
     try {
       const { data, error } = await supabase.from('card_transactions').select('*, company:companies(name, is_personal)').eq('card_id', cardId).order('tx_date', { ascending: false }).order('created_at', { ascending: false })
       if (error) throw error
@@ -131,18 +172,24 @@ export default function CreditCardsPage() {
 
   function openAddModal() {
     setEditingCardId(null)
-    setCardName(''); setCardLimit(''); setCutoffDay('15'); setOpeningDebt(''); setCardColor(CARD_COLORS[0].value); setCardCompanyId('common')
+    setCardName(''); setCardLimit(''); setCutoffDay('15'); setOpeningDebt(''); setCardColor(CARD_COLORS[0].value)
+    const defaultComp = isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common'
+    setCardCompanyId(defaultComp)
     setIsCardModalOpen(true)
   }
 
   async function openEditModal(card: Card, e: React.MouseEvent) {
     e.stopPropagation()
+    if (isRestricted && (!card.company_id || !profile?.allowed_companies?.includes(card.company_id))) {
+      toast.error('Bu kredi kartını düzenleme yetkiniz bulunmuyor.')
+      return
+    }
     setEditingCardId(card.id)
     setCardName(card.name); 
     setCardLimit(card.card_limit.toString()); 
     setCutoffDay(card.cutoff_day.toString()); 
     setCardColor(card.card_color || CARD_COLORS[0].value); 
-    setCardCompanyId(card.company_id || 'common');
+    setCardCompanyId(card.company_id || (isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common'));
     setOpeningDebt('');
     setIsCardModalOpen(true);
 
@@ -163,6 +210,13 @@ export default function CreditCardsPage() {
     const cutoffNum = parseInt(cutoffDay) || 1
     const debtNum = openingDebt ? parseFloat(openingDebt) : 0
     const finalCompId = cardCompanyId === 'common' ? null : cardCompanyId
+
+    if (isRestricted) {
+      if (cardCompanyId === 'common' || !profile?.allowed_companies?.includes(cardCompanyId)) {
+        toast.error('Sadece kendi yetkili şirketiniz adına kredi kartı oluşturabilir veya güncelleyebilirsiniz.')
+        return
+      }
+    }
 
     try {
       if (editingCardId) {
@@ -224,6 +278,12 @@ export default function CreditCardsPage() {
 
   function handleDeleteCard(id: string, e: React.MouseEvent) {
     e.stopPropagation()
+    const cardToDelete = cards.find(c => c.id === id)
+    if (isRestricted && (!cardToDelete?.company_id || !profile?.allowed_companies?.includes(cardToDelete.company_id))) {
+      toast.error('Bu kredi kartını silme yetkiniz bulunmuyor.')
+      return
+    }
+
     setConfirmDialog({
       isOpen: true,
       title: 'Kartı Sil',
@@ -255,6 +315,17 @@ export default function CreditCardsPage() {
     const currentCard = cards.find((c) => c.id === selectedCardId)
     if (!currentCard) return
 
+    if (isRestricted) {
+      if (!currentCard.company_id || !profile?.allowed_companies?.includes(currentCard.company_id)) {
+        toast.error('Bu kart üzerinde işlem yapma yetkiniz bulunmuyor.')
+        return
+      }
+      if (txCompanyId === 'common' || !profile?.allowed_companies?.includes(txCompanyId)) {
+        toast.error('Bu işlem için sadece kendi yetkili şirketinizi seçebilirsiniz.')
+        return
+      }
+    }
+
     try {
       const payload = { card_id: selectedCardId, company_id: finalCompId, tx_date: txDate || todayISO, description: txDesc, tx_type: txType, amount: amountNum }
       const { data, error } = await supabase.from('card_transactions').insert([payload]).select().single()
@@ -272,6 +343,11 @@ export default function CreditCardsPage() {
   }
 
   function handleDeleteTransaction(txId: string, amount: number, type: 'expense' | 'payment') {
+    if (isRestricted && (!selectedCard?.company_id || !profile?.allowed_companies?.includes(selectedCard.company_id))) {
+      toast.error('Bu kart hareketini silme yetkiniz bulunmuyor.')
+      return
+    }
+
     setConfirmDialog({
       isOpen: true,
       title: 'İşlemi Sil',
@@ -300,6 +376,16 @@ export default function CreditCardsPage() {
 
   const selectedCard = cards.find((c) => c.id === selectedCardId)
 
+  useEffect(() => {
+    if (selectedCard?.company_id) {
+      setTxCompanyId(selectedCard.company_id)
+    } else if (isRestricted && profile?.allowed_companies?.[0]) {
+      setTxCompanyId(profile.allowed_companies[0])
+    } else {
+      setTxCompanyId('common')
+    }
+  }, [selectedCardId, selectedCard?.company_id, isRestricted, profile?.allowed_companies])
+
   return (
     <div className="space-y-8 relative animate-in fade-in duration-300">
       {/* TOASTER KONTEYNER Z-INDEX DEĞERİ MAX VE POZİSYONU BOTTOM-RIGHT YAPILDI */}
@@ -309,6 +395,11 @@ export default function CreditCardsPage() {
         <div className="flex items-center gap-2.5 text-white font-bold text-xl">
           <CreditCard className="text-indigo-400" size={24} />
           <h2>Kredi Kartlarım</h2>
+          {isRestricted && (
+            <span className="text-[11px] font-normal px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+              🏢 {companies.map(c => c.name).join(', ') || 'Tanımlı Şirket'}
+            </span>
+          )}
         </div>
         <button onClick={openAddModal} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-lg shrink-0">
           <Plus size={16} /><span>Yeni Kart Ekle</span>
@@ -319,7 +410,9 @@ export default function CreditCardsPage() {
         {cards.length === 0 && !loading && (
            <div className="w-full flex flex-col items-center justify-center p-12 border border-dashed border-slate-700/50 rounded-2xl bg-[#0d1322]/50 text-slate-500 animate-in fade-in">
              <CreditCard size={48} className="mb-4 opacity-20 animate-bounce" />
-             <p className="text-sm font-bold text-slate-400">Henüz hiç kredi kartı eklenmemiş</p>
+             <p className="text-sm font-bold text-slate-400">
+               {isRestricted ? 'Tanımlı şirketinize ait kredi kartı bulunmuyor' : 'Henüz hiç kredi kartı eklenmemiş'}
+             </p>
              <p className="text-[11px] mt-1">Sağ üstteki butondan yeni bir kredi kartı oluşturabilirsiniz.</p>
            </div>
         )}
@@ -398,9 +491,9 @@ export default function CreditCardsPage() {
             <div className="md:col-span-2">
                <label className="block text-[11px] text-slate-400 mb-1">Harcama Kime Ait? *</label>
                <select value={txCompanyId} onChange={(e) => setTxCompanyId(e.target.value)} required className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors">
-                 <option value="common">🌍 Ortak / Bağımsız İşlem</option>
-                 <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                 <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                 {!isRestricted && <option value="common">🌍 Ortak / Bağımsız İşlem</option>}
+                 <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal && (!isRestricted || profile?.allowed_companies?.includes(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                 <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal && (!isRestricted || profile?.allowed_companies?.includes(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
                </select>
             </div>
 
@@ -509,9 +602,9 @@ export default function CreditCardsPage() {
               <div>
                 <label className="block text-slate-400 mb-1 font-bold">Kart Sahibi / Merkez *</label>
                 <select value={cardCompanyId} onChange={(e) => setCardCompanyId(e.target.value)} required className="w-full bg-[#070b14] border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors">
-                   <option value="common">🌍 Ortak / Bağımsız Kart</option>
-                   <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                   <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                   {!isRestricted && <option value="common">🌍 Ortak / Bağımsız Kart</option>}
+                   <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal && (!isRestricted || profile?.allowed_companies?.includes(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                   <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal && (!isRestricted || profile?.allowed_companies?.includes(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
                 </select>
               </div>
 
