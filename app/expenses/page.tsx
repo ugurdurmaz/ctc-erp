@@ -849,7 +849,8 @@ export default function ExpensesPage() {
 
   const totalRecurringBudgetTRY = recurringStatusList.reduce((acc, r) => {
     const rate = r.template.currency === 'USD' ? rates.USD : r.template.currency === 'EUR' ? rates.EUR : 1
-    return acc + (r.template.amount * rate)
+    const amt = (r.isPaid && r.matchedExpense) ? r.matchedExpense.amount : r.template.amount
+    return acc + (amt * rate)
   }, 0)
 
   const paidRecurringTotalTRY = recurringStatusList.filter(r => r.isPaid).reduce((acc, r) => {
@@ -857,7 +858,10 @@ export default function ExpensesPage() {
     return acc + (exp.amount * (exp.exchange_rate || 1))
   }, 0)
 
-  const pendingRecurringTotalTRY = Math.max(0, totalRecurringBudgetTRY - paidRecurringTotalTRY)
+  const pendingRecurringTotalTRY = recurringStatusList.filter(r => !r.isPaid).reduce((acc, r) => {
+    const rate = r.template.currency === 'USD' ? rates.USD : r.template.currency === 'EUR' ? rates.EUR : 1
+    return acc + (r.template.amount * rate)
+  }, 0)
 
   const filteredTrackerList = recurringStatusList.filter(r => {
     if (trackerFilter === 'paid') return r.isPaid
@@ -1352,9 +1356,22 @@ export default function ExpensesPage() {
                             )}
                           </td>
                           <td className="py-2 px-3 align-middle text-right font-mono font-bold text-[12px]">
-                            <span className={isPaid ? 'text-emerald-400' : 'text-rose-400'}>
-                              {formatMoney(tmpl.amount, tmpl.currency).formatted}
-                            </span>
+                            {isPaid && matchedExpense ? (
+                              <div className="flex flex-col items-end">
+                                <span className="text-emerald-400">
+                                  {formatMoney(matchedExpense.amount, (matchedExpense.currency || tmpl.currency) as any).formatted}
+                                </span>
+                                {Math.abs(matchedExpense.amount - tmpl.amount) > 0.01 && (
+                                  <span className="text-[9px] text-slate-500 font-normal line-through">
+                                    {formatMoney(tmpl.amount, tmpl.currency).formatted}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-rose-400">
+                                {formatMoney(tmpl.amount, tmpl.currency).formatted}
+                              </span>
+                            )}
                           </td>
                           <td className="py-2 px-3 align-middle text-center">
                             {isPaid ? (
@@ -1432,8 +1449,23 @@ export default function ExpensesPage() {
                           {tmpl.title}
                         </h4>
 
-                        <div className="text-[13px] font-mono font-bold text-rose-400 mt-0.5">
-                          {formatMoney(tmpl.amount, tmpl.currency).formatted}
+                        <div className="mt-0.5">
+                          {isPaid && matchedExpense ? (
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-[13px] font-mono font-bold text-emerald-400">
+                                {formatMoney(matchedExpense.amount, (matchedExpense.currency || tmpl.currency) as any).formatted}
+                              </span>
+                              {Math.abs(matchedExpense.amount - tmpl.amount) > 0.01 && (
+                                <span className="text-[10px] font-mono text-slate-500 line-through">
+                                  {formatMoney(tmpl.amount, tmpl.currency).formatted}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-[13px] font-mono font-bold text-rose-400">
+                              {formatMoney(tmpl.amount, tmpl.currency).formatted}
+                            </div>
+                          )}
                         </div>
 
                         <div className="mt-1.5">{dueStatusBadge}</div>
