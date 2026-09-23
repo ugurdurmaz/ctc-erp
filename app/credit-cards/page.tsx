@@ -348,6 +348,16 @@ export default function CreditCardsPage() {
       return
     }
 
+    const txToDelete = transactions.find(t => t.id === txId)
+    if (txToDelete?.description?.includes('[SUPP-')) {
+      toast.error('Bu hareket Tedarikçiler / Satıcılar modülünden otomatik yansıtılmıştır. Silme işlemini Satıcılar sayfasındaki ilgili hareket üzerinden yapmalısınız.')
+      return
+    }
+    if (txToDelete?.description?.includes('[EXP-')) {
+      toast.error('Bu hareket Giderler modülünden otomatik yansıtılmıştır. Silme işlemini Giderler sayfasından yapmalısınız.')
+      return
+    }
+
     setConfirmDialog({
       isOpen: true,
       title: 'İşlemi Sil',
@@ -550,7 +560,19 @@ export default function CreditCardsPage() {
                       <tr key={t.id} className="hover:bg-slate-800/30 font-mono transition-colors animate-in fade-in duration-200">
                         <td className="p-3 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
                         <td className="p-3 text-slate-200 font-sans align-top">
-                           <div className="mb-1">{t.description}</div>
+                           <div className="mb-1 flex items-center gap-1.5 flex-wrap">
+                             <span>{t.description.replace(/\s*\[(SUPP|EXP|POS)-[^\]]+\]/g, '')}</span>
+                             {t.description.includes('[SUPP-') && (
+                               <span className="text-[9px] bg-amber-500/10 text-amber-300 border border-amber-500/20 px-1.5 py-0.5 rounded font-sans">
+                                 Tedarikçi Ödemesi
+                               </span>
+                             )}
+                             {t.description.includes('[EXP-') && (
+                               <span className="text-[9px] bg-rose-500/10 text-rose-300 border border-rose-500/20 px-1.5 py-0.5 rounded font-sans">
+                                 Genel Gider
+                               </span>
+                             )}
+                           </div>
                            <div className="flex items-center gap-1 text-[9px] text-slate-500">
                              {t.company ? (isPersonal ? <Home size={10} className="text-slate-400"/> : <Building size={10} className="text-indigo-400"/>) : <Globe size={10} className="text-emerald-500/70"/>}
                              {t.company ? t.company.name : 'Ortak İşlem'}

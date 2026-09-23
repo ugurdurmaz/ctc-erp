@@ -589,9 +589,9 @@ export default function RetailPOSPage() {
     }
 
     // YENİ: Kredi Kartı Eski Ekstre Kayıtlarını Sil
-    const { data: oldCardTxs } = await supabase.from('credit_card_transactions').select('id, credit_card_id').like('description', `Mağaza Z-Raporu: Kartlı Giderler (POS-${currentDateStr})%`)
+    const { data: oldCardTxs } = await supabase.from('card_transactions').select('id, card_id').like('description', `Mağaza Z-Raporu: Kartlı Giderler (POS-${currentDateStr})%`)
     if (oldCardTxs && oldCardTxs.length > 0) {
-      for (const ot of oldCardTxs) { affectedCards.add(ot.credit_card_id); await supabase.from('credit_card_transactions').delete().eq('id', ot.id) }
+      for (const ot of oldCardTxs) { affectedCards.add(ot.card_id); await supabase.from('card_transactions').delete().eq('id', ot.id) }
     }
 
     // YENİ: Eski Tedarikçi İşlemlerini Sil
@@ -721,12 +721,12 @@ export default function RetailPOSPage() {
     if (posSettings.targetCreditCardId && expenseCard > 0) {
       affectedCards.add(posSettings.targetCreditCardId);
       
-      await supabase.from('credit_card_transactions').insert([{ 
-        credit_card_id: posSettings.targetCreditCardId, 
+      await supabase.from('card_transactions').insert([{ 
+        card_id: posSettings.targetCreditCardId, 
         company_id: finalCompId, 
         tx_date: currentDateStr, 
         description: `Mağaza Z-Raporu: Kartlı Giderler (POS-${currentDateStr})`, 
-        tx_type: 'out', // 'out' veya 'debt' (Harcama olduğu için borcu artırır)
+        tx_type: 'expense',
         amount: expenseCard 
       }]);
     }
@@ -756,7 +756,7 @@ export default function RetailPOSPage() {
 
     // YENİ: KREDİ KARTI MUTLAK BORÇ HESAPLAMASI
     for (const cId of Array.from(affectedCards)) {
-      const { data: txs } = await supabase.from('credit_card_transactions').select('amount, tx_type').eq('credit_card_id', cId)
+      const { data: txs } = await supabase.from('card_transactions').select('amount, tx_type').eq('card_id', cId)
       let absoluteDebt = 0
       txs?.forEach(t => { 
          // 'in', 'payment', veya 'refund' (Ödeme) kart borcunu düşürür.

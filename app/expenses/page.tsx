@@ -178,8 +178,12 @@ export default function ExpensesPage() {
     else if (sourceType === 'card') { table = 'credit_cards'; txTable = 'card_transactions'; txIdField = 'card_id' }
     else return
 
-    const { data } = await supabase.from(table).select('currency').eq('id', sourceId).single(); if (!data) return
-    const accCurr = data.currency || 'TRY'
+    let accCurr = 'TRY'
+    if (sourceType !== 'card') {
+      const { data } = await supabase.from(table).select('currency').eq('id', sourceId).single()
+      if (!data) return
+      accCurr = data.currency || 'TRY'
+    }
 
     let convertedAmount = amount
     if (txCurr !== accCurr) {
@@ -191,29 +195,38 @@ export default function ExpensesPage() {
 
     if (txTable && relatedTxId) {
       if (action === 'payment') {
-        const payload: any = {
-          [txIdField]: sourceId,
-          company_id: compId,
-          tx_date: dateStr,
-          description: `Gider Ödemesi [${compName || 'Ortak İşlem'}] - ${expDesc}`,
-          amount: convertedAmount,
-          currency: accCurr,
-          exchange_rate: 1,
-          is_transfer: false,
-          transfer_id: `EXP-${relatedTxId}`
-        }
-
         if (sourceType === 'card') {
-          payload.tx_type = 'expense' // Kredi kartı için expense olarak işaretlendi
+          const cardPayload = {
+            card_id: sourceId,
+            company_id: compId,
+            tx_date: dateStr,
+            description: `Gider Ödemesi [${compName || 'Ortak İşlem'}] - ${expDesc} [EXP-${relatedTxId}]`,
+            amount: convertedAmount,
+            tx_type: 'expense'
+          }
+          await supabase.from('card_transactions').insert([cardPayload])
         } else {
-          payload.tx_type = 'out'
+          const payload: any = {
+            [txIdField]: sourceId,
+            company_id: compId,
+            tx_date: dateStr,
+            description: `Gider Ödemesi [${compName || 'Ortak İşlem'}] - ${expDesc}`,
+            amount: convertedAmount,
+            currency: accCurr,
+            exchange_rate: 1,
+            is_transfer: false,
+            transfer_id: `EXP-${relatedTxId}`,
+            tx_type: 'out'
+          }
+          if (sourceType === 'bank') payload.status = 'completed'
+          await supabase.from(txTable).insert([payload])
         }
-        
-        if (sourceType === 'bank') payload.status = 'completed'
-
-        await supabase.from(txTable).insert([payload])
       } else if (action === 'reverse') {
-        await supabase.from(txTable).delete().eq('transfer_id', `EXP-${relatedTxId}`)
+        if (sourceType === 'card') {
+          await supabase.from('card_transactions').delete().like('description', `%[EXP-${relatedTxId}]%`)
+        } else {
+          await supabase.from(txTable).delete().eq('transfer_id', `EXP-${relatedTxId}`)
+        }
       }
     }
 
