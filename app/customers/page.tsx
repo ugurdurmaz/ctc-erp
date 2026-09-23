@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
+import { useAuth } from '@/lib/auth-context'
 import toast, { Toaster } from 'react-hot-toast'
 import { Users, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, MessageSquare, Copy, Download, ExternalLink, Check } from 'lucide-react'
 
@@ -13,6 +14,9 @@ type Customer = {
   id: string; name: string; contact_name: string; phone: string;
   email: string; tax_office: string; tax_id: string; address: string;
   balance: number; currency: string;
+  company_id?: string | null;
+  company?: Company;
+  raw_tax_id?: string;
 }
 
 type ConsentCustomer = {
@@ -57,6 +61,11 @@ function formatDateTR(dateStr: string) {
 import { logActivity } from '@/lib/audit'
 
 export default function CustomersPage() {
+  const { profile, isAdmin, hasCompanyAccess } = useAuth()
+  const isRestricted = !isAdmin && profile?.allowed_companies && profile.allowed_companies.length > 0
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all')
+  const [custCompanyId, setCustCompanyId] = useState<string>('common')
+
   const [companies, setCompanies] = useState<Company[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
@@ -109,7 +118,7 @@ export default function CustomersPage() {
   const [hasCopiedNumbers, setHasCopiedNumbers] = useState(false)
 
   useEffect(() => {
-    fetchExchangeRates(); fetchCompanies(); fetchCustomers(); fetchWarehouses(); fetchPaymentSources(); fetchStocks(); fetchServices(); fetchConsentCustomers()
+    fetchExchangeRates(); fetchCompanies(); fetchWarehouses(); fetchPaymentSources(); fetchStocks(); fetchServices(); fetchConsentCustomers()
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
       if (params.get('sms') === 'open') {
@@ -119,8 +128,24 @@ export default function CustomersPage() {
   }, [])
 
   useEffect(() => {
-    if (selectedCustomerId) { fetchTransactions(selectedCustomerId); cancelEditTx() } 
-    else setTransactions([])
+    fetchCustomers()
+  }, [companies])
+
+  useEffect(() => {
+    if (selectedCustomerId) { 
+      fetchTransactions(selectedCustomerId); 
+      cancelEditTx()
+      const c = customers.find(item => item.id === selectedCustomerId)
+      if (c?.company_id) {
+        setTxCompanyId(c.company_id)
+        setInvCompanyId(c.company_id)
+      } else {
+        setTxCompanyId('common')
+        setInvCompanyId('common')
+      }
+    } else {
+      setTransactions([])
+    }
   }, [selectedCustomerId])
 
   useEffect(() => {
@@ -151,9 +176,63 @@ export default function CustomersPage() {
   }
 
   async function fetchCustomers() {
-    const { data } = await supabase.from('customers').select('*').order('name', { ascending: true })
-    setCustomers(data || [])
-    if (data && data.length > 0 && !selectedCustomerId) setSelectedCustomerId(data[0].id)
+    const { data, error } = await supabase.from('customers').select('*').order('name', { ascending: true })
+    if (error) {
+      console.error('Müşteriler yüklenemedi:', error)
+      return
+    }
+
+    const comps = companies.length > 0 ? companies : ((await supabase.from('companies').select('*')).data || [])
+
+    // Müşterinin varsa servis fişlerinden şirket bilgisini al
+    const { data: tickets } = await supabase.from('technical_service_tickets').select('customer_id, company_id').not('company_id', 'is', null)
+    const ticketCompMap = new Map<string, string>()
+    tickets?.forEach((t: any) => {
+      if (t.customer_id && t.company_id && !ticketCompMap.has(t.customer_id)) {
+        ticketCompMap.set(t.customer_id, t.company_id)
+      }
+    })
+
+    // Müşterinin varsa cari hareketlerinden şirket bilgisini al
+    const { data: txs } = await supabase.from('customer_transactions').select('customer_id, company_id').not('company_id', 'is', null)
+    const txCompMap = new Map<string, string>()
+    txs?.forEach((t: any) => {
+      if (t.customer_id && t.company_id && !txCompMap.has(t.customer_id)) {
+        txCompMap.set(t.customer_id, t.company_id)
+      }
+    })
+
+    const mapped: Customer[] = (data || []).map((c: any) => {
+      let compId: string | null = null
+      let rawTax = ''
+
+      if (c.tax_id) {
+        if (c.tax_id.includes('::')) {
+          const parts = c.tax_id.split('::')
+          compId = parts[0] || null
+          rawTax = parts[1] || ''
+        } else if (c.tax_id.includes('-') && c.tax_id.length >= 32) {
+          compId = c.tax_id
+        } else {
+          rawTax = c.tax_id
+        }
+      }
+
+      if (!compId) {
+        compId = c.company_id || ticketCompMap.get(c.id) || txCompMap.get(c.id) || null
+      }
+
+      const comp = comps.find(cp => cp.id === compId)
+      return {
+        ...c,
+        company_id: compId,
+        company: comp,
+        raw_tax_id: rawTax
+      }
+    })
+
+    setCustomers(mapped)
+    if (mapped.length > 0 && !selectedCustomerId) setSelectedCustomerId(mapped[0].id)
   }
 
   async function fetchWarehouses() {
@@ -311,31 +390,68 @@ export default function CustomersPage() {
 
 
   function openAddModal() {
-    setEditingId(null); setCustomerName(''); setContactName(''); setPhone(''); setEmail(''); setTaxOffice(''); setTaxId(''); setAddress(''); setOpeningBalance(''); setOpeningCompanyId('common'); setIsModalOpen(true)
+    setEditingId(null)
+    setCustomerName('')
+    setContactName('')
+    setPhone('')
+    setEmail('')
+    setTaxOffice('')
+    setTaxId('')
+    setAddress('')
+    setOpeningBalance('')
+    const defaultComp = isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common'
+    setCustCompanyId(defaultComp)
+    setOpeningCompanyId(defaultComp)
+    setIsModalOpen(true)
   }
 
   async function openEditModal(cust: Customer, e: React.MouseEvent) {
     e.stopPropagation()
-    setEditingId(cust.id); setCustomerName(cust.name); setContactName(cust.contact_name || ''); setPhone(formatPhoneNumber(cust.phone || '')); setEmail(cust.email || ''); setTaxOffice(cust.tax_office || ''); setTaxId(cust.tax_id || ''); setAddress(cust.address || ''); setIsModalOpen(true)
+    setEditingId(cust.id)
+    setCustomerName(cust.name)
+    setContactName(cust.contact_name || '')
+    setPhone(formatPhoneNumber(cust.phone || ''))
+    setEmail(cust.email || '')
+    setTaxOffice(cust.tax_office || '')
+    setTaxId(cust.raw_tax_id || (cust.tax_id && !cust.tax_id.includes('-') ? cust.tax_id : ''))
+    setAddress(cust.address || '')
+
+    const currentCompId = cust.company_id || 'common'
+    setCustCompanyId(currentCompId)
+    setOpeningCompanyId(currentCompId)
+    setIsModalOpen(true)
 
     const { data: txs } = await supabase.from('customer_transactions')
        .select('amount, company_id').eq('customer_id', cust.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
     
     if (txs && txs.length > 0) {
-      setOpeningBalance(txs[0].amount.toString());
-      setOpeningCompanyId(txs[0].company_id || 'common');
+      setOpeningBalance(txs[0].amount.toString())
+      setOpeningCompanyId(txs[0].company_id || 'common')
     } else {
-      setOpeningBalance('0');
-      setOpeningCompanyId('common');
+      setOpeningBalance('0')
     }
   }
 
   async function handleSaveCustomer(e: React.FormEvent) {
     e.preventDefault(); if (!customerName) return
     const initialBalance = parseFloat(openingBalance) || 0
-    const initialCompId = openingCompanyId === 'common' ? null : openingCompanyId
+    const initialCompId = custCompanyId === 'common' || !custCompanyId ? null : custCompanyId
     const formattedPhone = formatPhoneNumber(phone).trim()
-    const payload = { name: customerName, contact_name: contactName, phone: formattedPhone, email, tax_office: taxOffice, tax_id: taxId, address, currency: 'TRY' }
+    const cleanTax = taxId.trim()
+    const storedTaxId = initialCompId 
+      ? (cleanTax ? `${initialCompId}::${cleanTax}` : initialCompId) 
+      : (cleanTax || null)
+
+    const payload = { 
+      name: customerName, 
+      contact_name: contactName, 
+      phone: formattedPhone, 
+      email, 
+      tax_office: taxOffice, 
+      tax_id: storedTaxId, 
+      address, 
+      currency: 'TRY' 
+    }
     
     try {
       if (editingId) {
@@ -365,6 +481,8 @@ export default function CustomersPage() {
         await logActivity('customer', 'UPDATE', `Müşteri kartı güncellendi: ${customerName}`, editingId, 0, 'TRY', oldCustomer, payload)
         toast.success('Müşteri kartı güncellendi.')
 
+        setIsModalOpen(false)
+        fetchCustomers()
         if (selectedCustomerId === editingId) fetchTransactions(editingId);
 
       } else {
@@ -383,8 +501,10 @@ export default function CustomersPage() {
 
         await recalculateAbsoluteCustomerBalance(data.id); // Mutlak hesaplama
         toast.success('Yeni müşteri eklendi.')
+        setIsModalOpen(false)
+        fetchCustomers()
+        setSelectedCustomerId(data.id)
       }
-      setIsModalOpen(false); fetchCustomers()
     } catch (err: any) { toast.error('Müşteri kaydedilemedi: ' + err.message) }
   }
 
@@ -709,11 +829,45 @@ export default function CustomersPage() {
     return ''
   }
 
-  const filteredCustomers = customers.filter(c => 
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (c.contact_name && c.contact_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (c.phone && c.phone.includes(searchTerm))
-  )
+  const filteredCustomers = useMemo(() => {
+    return customers.filter(c => {
+      // 1. Yetki kontrolü (Multi-tenant company isolation)
+      const compId = c.company_id
+      if (isRestricted && compId && !hasCompanyAccess(compId)) {
+        return false
+      }
+
+      // 2. Seçili şirket filtresi
+      if (selectedCompanyFilter !== 'all') {
+        if (selectedCompanyFilter === 'common') {
+          if (compId) return false
+        } else {
+          if (compId !== selectedCompanyFilter) return false
+        }
+      }
+
+      // 3. Arama kelimesi
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase()
+        const nameMatch = c.name?.toLowerCase().includes(term)
+        const contactMatch = c.contact_name && c.contact_name.toLowerCase().includes(term)
+        const phoneMatch = c.phone && c.phone.includes(term)
+        return nameMatch || contactMatch || phoneMatch
+      }
+
+      return true
+    })
+  }, [customers, isRestricted, hasCompanyAccess, selectedCompanyFilter, searchTerm])
+
+  useEffect(() => {
+    if (filteredCustomers.length > 0) {
+      if (!selectedCustomerId || !filteredCustomers.some(c => c.id === selectedCustomerId)) {
+        setSelectedCustomerId(filteredCustomers[0].id)
+      }
+    } else {
+      setSelectedCustomerId(null)
+    }
+  }, [filteredCustomers, selectedCustomerId])
 
   const filteredConsentCustomers = consentCustomers.filter(c => {
     if (!consentSearchTerm) return true
@@ -738,7 +892,7 @@ export default function CustomersPage() {
     return { ...t, running_balance: rowBalance }
   })
 
-  const totalDebtTry = customers.reduce((acc, c) => acc + c.balance, 0)
+  const totalDebtTry = filteredCustomers.reduce((acc, c) => acc + c.balance, 0)
   const totalDebtUsd = totalDebtTry / (rates.USD || 1)
   const totalDebtEur = totalDebtTry / (rates.EUR || 1)
 
@@ -797,7 +951,31 @@ export default function CustomersPage() {
                 </button>
               </div>
             </div>
-            <div className="relative"><Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" /><input type="text" placeholder="Firma, kişi veya yetkili ara..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-blue-500/50 transition-colors" /></div>
+            <div className="flex gap-2">
+              <div className="relative flex-1 min-w-0">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input 
+                  type="text" 
+                  placeholder="Firma, kişi veya yetkili ara..." 
+                  value={searchTerm} 
+                  onChange={(e) => setSearchTerm(e.target.value)} 
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-blue-500/50 transition-colors" 
+                />
+              </div>
+              <select 
+                value={selectedCompanyFilter} 
+                onChange={(e) => setSelectedCompanyFilter(e.target.value)}
+                className="bg-[#070b14] border border-slate-700 rounded-lg px-2 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-blue-500/50 transition-colors max-w-[130px] shrink-0"
+              >
+                <option value="all">Tüm Merkezler</option>
+                <option value="common">🌍 Ortak / Bağımsız</option>
+                {companies
+                  .filter(c => !isRestricted || hasCompanyAccess(c.id))
+                  .map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+              </select>
+            </div>
           </div>
           <div className="overflow-y-auto flex-1 custom-scrollbar p-2 space-y-1.5">
             {filteredCustomers.length === 0 ? (
@@ -822,7 +1000,21 @@ export default function CustomersPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-[9px] text-slate-500 truncate mt-0.5">{item.contact_name || '-'}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <p className="text-[9px] text-slate-500 truncate">{item.contact_name || '-'}</p>
+                      <span className="text-slate-700 text-[9px]">•</span>
+                      {item.company ? (
+                        <span className="text-[9px] text-indigo-400/90 flex items-center gap-1 truncate font-medium">
+                          {item.company.is_personal ? <Home size={10} className="shrink-0 text-slate-400" /> : <Building size={10} className="shrink-0 text-indigo-400" />}
+                          <span className="truncate">{item.company.name}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[9px] text-slate-500 flex items-center gap-1 truncate font-medium">
+                          <Globe size={10} className="shrink-0 text-slate-400" />
+                          <span>Ortak</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="text-right shrink-0">
                     <div className={`text-[11px] font-mono font-bold ${item.balance > 0 ? 'text-blue-400' : 'text-slate-400'}`}>{formatMoney(item.balance, 'TRY').formatted}</div>
@@ -841,6 +1033,15 @@ export default function CustomersPage() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h2 className="text-lg font-bold text-white flex items-center gap-2">{selectedCustomer.name}</h2>
+                      {selectedCustomer.company ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                          {selectedCustomer.company.is_personal ? <Home size={11} /> : <Building size={11} />} {selectedCustomer.company.name}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                          <Globe size={11} /> Ortak / Bağımsız
+                        </span>
+                      )}
                       {isCustomerConsent(selectedCustomer.phone) && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm">
                           <MessageSquare size={11} /> SMS & Kampanya İzinli
@@ -860,7 +1061,7 @@ export default function CustomersPage() {
                       </div>
                     </div>
                     <div><span className="flex items-center gap-1 text-slate-500 mb-0.5"><Mail size={10} /> E-Posta</span><span className="text-slate-300 truncate block">{selectedCustomer.email || '-'}</span></div>
-                    <div><span className="flex items-center gap-1 text-slate-500 mb-0.5"><FileText size={10} /> V. Dairesi/No</span><span className="text-slate-300">{selectedCustomer.tax_office || '-'} {selectedCustomer.tax_id ? `/ ${selectedCustomer.tax_id}` : ''}</span></div>
+                    <div><span className="flex items-center gap-1 text-slate-500 mb-0.5"><FileText size={10} /> V. Dairesi/No</span><span className="text-slate-300">{selectedCustomer.tax_office || '-'} {selectedCustomer.raw_tax_id ? `/ ${selectedCustomer.raw_tax_id}` : (selectedCustomer.tax_id && !selectedCustomer.tax_id.includes('-') ? `/ ${selectedCustomer.tax_id}` : '')}</span></div>
                     <div><span className="flex items-center gap-1 text-slate-500 mb-0.5"><MapPin size={10} /> Adres</span><span className="text-slate-300 truncate block">{selectedCustomer.address || '-'}</span></div>
                   </div>
                 </div>
@@ -878,9 +1079,9 @@ export default function CustomersPage() {
                     <div className="w-36">
                        <label className="block text-[9px] text-slate-400 mb-0.5">İlgili Merkez *</label>
                        <select value={txCompanyId} onChange={(e) => setTxCompanyId(e.target.value)} required className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors">
-                         <option value="common">🌍 Ortak / Bağımsız İşlem</option>
-                         <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                         <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                         {!isRestricted && <option value="common">🌍 Ortak / Bağımsız İşlem</option>}
+                         <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                         <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
                        </select>
                     </div>
 
@@ -994,9 +1195,9 @@ export default function CustomersPage() {
               <div className="w-36">
                  <label className="block text-[10px] text-slate-400 mb-1">İlgili Merkez *</label>
                  <select value={invCompanyId} onChange={(e) => setInvCompanyId(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none transition-colors">
-                   <option value="common">🌍 Ortak İşlem</option>
-                   <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                   <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                   {!isRestricted && <option value="common">🌍 Ortak İşlem</option>}
+                   <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                   <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
                  </select>
               </div>
               <div className="w-36"><label className="block text-[10px] text-slate-400 mb-1">Fatura Tarihi</label><input type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none transition-colors" /></div>
@@ -1098,7 +1299,36 @@ export default function CustomersPage() {
           <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-lg p-5 shadow-2xl animate-in zoom-in-95 duration-200">
             <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2"><Users size={16} className="text-blue-500" /> {editingId ? 'Müşteri Kartını Düzenle' : 'Yeni Müşteri Kartı Oluştur'}</h3>
             <form onSubmit={handleSaveCustomer} className="grid grid-cols-2 gap-3 text-[11px]">
-              <div className="col-span-2"><label className="block text-slate-400 mb-1">Müşteri / Firma Adı *</label><input type="text" required value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors" /></div>
+              <div className="col-span-2">
+                <label className="block text-slate-400 mb-1">Müşteri / Firma Adı *</label>
+                <input type="text" required value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors" />
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-slate-400 mb-1">Ait Olduğu Ticari İşletme / Merkez *</label>
+                <select 
+                  value={custCompanyId} 
+                  onChange={(e) => {
+                    setCustCompanyId(e.target.value)
+                    setOpeningCompanyId(e.target.value)
+                  }} 
+                  className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                >
+                  {!isRestricted && <option value="common">🌍 Ortak / Bağımsız (Tüm Merkezler)</option>}
+                  <optgroup label="Ticari Şirketler">
+                    {companies.filter(c => !c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Şahsi Merkezler">
+                    {companies.filter(c => c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </optgroup>
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">Bu müşterinin bağlı olduğu merkezi belirleyin. Ortak seçilirse tüm merkezler görebilir.</p>
+              </div>
+
               <div className="col-span-2"><label className="block text-slate-400 mb-1">Yetkili Kişi</label><input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none transition-colors" /></div>
               <div><label className="block text-slate-400 mb-1">Telefon</label><input type="tel" placeholder="05XX XXX XX XX" maxLength={14} value={phone} onChange={(e) => setPhone(formatPhoneNumber(e.target.value))} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500 font-mono transition-colors" /></div>
               <div><label className="block text-slate-400 mb-1">E-Posta</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none transition-colors" /></div>
@@ -1111,13 +1341,6 @@ export default function CustomersPage() {
                   {editingId ? 'Devir / Açılış Bakiyesini Düzenle' : 'Devir / Açılış Bakiyesi (Bize olan borçları)'}
                 </label>
                 <div className="flex gap-2">
-                  <div className="w-1/2">
-                    <select value={openingCompanyId} onChange={(e) => setOpeningCompanyId(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
-                      <option value="common">🌍 Ortak / Bağımsız</option>
-                      <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                      <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                    </select>
-                  </div>
                   <div className="flex-1">
                     <input type="number" step="0.01" placeholder="0.00" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-1.5 text-white focus:outline-none focus:border-blue-500 font-mono transition-colors" />
                   </div>
