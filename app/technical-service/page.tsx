@@ -7,7 +7,7 @@ import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { 
   Wrench, Plus, Search, Filter, RefreshCw, Printer, MessageSquare, 
-  Laptop, Monitor, Smartphone, Printer as PrinterIcon, Gamepad2, Cpu, 
+  Laptop, Monitor, Smartphone, Printer as PrinterIcon, Gamepad2, Gamepad, Cpu, 
   CheckCircle2, Clock, AlertTriangle, ChevronRight, X, User, Phone, 
   Tag, Calendar, CreditCard, Wallet, Landmark, ArrowRight, ShieldCheck, 
   FileText, ExternalLink, SlidersHorizontal, LayoutGrid, List, Sparkles,
@@ -95,10 +95,10 @@ const DEVICE_TYPES = [
   { label: 'Laptop', icon: Laptop },
   { label: 'Masaüstü PC', icon: Monitor },
   { label: 'All-in-One', icon: Monitor },
-  { label: 'Yazıcı / Tarayıcı', icon: PrinterIcon },
-  { label: 'Tablet / Telefon', icon: Smartphone },
   { label: 'Monitör', icon: Monitor },
-  { label: 'Oyun Konsolu', icon: Gamepad2 },
+  { label: 'Game Console', icon: Gamepad2 },
+  { label: 'Game Pad', icon: Gamepad },
+  { label: 'Tablet / Telefon', icon: Smartphone },
   { label: 'Diğer Donanım', icon: Cpu },
 ]
 
