@@ -447,7 +447,12 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 ### 7.6 Stok Yönetimi `/stocks`
 - Üst şerit: depo kartları (KDV dahil USD/TRY toplam), + yeni depo.
 - Sol: seçili deponun stok kartları, kategori filtre çipleri, "Yönet" (kategori CRUD), arama, Ürün Ekle.
-- Sağ: Hızlı Arama & İşlem (ürün seçince form otomatik dolar), seçili ürün başlığı, hareket formu (tarih, merkez, Giriş/Çıkış, açıklama, miktar, net fiyat, döviz, KDV), hareket tablosu.
+- Sağ: İki modlu hibrit panel (`[📊 Kategori & Envanter Analizi]` ve `[📦 Ürün Detay & Hareketler]`):
+  - **Ürün Seçili Olduğunda:** Hızlı Arama & İşlem (ürün seçince form otomatik dolar), seçili ürün başlığı, hareket formu (tarih, merkez, Giriş/Çıkış, açıklama, miktar, net fiyat, döviz, KDV), hareket tablosu ve üstte "Analize Dön" butonu.
+  - **Kategori & Alt Kategori Analiz Panosu:** Ürün seçilmediğinde veya sekme tıklandığında açılır; 4'lü KPI sayaçları (Toplam Sermaye, 💤 Hareketsiz/Uyuyan Stok Sermayesi, ⚠️ Kritik/Tükenen Seviyeler, 🏷️ Çeşitlilik), oransal görsel sermaye dağılım şeridi ve 3 odak sekmesi sunar:
+    1. *Sermaye & Dağılım:* Kategori ve alt kategori hiyerarşik matrisi, KDV dahil bağlı sermaye (TRY/USD), sermaye payı (%), kritik ve hareketsiz ürün rozetleri, sol listeyi filtreleme butonları.
+    2. *Kritik & Tükenen Seviyeler:* Acil sipariş/tedarik gerektiren tükenen (0) ve kritik (1-2) ürünlerin kategori kırılımı, ürün kartına hızlı geçiş.
+    3. *Hareketsiz / Ölü Stok:* Seçilebilir gün eşiğine (30/60/90 gün veya hiç çıkış olmayan) göre son hareket ve çıkış tarihlerini inceleyerek atıl yatan sermaye tutarı ve ürünlerin detaylı dökümü.
 - Depo silme: "içindeki stok kartları da silinir" (cascade'e bağlı). Kategori silme: stokların `category` alanı `NULL` yapılır.
 - Kategori adı değişince aynı depodaki stokların `category` string'i toplu güncellenir.
 - **Rol ve Depo Yetkilendirmesi:** Kasiyer / Satış personeli sol menüden Stok Yönetimi modülüne erişebilir. Personelin yetkili olduğu şirket kısıtlaması (`allowed_companies`) varsa, ekranda **yalnızca o mağazaya ait depolar** listelenir; başka mağaza veya şirketlerin depoları gizlenir. Personel yalnızca kendi mağazasının deposuna yeni stok kartı açabilir ve **Stok Girişi (`tx_type = 'in'`) / Sayım** yapabilir.

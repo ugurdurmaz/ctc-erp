@@ -4,7 +4,13 @@ import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe, AlertTriangle, RefreshCw, Filter, Settings, Tags, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ChevronsUpDown, Tag, ArrowUpDown, Check, Folder, FolderPlus } from 'lucide-react'
+import { 
+  Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe, 
+  AlertTriangle, RefreshCw, Filter, Settings, Tags, ChevronLeft, ChevronRight, 
+  ChevronDown, ChevronUp, ChevronsUpDown, Tag, ArrowUpDown, Check, Folder, FolderPlus,
+  BarChart3, PieChart, Clock, Zap, CheckCircle2, TrendingDown, ExternalLink,
+  ShieldAlert, Moon, Eye, ArrowRight, AlertCircle, ShoppingCart
+} from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Warehouse = { id: string; name: string; color: string; company_id?: string | null; company?: { name: string; is_personal: boolean } }
@@ -95,8 +101,16 @@ export default function StocksPage() {
   const [allStocks, setAllStocks] = useState<StockItem[]>([])
   const [selectedStockId, setSelectedStockId] = useState<string | null>(null)
   const [transactions, setTransactions] = useState<StockTransaction[]>([])
-  
+  const [allStockTxs, setAllStockTxs] = useState<{ id: string; stock_id: string; tx_date: string; tx_type: 'in' | 'out'; quantity: number; unit_price: number; currency: string }[]>([])
   const [rates, setRates] = useState<ExchangeRates>({ USD: 34.25, EUR: 37.80 })
+  
+  // Sağ Panel Görünüm Modu ve Analiz Sekmeleri
+  const [rightPanelMode, setRightPanelMode] = useState<'analytics' | 'product'>('analytics')
+  const [analyticsTab, setAnalyticsTab] = useState<'summary' | 'critical' | 'dead'>('summary')
+  const [deadStockDays, setDeadStockDays] = useState<number>(30)
+  const [criticalSubFilter, setCriticalSubFilter] = useState<'all' | 'critical' | 'out_of_stock'>('all')
+  const [analyticsSearch, setAnalyticsSearch] = useState('')
+  const [expandedAnalyticsCats, setExpandedAnalyticsCats] = useState<Record<string, boolean>>({})
 
   const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false)
   const [editingWhId, setEditingWhId] = useState<string | null>(null)
@@ -145,6 +159,7 @@ export default function StocksPage() {
     fetchCompanies()
     fetchWarehouses()
     fetchAllStocks()
+    fetchAllTransactions()
   }, [profile?.id, profile?.allowed_companies])
 
   useEffect(() => {
@@ -240,6 +255,17 @@ export default function StocksPage() {
       if (error) throw error
       setAllStocks(data || [])
     } catch (err) { console.error(err) }
+  }
+
+  async function fetchAllTransactions() {
+    try {
+      const { data, error } = await supabase
+        .from('stock_transactions')
+        .select('id, stock_id, tx_date, tx_type, quantity, unit_price, currency')
+        .order('tx_date', { ascending: false })
+      if (error) throw error
+      setAllStockTxs(data || [])
+    } catch (err) { console.error('Error fetching all stock txs:', err) }
   }
 
   async function fetchCategories(whId: string) {
@@ -373,6 +399,321 @@ export default function StocksPage() {
     }, 0)
     const totalUsd = getUsdEquivalent(totalTry)
     return { totalTry, totalUsd }
+  }
+
+  // =========================================================================================
+  // --- KATEGORİ & ALT KATEGORİ BAZLI ANALİZ VE DEĞERLENDİRME MOTORU ---
+  // =========================================================================================
+  const CATEGORY_ACCENT_COLORS = [
+    { text: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/30', bar: 'bg-indigo-500', hex: '#6366f1' },
+    { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', bar: 'bg-emerald-500', hex: '#10b981' },
+    { text: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30', bar: 'bg-amber-500', hex: '#f59e0b' },
+    { text: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/30', bar: 'bg-purple-500', hex: '#a855f7' },
+    { text: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/30', bar: 'bg-rose-500', hex: '#f43f5e' },
+    { text: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/30', bar: 'bg-sky-500', hex: '#0284c7' },
+    { text: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30', bar: 'bg-orange-500', hex: '#f97316' },
+    { text: 'text-teal-400', bg: 'bg-teal-500/10', border: 'border-teal-500/30', bar: 'bg-teal-500', hex: '#14b8a6' },
+    { text: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/30', bar: 'bg-fuchsia-500', hex: '#d946ef' },
+  ]
+
+  const getDaysDiff = (dateStr: string | null) => {
+    if (!dateStr) return null
+    const target = new Date(dateStr)
+    const today = new Date()
+    const diffTime = today.getTime() - target.getTime()
+    return Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)))
+  }
+
+  const stockTxStatsMap = useMemo(() => {
+    const map = new Map<string, {
+      inCount: number
+      outCount: number
+      lastInDate: string | null
+      lastOutDate: string | null
+      lastTxDate: string | null
+      totalInQty: number
+      totalOutQty: number
+    }>()
+
+    allStockTxs.forEach(tx => {
+      if (!map.has(tx.stock_id)) {
+        map.set(tx.stock_id, {
+          inCount: 0,
+          outCount: 0,
+          lastInDate: null,
+          lastOutDate: null,
+          lastTxDate: null,
+          totalInQty: 0,
+          totalOutQty: 0,
+        })
+      }
+      const stat = map.get(tx.stock_id)!
+      if (tx.tx_type === 'in') {
+        stat.inCount++
+        stat.totalInQty += tx.quantity
+        if (!stat.lastInDate || tx.tx_date > stat.lastInDate) stat.lastInDate = tx.tx_date
+      } else {
+        stat.outCount++
+        stat.totalOutQty += tx.quantity
+        if (!stat.lastOutDate || tx.tx_date > stat.lastOutDate) stat.lastOutDate = tx.tx_date
+      }
+      if (!stat.lastTxDate || tx.tx_date > stat.lastTxDate) stat.lastTxDate = tx.tx_date
+    })
+
+    return map
+  }, [allStockTxs])
+
+  const categoryAnalytics = useMemo(() => {
+    const totalWarehouseTry = warehouseStocks.reduce((acc, s) => {
+      const vatRate = s.vat_rate || 0
+      const priceWithVat = s.unit_price * (1 + vatRate / 100)
+      return acc + getTryEquivalent(s.quantity * priceWithVat, s.currency)
+    }, 0)
+    const totalWarehouseUsd = getUsdEquivalent(totalWarehouseTry)
+    const totalWarehouseQty = warehouseStocks.reduce((acc, s) => acc + s.quantity, 0)
+    const totalWarehouseSkus = warehouseStocks.length
+
+    type ItemAnalysis = {
+      stock: StockItem
+      valueTry: number
+      valueUsd: number
+      unitPriceWithVat: number
+      isCritical: boolean
+      isOutOfStock: boolean
+      isDead: boolean
+      daysSinceLastOut: number | null
+      daysSinceLastTx: number | null
+      lastOutDate: string | null
+      lastTxDate: string | null
+      outCount: number
+    }
+
+    type SubCatAnalysis = {
+      name: string
+      skuCount: number
+      totalQty: number
+      totalValueTry: number
+      totalValueUsd: number
+      criticalCount: number
+      outOfStockCount: number
+      deadCount: number
+      deadValueTry: number
+      deadValueUsd: number
+      items: ItemAnalysis[]
+    }
+
+    type CatAnalysis = {
+      name: string
+      color: typeof CATEGORY_ACCENT_COLORS[0]
+      skuCount: number
+      totalQty: number
+      totalValueTry: number
+      totalValueUsd: number
+      percentOfTotal: number
+      criticalCount: number
+      outOfStockCount: number
+      deadCount: number
+      deadValueTry: number
+      deadValueUsd: number
+      subCategories: SubCatAnalysis[]
+      items: ItemAnalysis[]
+    }
+
+    const catMap = new Map<string, {
+      subMap: Map<string, ItemAnalysis[]>
+      items: ItemAnalysis[]
+    }>()
+
+    let totalCriticalCount = 0
+    let totalOutOfStockCount = 0
+    let totalDeadCount = 0
+    let totalDeadValTry = 0
+    const allDeadItems: ItemAnalysis[] = []
+    const allCriticalItems: ItemAnalysis[] = []
+
+    warehouseStocks.forEach(item => {
+      const cat = (item.category || 'Kategorisiz').trim()
+      const subCat = (item.sub_category || 'Genel').trim()
+
+      const vatRate = item.vat_rate || 0
+      const unitPriceWithVat = item.unit_price * (1 + vatRate / 100)
+      const valTry = getTryEquivalent(item.quantity * unitPriceWithVat, item.currency)
+      const valUsd = getUsdEquivalent(valTry)
+
+      const isCritical = item.quantity > 0 && item.quantity <= 2
+      const isOutOfStock = item.quantity <= 0
+
+      const stat = stockTxStatsMap.get(item.id)
+      const outCount = stat ? stat.outCount : 0
+      const lastOutDate = stat ? stat.lastOutDate : null
+      const lastTxDate = stat ? stat.lastTxDate : null
+      const daysSinceLastOut = getDaysDiff(lastOutDate)
+      const daysSinceLastTx = getDaysDiff(lastTxDate)
+
+      let isDead = false
+      if (item.quantity > 0) {
+        if (deadStockDays === -1) {
+          isDead = outCount === 0
+        } else if (outCount === 0) {
+          isDead = true
+        } else if (daysSinceLastOut !== null && daysSinceLastOut >= deadStockDays) {
+          isDead = true
+        }
+      }
+
+      if (isCritical) totalCriticalCount++
+      if (isOutOfStock) totalOutOfStockCount++
+      if (isDead) {
+        totalDeadCount++
+        totalDeadValTry += valTry
+      }
+
+      const itemAnalysis: ItemAnalysis = {
+        stock: item,
+        valueTry: valTry,
+        valueUsd: valUsd,
+        unitPriceWithVat,
+        isCritical,
+        isOutOfStock,
+        isDead,
+        daysSinceLastOut,
+        daysSinceLastTx,
+        lastOutDate,
+        lastTxDate,
+        outCount
+      }
+
+      if (isDead) allDeadItems.push(itemAnalysis)
+      if (isCritical || isOutOfStock) allCriticalItems.push(itemAnalysis)
+
+      if (!catMap.has(cat)) catMap.set(cat, { subMap: new Map(), items: [] })
+      const catObj = catMap.get(cat)!
+      catObj.items.push(itemAnalysis)
+
+      if (!catObj.subMap.has(subCat)) catObj.subMap.set(subCat, [])
+      catObj.subMap.get(subCat)!.push(itemAnalysis)
+    })
+
+    const categoriesList: CatAnalysis[] = []
+
+    let colorIdx = 0
+    catMap.forEach((catObj, catName) => {
+      const color = CATEGORY_ACCENT_COLORS[colorIdx % CATEGORY_ACCENT_COLORS.length]
+      colorIdx++
+
+      const subCategories: SubCatAnalysis[] = []
+      let catValueTry = 0
+      let catValueUsd = 0
+      let catQty = 0
+      let catCritical = 0
+      let catOutOfStock = 0
+      let catDead = 0
+      let catDeadValTry = 0
+
+      catObj.subMap.forEach((subItems, subName) => {
+        let subValTry = 0
+        let subValUsd = 0
+        let subQty = 0
+        let subCritical = 0
+        let subOutOfStock = 0
+        let subDead = 0
+        let subDeadValTry = 0
+
+        subItems.forEach(it => {
+          subValTry += it.valueTry
+          subValUsd += it.valueUsd
+          subQty += it.stock.quantity
+          if (it.isCritical) subCritical++
+          if (it.isOutOfStock) subOutOfStock++
+          if (it.isDead) {
+            subDead++
+            subDeadValTry += it.valueTry
+          }
+        })
+
+        catValueTry += subValTry
+        catValueUsd += subValUsd
+        catQty += subQty
+        catCritical += subCritical
+        catOutOfStock += subOutOfStock
+        catDead += subDead
+        catDeadValTry += subDeadValTry
+
+        subCategories.push({
+          name: subName,
+          skuCount: subItems.length,
+          totalQty: subQty,
+          totalValueTry: subValTry,
+          totalValueUsd: subValUsd,
+          criticalCount: subCritical,
+          outOfStockCount: subOutOfStock,
+          deadCount: subDead,
+          deadValueTry: subDeadValTry,
+          deadValueUsd: getUsdEquivalent(subDeadValTry),
+          items: subItems.sort((a, b) => b.valueTry - a.valueTry)
+        })
+      })
+
+      subCategories.sort((a, b) => b.totalValueTry - a.totalValueTry)
+      const percent = totalWarehouseTry > 0 ? (catValueTry / totalWarehouseTry) * 100 : 0
+
+      categoriesList.push({
+        name: catName,
+        color,
+        skuCount: catObj.items.length,
+        totalQty: catQty,
+        totalValueTry: catValueTry,
+        totalValueUsd: catValueUsd,
+        percentOfTotal: percent,
+        criticalCount: catCritical,
+        outOfStockCount: catOutOfStock,
+        deadCount: catDead,
+        deadValueTry: catDeadValTry,
+        deadValueUsd: getUsdEquivalent(catDeadValTry),
+        subCategories,
+        items: catObj.items.sort((a, b) => b.valueTry - a.valueTry)
+      })
+    })
+
+    categoriesList.sort((a, b) => b.totalValueTry - a.totalValueTry)
+    allDeadItems.sort((a, b) => b.valueTry - a.valueTry)
+    allCriticalItems.sort((a, b) => {
+      if (a.isOutOfStock && !b.isOutOfStock) return -1
+      if (!a.isOutOfStock && b.isOutOfStock) return 1
+      return b.valueTry - a.valueTry
+    })
+
+    return {
+      totalWarehouseTry,
+      totalWarehouseUsd,
+      totalWarehouseQty,
+      totalWarehouseSkus,
+      totalCriticalCount,
+      totalOutOfStockCount,
+      totalDeadCount,
+      totalDeadValTry,
+      totalDeadValUsd: getUsdEquivalent(totalDeadValTry),
+      deadPercentage: totalWarehouseTry > 0 ? (totalDeadValTry / totalWarehouseTry) * 100 : 0,
+      categoriesList,
+      allDeadItems,
+      allCriticalItems
+    }
+  }, [warehouseStocks, stockTxStatsMap, deadStockDays, rates])
+
+  function openStockFromAnalytics(stockId: string) {
+    setSelectedStockId(stockId)
+    setRightPanelMode('product')
+  }
+
+  function filterLeftListFromAnalytics(catName?: string, subCatName?: string) {
+    if (catName) setSelectedFilterCategories([catName])
+    if (subCatName) setSelectedFilterSubCategories([subCatName])
+    else setSelectedFilterSubCategories([])
+    toast.success(`Sol liste "${subCatName || catName}" olarak filtrelendi.`)
+  }
+
+  function toggleAnalyticsCat(catName: string) {
+    setExpandedAnalyticsCats(prev => ({ ...prev, [catName]: !prev[catName] }))
   }
 
   // =========================================================================================
@@ -1406,7 +1747,10 @@ export default function StocksPage() {
                                     return (
                                       <div 
                                         key={item.id} 
-                                        onClick={() => setSelectedStockId(item.id)} 
+                                        onClick={() => {
+                                          setSelectedStockId(item.id)
+                                          setRightPanelMode('product')
+                                        }} 
                                         style={{ animation: 'fadeSlideRight 0.25s both', animationDelay: `${Math.min(idx * 0.02, 0.3)}s` }}
                                         className={`flex items-center justify-between text-[11px] py-2 px-3 ${hasSubHeader ? 'pl-7' : 'pl-4'} cursor-pointer transition-colors ${isSelected ? 'bg-indigo-900/30 border-l-2 border-l-indigo-400' : 'hover:bg-slate-800/30'} ${item.quantity <= 0 ? 'opacity-60 bg-rose-950/5' : ''}`}
                                       >
@@ -1460,67 +1804,131 @@ export default function StocksPage() {
         </div>
 
         {/* SAĞ SÜTUN */}
-        <div style={{ animation: 'fadeInUp 0.4s both 0.2s' }} className="flex-1 bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col min-w-0 shadow-lg relative">
+        <div style={{ animation: 'fadeInUp 0.4s both 0.2s' }} className="flex-1 bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col min-w-0 shadow-lg relative overflow-hidden">
           
-          {/* HIZLI ARAMA & FATURA İŞLEMİ (Her Zaman Üstte) */}
-          <div className="p-4 border-b border-slate-800/80 bg-[#0a0f1d] rounded-t-xl shrink-0 z-20">
-            <div className="flex flex-col gap-2">
-              <label className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5"><Search size={12}/> Hızlı Arama & İşlem Ekleme</label>
-              <div className="relative z-20">
-                <input 
-                  type="text" 
-                  placeholder="Seçili depoda ürün adı veya SKU ara (örn: ekran kartı)..." 
-                  value={quickSearchTerm} 
-                  onChange={(e) => {
-                    setQuickSearchTerm(e.target.value);
-                    if (e.target.value.length < 2) setIsQuickActionActive(false);
-                  }} 
-                  className="w-full bg-[#070b14] border border-indigo-500/30 rounded-lg pl-4 pr-10 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 shadow-inner transition-colors"
-                />
-                <button 
-                  onClick={() => setQuickSearchTerm('')}
-                  className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-opacity ${quickSearchTerm ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                ><X size={14}/></button>
+          {/* SAĞ PANEL MOD SEÇİCİ TAB BARI */}
+          <div className="px-3 py-2 border-b border-slate-800/80 bg-[#070b14] flex items-center justify-between gap-2 shrink-0 z-30">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+              <button
+                type="button"
+                onClick={() => setRightPanelMode('analytics')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${
+                  rightPanelMode === 'analytics' || !selectedStock
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950/50'
+                    : 'bg-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-700/60'
+                }`}
+              >
+                <BarChart3 size={13} className={rightPanelMode === 'analytics' || !selectedStock ? 'text-white' : 'text-indigo-400'} />
+                <span>📊 Kategori & Envanter Analizi</span>
+              </button>
 
-                {/* Arama Sonuçları Dropdown */}
-                {quickSearchTerm.length > 1 && !isQuickActionActive && (
-                  <div className="absolute top-full left-0 right-0 mt-1.5 bg-[#1b253b] border border-indigo-500/50 rounded-lg shadow-2xl overflow-hidden max-h-60 overflow-y-auto custom-scrollbar animate-in slide-in-from-top-2 duration-200">
-                    {quickSearchStocks.length === 0 ? (
-                      <div className="p-3 text-center text-xs text-slate-400">Ürün bulunamadı.</div>
-                    ) : (
-                      quickSearchStocks.map(stock => (
-                        <div 
-                          key={`quick-${stock.id}`} 
-                          onClick={() => {
-                            setSelectedStockId(stock.id);
-                            setIsQuickActionActive(true);
-                            setQuickSearchTerm(stock.name);
-                            setTxDate(getLocalTodayISO());
-                            setTxDesc(''); setTxQty(''); setTxPrice(stock.unit_price.toString());
-                            setTxCurrency(stock.currency as any); setTxVatRate(stock.vat_rate.toString());
-                          }}
-                          className="px-3 py-2.5 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 flex justify-between items-center group"
-                        >
-                          <div className="flex flex-col">
-                            <span className="font-bold text-xs">{stock.name}</span>
-                            <span className="text-[9px] text-slate-400 group-hover:text-indigo-200">{stock.sku || 'SKU Yok'}</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-[10px] font-mono group-hover:text-indigo-100">{formatMoney(stock.unit_price, stock.currency).formatted}</span>
-                            <span className="bg-slate-900/50 px-2 py-0.5 rounded text-[10px] text-emerald-400 border border-slate-700">Stok: {stock.quantity}</span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedStock) setRightPanelMode('product')
+                }}
+                disabled={!selectedStock}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${
+                  !selectedStock
+                    ? 'opacity-40 cursor-not-allowed bg-slate-900 border border-slate-800 text-slate-500'
+                    : rightPanelMode === 'product'
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950/50'
+                    : 'bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700/60'
+                }`}
+              >
+                <Package size={13} className={rightPanelMode === 'product' && selectedStock ? 'text-white' : 'text-amber-400'} />
+                <span className="truncate max-w-[180px] sm:max-w-[240px]">
+                  {selectedStock ? selectedStock.name : 'Ürün Detay & Hareketler'}
+                </span>
+                {selectedStock && (
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedStockId(null)
+                      setRightPanelMode('analytics')
+                    }}
+                    className="ml-1 p-0.5 hover:bg-black/40 rounded text-slate-400 hover:text-rose-400 transition-colors"
+                    title="Ürün seçimini kapat ve analize dön"
+                  >
+                    <X size={11} />
+                  </span>
                 )}
-              </div>
+              </button>
             </div>
+
+            {rightPanelMode === 'product' && selectedStock && (
+              <button
+                type="button"
+                onClick={() => setRightPanelMode('analytics')}
+                className="text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold px-2 py-1 rounded bg-indigo-950/40 border border-indigo-800/40 flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+              >
+                <BarChart3 size={11} />
+                <span>Analiz Paneline Dön</span>
+              </button>
+            )}
           </div>
 
-          {/* EĞER BİR ÜRÜN SEÇİLİYSE DETAYLAR VE FORM GÖSTERİLİR */}
-          {selectedStock ? (
+          {/* İÇERİK: EĞER ÜRÜN MODU VE SEÇİLİ ÜRÜN VARSA -> ÜRÜN DETAYI VE HAREKETLER */}
+          {rightPanelMode === 'product' && selectedStock ? (
             <div className="flex flex-col flex-1 overflow-hidden z-10">
+              {/* HIZLI ARAMA & FATURA İŞLEMİ (Her Zaman Üstte) */}
+              <div className="p-3 border-b border-slate-800/80 bg-[#0a0f1d] shrink-0 z-20">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5"><Search size={12}/> Hızlı Arama & İşlem Ekleme</label>
+                  <div className="relative z-20">
+                    <input 
+                      type="text" 
+                      placeholder="Seçili depoda ürün adı veya SKU ara (örn: ekran kartı)..." 
+                      value={quickSearchTerm} 
+                      onChange={(e) => {
+                        setQuickSearchTerm(e.target.value);
+                        if (e.target.value.length < 2) setIsQuickActionActive(false);
+                      }} 
+                      className="w-full bg-[#070b14] border border-indigo-500/30 rounded-lg pl-4 pr-10 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 shadow-inner transition-colors"
+                    />
+                    <button 
+                      onClick={() => setQuickSearchTerm('')}
+                      className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-opacity ${quickSearchTerm ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    ><X size={14}/></button>
+
+                    {/* Arama Sonuçları Dropdown */}
+                    {quickSearchTerm.length > 1 && !isQuickActionActive && (
+                      <div className="absolute top-full left-0 right-0 mt-1.5 bg-[#1b253b] border border-indigo-500/50 rounded-lg shadow-2xl overflow-hidden max-h-60 overflow-y-auto custom-scrollbar animate-in slide-in-from-top-2 duration-200">
+                        {quickSearchStocks.length === 0 ? (
+                          <div className="p-3 text-center text-xs text-slate-400">Ürün bulunamadı.</div>
+                        ) : (
+                          quickSearchStocks.map(stock => (
+                            <div 
+                              key={`quick-${stock.id}`} 
+                              onClick={() => {
+                                setSelectedStockId(stock.id);
+                                setRightPanelMode('product');
+                                setIsQuickActionActive(true);
+                                setQuickSearchTerm(stock.name);
+                                setTxDate(getLocalTodayISO());
+                                setTxDesc(''); setTxQty(''); setTxPrice(stock.unit_price.toString());
+                                setTxCurrency(stock.currency as any); setTxVatRate(stock.vat_rate.toString());
+                              }}
+                              className="px-3 py-2.5 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 flex justify-between items-center group"
+                            >
+                              <div className="flex flex-col">
+                                <span className="font-bold text-xs">{stock.name}</span>
+                                <span className="text-[9px] text-slate-400 group-hover:text-indigo-200">{stock.sku || 'SKU Yok'}</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-[10px] font-mono group-hover:text-indigo-100">{formatMoney(stock.unit_price, stock.currency).formatted}</span>
+                                <span className="bg-slate-900/50 px-2 py-0.5 rounded text-[10px] text-emerald-400 border border-slate-700">Stok: {stock.quantity}</span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ÜRÜN DETAYI VE İŞLEMLER */}
               <div className="p-4 border-b border-slate-800/80 bg-gradient-to-r from-[#0a0f1d] to-[#0d1322] flex justify-between items-center shrink-0">
                 <div className="flex-1 min-w-0 pr-4">
                   <div className="flex items-center gap-2 mb-1">
@@ -1673,9 +2081,610 @@ export default function StocksPage() {
               </div>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 m-4 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner z-0">
-              <Package size={48} className="mb-4 opacity-70 text-indigo-400 animate-bounce" />
-              <p className="text-sm font-bold text-slate-400">Lütfen bir ürün seçin veya hızlı arama yapın.</p>
+            /* ========================================================================= */
+            /* --- KATEGORİ & ALT KATEGORİ ENTEGRE ANALİZ VE DEĞERLENDİRME PANELİ --- */
+            /* ========================================================================= */
+            <div className="flex flex-col flex-1 overflow-hidden z-10 animate-in fade-in duration-200">
+              {/* ANALİZ ÜST SEÇİCİ BARI */}
+              <div className="p-3 border-b border-slate-800/80 bg-[#0a0f1d] flex flex-col md:flex-row md:items-center justify-between gap-2.5 shrink-0 z-20">
+                <div className="flex items-center gap-1 bg-[#070b14] p-1 rounded-xl border border-slate-800/90 text-[11px] overflow-x-auto no-scrollbar">
+                  <button
+                    type="button"
+                    onClick={() => setAnalyticsTab('summary')}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 whitespace-nowrap transition-all ${
+                      analyticsTab === 'summary'
+                        ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/40'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <PieChart size={13} className={analyticsTab === 'summary' ? 'text-white' : 'text-indigo-400'} />
+                    <span>Sermaye & Dağılım</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAnalyticsTab('critical')}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 whitespace-nowrap transition-all ${
+                      analyticsTab === 'critical'
+                        ? 'bg-amber-600 text-white shadow-sm shadow-amber-900/40'
+                        : 'text-slate-400 hover:text-amber-300'
+                    }`}
+                  >
+                    <AlertTriangle size={13} className={analyticsTab === 'critical' ? 'text-white' : 'text-amber-400'} />
+                    <span>Kritik & Tükenen</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                      analyticsTab === 'critical' ? 'bg-amber-950/60 text-amber-200' : 'bg-slate-800 text-amber-400'
+                    }`}>
+                      {categoryAnalytics.totalCriticalCount + categoryAnalytics.totalOutOfStockCount}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAnalyticsTab('dead')}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 whitespace-nowrap transition-all ${
+                      analyticsTab === 'dead'
+                        ? 'bg-purple-600 text-white shadow-sm shadow-purple-900/40'
+                        : 'text-slate-400 hover:text-purple-300'
+                    }`}
+                  >
+                    <Moon size={13} className={analyticsTab === 'dead' ? 'text-white' : 'text-purple-400'} />
+                    <span>Hareketsiz / Ölü Stok</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                      analyticsTab === 'dead' ? 'bg-purple-950/60 text-purple-200' : 'bg-slate-800 text-purple-400'
+                    }`}>
+                      {categoryAnalytics.totalDeadCount}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Hızlı Arama Kutusu */}
+                <div className="relative min-w-[200px]">
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    placeholder="Analizde ara (kategori, alt kat, SKU)..."
+                    value={analyticsSearch}
+                    onChange={(e) => setAnalyticsSearch(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700/80 rounded-lg pl-7 pr-7 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  />
+                  {analyticsSearch && (
+                    <button onClick={() => setAnalyticsSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* ANALİZ İÇERİK ALANI (Scrollable) */}
+              <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-3.5">
+                
+                {/* 4'LÜ KPI ÖZET KARTLARI */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                  {/* Kart 1: Toplam Bağlı Sermaye */}
+                  <div className="p-3 rounded-xl bg-gradient-to-br from-[#111827] to-[#0b101b] border border-slate-800 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between text-slate-400 text-[10px] mb-1">
+                      <span className="font-semibold uppercase tracking-wider text-slate-400">Bağlı Sermaye</span>
+                      <Package size={13} className="text-indigo-400" />
+                    </div>
+                    <div className="text-base font-bold font-mono text-white tracking-tight">
+                      {formatMoney(categoryAnalytics.totalWarehouseTry, 'TRY').formatted}
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono mt-1">
+                      <span className="text-indigo-300 font-medium">{formatMoney(categoryAnalytics.totalWarehouseUsd, 'USD').formatted}</span>
+                      <span>{categoryAnalytics.totalWarehouseQty} adet</span>
+                    </div>
+                  </div>
+
+                  {/* Kart 2: Hareketsiz / Uyuyan Sermaye */}
+                  <div className={`p-3 rounded-xl border flex flex-col justify-between shadow-sm transition-all ${
+                    categoryAnalytics.totalDeadValTry > 0 ? 'bg-gradient-to-br from-purple-950/20 to-[#0b101b] border-purple-500/30' : 'bg-[#0f172a]/50 border-slate-800'
+                  }`}>
+                    <div className="flex items-center justify-between text-[10px] mb-1">
+                      <span className="font-semibold uppercase tracking-wider text-purple-400 flex items-center gap-1">
+                        <Moon size={11} /> Ölü / Uyuyan Stok
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono font-bold">
+                        %{categoryAnalytics.deadPercentage.toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="text-base font-bold font-mono text-purple-300 tracking-tight">
+                      {formatMoney(categoryAnalytics.totalDeadValTry, 'TRY').formatted}
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-mono mt-1 flex items-center justify-between">
+                      <span>{categoryAnalytics.totalDeadCount} çeşit ürün hareketsiz</span>
+                      <span className="text-purple-400/80 font-normal">({deadStockDays === -1 ? 'Hiç satılmayan' : `${deadStockDays}+ gün`})</span>
+                    </div>
+                  </div>
+
+                  {/* Kart 3: Kritik & Tükenen Ürünler */}
+                  <div className={`p-3 rounded-xl border flex flex-col justify-between shadow-sm transition-all ${
+                    categoryAnalytics.totalCriticalCount + categoryAnalytics.totalOutOfStockCount > 0 ? 'bg-gradient-to-br from-amber-950/20 to-[#0b101b] border-amber-500/30' : 'bg-[#0f172a]/50 border-slate-800'
+                  }`}>
+                    <div className="flex items-center justify-between text-[10px] mb-1">
+                      <span className="font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                        <AlertTriangle size={11} /> Kritik Seviyeler
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
+                        {categoryAnalytics.totalCriticalCount + categoryAnalytics.totalOutOfStockCount} SKU
+                      </span>
+                    </div>
+                    <div className="text-base font-bold font-mono text-amber-300 tracking-tight">
+                      {categoryAnalytics.totalCriticalCount} Kritik <span className="text-xs font-normal text-slate-400">(1-2 ad.)</span>
+                    </div>
+                    <div className="text-[10px] text-rose-400 font-mono mt-1 flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-rose-500 inline-block animate-pulse"></span>
+                      {categoryAnalytics.totalOutOfStockCount} ürün tamamen tükendi (0)
+                    </div>
+                  </div>
+
+                  {/* Kart 4: Kategori ve Çeşitlilik */}
+                  <div className="p-3 rounded-xl bg-gradient-to-br from-[#111827] to-[#0b101b] border border-slate-800 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between text-slate-400 text-[10px] mb-1">
+                      <span className="font-semibold uppercase tracking-wider text-slate-400">Çeşitlilik (SKU)</span>
+                      <Tags size={13} className="text-emerald-400" />
+                    </div>
+                    <div className="text-base font-bold font-mono text-white tracking-tight">
+                      {categoryAnalytics.totalWarehouseSkus} <span className="text-xs font-normal text-slate-400">Çeşit</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-mono mt-1">
+                      {categoryAnalytics.categoriesList.length} Kategori • {categoryAnalytics.categoriesList.reduce((acc, c) => acc + c.subCategories.length, 0)} Alt Kat.
+                    </div>
+                  </div>
+                </div>
+
+                {/* GÖRSEL SERMAYE DAĞILIM ÇUBUĞU */}
+                <div className="bg-[#0a0f1d] border border-slate-800/80 p-3 rounded-xl">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                      <PieChart size={13} className="text-indigo-400" />
+                      Kategori Bazlı Sermaye Payı Dağılımı
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">Toplam {formatMoney(categoryAnalytics.totalWarehouseTry, 'TRY').formatted}</span>
+                  </div>
+
+                  <div className="h-3 w-full bg-slate-900 rounded-full overflow-hidden flex shadow-inner">
+                    {categoryAnalytics.categoriesList.map((cat) => {
+                      if (cat.percentOfTotal <= 0) return null
+                      return (
+                        <div
+                          key={cat.name}
+                          style={{ width: `${cat.percentOfTotal}%` }}
+                          className={`${cat.color.bar} h-full transition-all hover:opacity-80 cursor-pointer`}
+                          title={`${cat.name}: %${cat.percentOfTotal.toFixed(1)} (${formatMoney(cat.totalValueTry, 'TRY').formatted})`}
+                        />
+                      )
+                    })}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-2.5 pt-2 border-t border-slate-800/50">
+                    {categoryAnalytics.categoriesList.slice(0, 6).map(cat => (
+                      <div key={cat.name} className="flex items-center gap-1 text-[10px]">
+                        <span className={`h-2 w-2 rounded-full ${cat.color.bar}`} />
+                        <span className="text-slate-300 font-medium">{cat.name}</span>
+                        <span className="text-slate-500 font-mono">(%{cat.percentOfTotal.toFixed(1)})</span>
+                      </div>
+                    ))}
+                    {categoryAnalytics.categoriesList.length > 6 && (
+                      <span className="text-[10px] text-slate-500">+{categoryAnalytics.categoriesList.length - 6} diğer kategori</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* ========================================================================= */}
+                {/* --- SEKME 1: TÜMÜ & SERMAYE DAĞILIMI (HİYERARŞİK TABLO) --- */}
+                {/* ========================================================================= */}
+                {analyticsTab === 'summary' && (
+                  <div className="border border-slate-800/80 rounded-xl overflow-hidden bg-[#070b14]">
+                    <div className="p-3 border-b border-slate-800 bg-[#0a0f1d] flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Layers size={14} className="text-indigo-400" />
+                        <span className="text-xs font-bold text-white">Kategori ve Alt Kategori Dağılım Matrisi</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {categoryAnalytics.categoriesList.length} kategori listeleniyor
+                      </span>
+                    </div>
+
+                    <div className="divide-y divide-slate-800/80">
+                      {categoryAnalytics.categoriesList
+                        .filter(cat => {
+                          if (!analyticsSearch) return true
+                          const q = analyticsSearch.toLowerCase()
+                          return (
+                            cat.name.toLowerCase().includes(q) ||
+                            cat.subCategories.some(sub => sub.name.toLowerCase().includes(q)) ||
+                            cat.items.some(it => it.stock.name.toLowerCase().includes(q) || (it.stock.sku && it.stock.sku.toLowerCase().includes(q)))
+                          )
+                        })
+                        .map(cat => {
+                          const isExpanded = !!expandedAnalyticsCats[cat.name]
+                          return (
+                            <div key={cat.name} className="flex flex-col transition-colors">
+                              {/* Kategori Satırı */}
+                              <div className="p-3 hover:bg-slate-800/30 flex items-center justify-between gap-3 group">
+                                <div 
+                                  onClick={() => toggleAnalyticsCat(cat.name)}
+                                  className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer select-none"
+                                >
+                                  <span className="text-slate-500 group-hover:text-indigo-400 transition-transform">
+                                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                  </span>
+                                  <span className={`h-2.5 w-2.5 rounded-full ${cat.color.bar}`} />
+                                  <div className="flex flex-col min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-bold text-white group-hover:text-indigo-300 transition-colors truncate">
+                                        {cat.name}
+                                      </span>
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">
+                                        {cat.skuCount} SKU • {cat.totalQty} ad.
+                                      </span>
+                                    </div>
+                                    <span className="text-[9px] text-slate-500">
+                                      {cat.subCategories.length} Alt Kategori ({cat.subCategories.map(s => s.name).slice(0, 3).join(', ')}{cat.subCategories.length > 3 ? '...' : ''})
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Değerler & Rozetler */}
+                                <div className="flex items-center gap-4 shrink-0 font-mono text-right">
+                                  {/* Durum Göstergeleri */}
+                                  <div className="hidden sm:flex items-center gap-1.5 text-[10px]">
+                                    {cat.outOfStockCount > 0 && (
+                                      <span className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold" title="Tükenen Stok">
+                                        🔴 {cat.outOfStockCount}
+                                      </span>
+                                    )}
+                                    {cat.criticalCount > 0 && (
+                                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold" title="Kritik Stok (1-2 ad.)">
+                                        🟡 {cat.criticalCount}
+                                      </span>
+                                    )}
+                                    {cat.deadCount > 0 && (
+                                      <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-bold" title="Hareketsiz Stok">
+                                        💤 {cat.deadCount}
+                                      </span>
+                                    )}
+                                    {cat.outOfStockCount === 0 && cat.criticalCount === 0 && cat.deadCount === 0 && (
+                                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px]">
+                                        🟢 Dengeli
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex flex-col items-end">
+                                    <span className="text-xs font-bold text-white">
+                                      {formatMoney(cat.totalValueTry, 'TRY').formatted}
+                                    </span>
+                                    <span className="text-[9px] text-indigo-300">
+                                      %{cat.percentOfTotal.toFixed(1)} Sermaye Payı
+                                    </span>
+                                  </div>
+
+                                  {/* Hızlı Filtre Butonu */}
+                                  <button
+                                    type="button"
+                                    onClick={() => filterLeftListFromAnalytics(cat.name)}
+                                    className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-indigo-600 hover:text-white text-slate-400 border border-slate-700/60 transition-colors"
+                                    title="Sol listeyi bu kategoriye göre süz"
+                                  >
+                                    <Filter size={12} />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Alt Kategoriler (Açılır Kısım) */}
+                              {isExpanded && (
+                                <div className="bg-[#050811] border-t border-slate-800/60 divide-y divide-slate-800/40 pl-6 pr-3 py-1">
+                                  {cat.subCategories.map(sub => (
+                                    <div key={sub.name} className="py-2 flex items-center justify-between text-[11px] hover:bg-slate-800/20 px-2 rounded-lg transition-colors">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <Tag size={11} className="text-teal-400/80 shrink-0" />
+                                        <span className="text-slate-200 font-medium truncate">{sub.name}</span>
+                                        <span className="text-[9px] text-slate-500 font-mono">
+                                          ({sub.skuCount} SKU, {sub.totalQty} ad.)
+                                        </span>
+                                      </div>
+
+                                      <div className="flex items-center gap-3 shrink-0 font-mono text-right text-[10px]">
+                                        <div className="flex items-center gap-1">
+                                          {sub.outOfStockCount > 0 && <span className="text-rose-400" title="Tükenen">🔴 {sub.outOfStockCount}</span>}
+                                          {sub.criticalCount > 0 && <span className="text-amber-400" title="Kritik">🟡 {sub.criticalCount}</span>}
+                                          {sub.deadCount > 0 && <span className="text-purple-400" title="Hareketsiz">💤 {sub.deadCount}</span>}
+                                        </div>
+
+                                        <div className="flex flex-col items-end min-w-[90px]">
+                                          <span className="font-bold text-slate-200">{formatMoney(sub.totalValueTry, 'TRY').formatted}</span>
+                                          {sub.deadValueTry > 0 && (
+                                            <span className="text-[9px] text-purple-400">Ölü: {formatMoney(sub.deadValueTry, 'TRY').formatted}</span>
+                                          )}
+                                        </div>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => filterLeftListFromAnalytics(cat.name, sub.name)}
+                                          className="p-1 rounded text-slate-500 hover:text-teal-300 hover:bg-teal-950/40 transition-colors"
+                                          title="Sol listeyi bu alt kategoriye süz"
+                                        >
+                                          <Filter size={11} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ========================================================================= */}
+                {/* --- SEKME 2: KRİTİK & TÜKENEN SEVİYELER --- */}
+                {/* ========================================================================= */}
+                {analyticsTab === 'critical' && (
+                  <div className="border border-slate-800/80 rounded-xl overflow-hidden bg-[#070b14]">
+                    <div className="p-3 border-b border-slate-800 bg-[#0a0f1d] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle size={14} className="text-amber-400" />
+                        <span className="text-xs font-bold text-white">Acil Tedarik & Kritik Stok Seviyeleri</span>
+                      </div>
+
+                      {/* Alt Filtre Butonları */}
+                      <div className="flex items-center gap-1 bg-[#070b14] p-0.5 rounded-lg border border-slate-800 text-[10px]">
+                        <button
+                          type="button"
+                          onClick={() => setCriticalSubFilter('all')}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${
+                            criticalSubFilter === 'all' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Tümü ({categoryAnalytics.totalCriticalCount + categoryAnalytics.totalOutOfStockCount})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCriticalSubFilter('out_of_stock')}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${
+                            criticalSubFilter === 'out_of_stock' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-rose-400'
+                          }`}
+                        >
+                          🔴 Tükendi ({categoryAnalytics.totalOutOfStockCount})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCriticalSubFilter('critical')}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${
+                            criticalSubFilter === 'critical' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-amber-300'
+                          }`}
+                        >
+                          🟡 Kritik 1-2 ({categoryAnalytics.totalCriticalCount})
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto custom-scrollbar">
+                      <table className="w-full text-left text-[11px]">
+                        <thead className="bg-[#0a0f1d] text-slate-400 border-b border-slate-800">
+                          <tr>
+                            <th className="p-2.5 font-medium">Ürün Adı & SKU</th>
+                            <th className="p-2.5 font-medium">Kategori / Alt Kategori</th>
+                            <th className="p-2.5 font-medium text-center">Durum / Miktar</th>
+                            <th className="p-2.5 font-medium text-right">B.Fiyat (KDV Dahil)</th>
+                            <th className="p-2.5 font-medium text-right">Bağlı Değer</th>
+                            <th className="p-2.5 font-medium text-center w-24">İşlem</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60 font-mono">
+                          {categoryAnalytics.allCriticalItems
+                            .filter(it => {
+                              if (criticalSubFilter === 'out_of_stock') return it.isOutOfStock
+                              if (criticalSubFilter === 'critical') return it.isCritical
+                              return true
+                            })
+                            .filter(it => {
+                              if (!analyticsSearch) return true
+                              const q = analyticsSearch.toLowerCase()
+                              return (
+                                it.stock.name.toLowerCase().includes(q) ||
+                                (it.stock.sku && it.stock.sku.toLowerCase().includes(q)) ||
+                                (it.stock.category && it.stock.category.toLowerCase().includes(q)) ||
+                                (it.stock.sub_category && it.stock.sub_category.toLowerCase().includes(q))
+                              )
+                            })
+                            .map((it) => (
+                              <tr key={it.stock.id} className="hover:bg-slate-800/30 transition-colors">
+                                <td className="p-2.5 font-sans">
+                                  <div className="font-semibold text-slate-200">{it.stock.name}</div>
+                                  <div className="text-[9px] text-slate-500 font-mono">{it.stock.sku || 'SKU Yok'}</div>
+                                </td>
+                                <td className="p-2.5 font-sans text-slate-300">
+                                  <div>{it.stock.category || 'Kategorisiz'}</div>
+                                  <div className="text-[9px] text-teal-400">{it.stock.sub_category || 'Genel'}</div>
+                                </td>
+                                <td className="p-2.5 text-center">
+                                  {it.isOutOfStock ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30 animate-pulse">
+                                      🔴 0 {it.stock.unit} (Tükendi)
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                                      🟡 {it.stock.quantity} {it.stock.unit}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-2.5 text-right text-slate-300">
+                                  {formatMoney(it.unitPriceWithVat, it.stock.currency).formatted}
+                                </td>
+                                <td className="p-2.5 text-right font-bold text-white">
+                                  {formatMoney(it.valueTry, 'TRY').formatted}
+                                </td>
+                                <td className="p-2.5 text-center">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => openStockFromAnalytics(it.stock.id)}
+                                      className="px-2 py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white font-sans text-[10px] font-bold transition-all shadow-sm"
+                                      title="Bu ürünün hareket kartını ve giriş formunu aç"
+                                    >
+                                      Detay
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => filterLeftListFromAnalytics(it.stock.category, it.stock.sub_category)}
+                                      className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
+                                      title="Sol listede filtrele"
+                                    >
+                                      <Filter size={11} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* ========================================================================= */}
+                {/* --- SEKME 3: HAREKETSİZ / ÖLÜ STOK ANALİZİ --- */}
+                {/* ========================================================================= */}
+                {analyticsTab === 'dead' && (
+                  <div className="border border-slate-800/80 rounded-xl overflow-hidden bg-[#070b14]">
+                    <div className="p-3 border-b border-slate-800 bg-[#0a0f1d] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Moon size={14} className="text-purple-400" />
+                        <div>
+                          <span className="text-xs font-bold text-white">Hareketsiz / Uyuyan Stok Raporu</span>
+                          <p className="text-[9px] text-slate-400">Çıkış hareketi gerçekleşmemiş veya uzun süredir bekleyen stoklar</p>
+                        </div>
+                      </div>
+
+                      {/* Eşik Seçimi */}
+                      <div className="flex items-center gap-1 bg-[#070b14] p-1 rounded-lg border border-slate-800 text-[10px]">
+                        <span className="text-[9px] text-slate-500 mr-1 pl-1">Eşik:</span>
+                        <button
+                          type="button"
+                          onClick={() => setDeadStockDays(30)}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${
+                            deadStockDays === 30 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          30+ Gün
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeadStockDays(60)}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${
+                            deadStockDays === 60 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          60+ Gün
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeadStockDays(90)}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${
+                            deadStockDays === 90 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          90+ Gün
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeadStockDays(-1)}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${
+                            deadStockDays === -1 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+                          }`}
+                          title="Yalnızca açılış stoğundan beri hiç satış/çıkış yapılmamış ürünler"
+                        >
+                          Hiç Çıkış Yok
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto custom-scrollbar">
+                      <table className="w-full text-left text-[11px]">
+                        <thead className="bg-[#0a0f1d] text-slate-400 border-b border-slate-800">
+                          <tr>
+                            <th className="p-2.5 font-medium">Ürün Adı & SKU</th>
+                            <th className="p-2.5 font-medium">Kategori / Alt Kategori</th>
+                            <th className="p-2.5 font-medium text-center">Stok Miktarı</th>
+                            <th className="p-2.5 font-medium text-right">Bağlı Sermaye (KDV Dahil)</th>
+                            <th className="p-2.5 font-medium text-center">Hareketsizlik Durumu</th>
+                            <th className="p-2.5 font-medium text-center w-24">İşlem</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60 font-mono">
+                          {categoryAnalytics.allDeadItems
+                            .filter(it => {
+                              if (!analyticsSearch) return true
+                              const q = analyticsSearch.toLowerCase()
+                              return (
+                                it.stock.name.toLowerCase().includes(q) ||
+                                (it.stock.sku && it.stock.sku.toLowerCase().includes(q)) ||
+                                (it.stock.category && it.stock.category.toLowerCase().includes(q)) ||
+                                (it.stock.sub_category && it.stock.sub_category.toLowerCase().includes(q))
+                              )
+                            })
+                            .map((it) => (
+                              <tr key={it.stock.id} className="hover:bg-slate-800/30 transition-colors">
+                                <td className="p-2.5 font-sans">
+                                  <div className="font-semibold text-slate-200">{it.stock.name}</div>
+                                  <div className="text-[9px] text-slate-500 font-mono">{it.stock.sku || 'SKU Yok'}</div>
+                                </td>
+                                <td className="p-2.5 font-sans text-slate-300">
+                                  <div>{it.stock.category || 'Kategorisiz'}</div>
+                                  <div className="text-[9px] text-teal-400">{it.stock.sub_category || 'Genel'}</div>
+                                </td>
+                                <td className="p-2.5 text-center font-bold text-purple-300">
+                                  {it.stock.quantity} {it.stock.unit}
+                                </td>
+                                <td className="p-2.5 text-right font-bold text-white">
+                                  <div>{formatMoney(it.valueTry, 'TRY').formatted}</div>
+                                  <div className="text-[9px] text-slate-400 font-normal">{formatMoney(it.valueUsd, 'USD').formatted}</div>
+                                </td>
+                                <td className="p-2.5 text-center">
+                                  {it.outCount === 0 ? (
+                                    <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/30 font-sans">
+                                      💤 Hiç Çıkış Yapılmamış
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[9px] font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-sans">
+                                      <Clock size={10} className="text-purple-400" /> {it.daysSinceLastOut} gündür çıkış yok ({formatDateTR(it.lastOutDate || '')})
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-2.5 text-center">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => openStockFromAnalytics(it.stock.id)}
+                                      className="px-2 py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white font-sans text-[10px] font-bold transition-all shadow-sm"
+                                      title="Bu ürünün kartını ve hareketlerini aç"
+                                    >
+                                      Detay
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => filterLeftListFromAnalytics(it.stock.category, it.stock.sub_category)}
+                                      className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
+                                      title="Sol listede filtrele"
+                                    >
+                                      <Filter size={11} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+              </div>
             </div>
           )}
         </div>
