@@ -1417,42 +1417,178 @@ export default function StocksPage() {
       {/* TOASTER KONTEYNER Z-INDEX DEĞERİ MAX VE POZİSYONU BOTTOM-RIGHT YAPILDI */}
       <Toaster position="bottom-right" containerStyle={{ zIndex: 99999999 }} toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px' } }} />
       
-      {/* Üst Bar */}
-      <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex items-center justify-between gap-4 bg-[#0d1322] border border-slate-800/80 p-3 rounded-xl shadow-md shrink-0 mb-4 transition-colors">
-        <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar flex-1">
-          <Package className="text-indigo-400 mr-2 shrink-0" size={20} />
-          {warehouses.map((wh, index) => {
-            const totals = getWarehouseTotals(wh.id)
-            const isSelected = selectedWarehouseId === wh.id
-            return (
-              <div 
-                key={wh.id} 
-                onClick={() => {
-                  setSelectedWarehouseId(wh.id);
-                  try { localStorage.setItem('ctc_stock_selected_warehouse', wh.id); } catch {}
-                }} 
-                style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.1 + (index * 0.05)}s` }}
-                className={`flex flex-col px-3 py-1.5 rounded-lg cursor-pointer transition-all border whitespace-nowrap bg-gradient-to-r group ${wh.color} ${isSelected ? 'border-indigo-400 ring-1 ring-indigo-400/50 shadow-inner -translate-y-0.5' : 'border-slate-800/80 opacity-60 hover:opacity-100 hover:-translate-y-0.5'}`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-bold text-white">{wh.name}</span>
-                  {isSelected && (
-                    <div className="flex items-center gap-1 bg-black/30 px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={(e) => openEditWh(wh, e)} className="text-slate-300 hover:text-indigo-400"><Edit3 size={10} /></button>
-                      <button onClick={(e) => handleDeleteWarehouse(wh.id, e)} className="text-slate-300 hover:text-rose-400"><Trash2 size={10} /></button>
+      {/* Üst Bar: Depo Seçici & Canlı Envanter Metrikleri */}
+      <div 
+        style={{ animation: 'fadeInDown 0.4s both' }} 
+        className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#0d1322] border border-slate-800/80 px-3.5 py-2 rounded-xl shadow-md shrink-0 mb-3 transition-colors"
+      >
+        {/* SOL: DEPO SEÇİM SEKMELERİ (Birden fazla depo için yatay kaydırma ve hızlı geçiş) */}
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5 min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-indigo-400 shrink-0 mr-1 select-none">
+            <Package size={17} />
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Depolar:</span>
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar flex-1">
+            {warehouses.map((wh, index) => {
+              const totals = getWarehouseTotals(wh.id)
+              const isSelected = selectedWarehouseId === wh.id
+              return (
+                <div 
+                  key={wh.id} 
+                  onClick={() => {
+                    setSelectedWarehouseId(wh.id);
+                    try { localStorage.setItem('ctc_stock_selected_warehouse', wh.id); } catch {}
+                  }} 
+                  style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.05 + (index * 0.04)}s` }}
+                  className={`flex flex-col px-3 py-1 rounded-lg cursor-pointer transition-all border whitespace-nowrap group select-none shrink-0 ${
+                    isSelected 
+                      ? 'bg-gradient-to-r from-indigo-950/70 to-slate-900 border-indigo-500/80 shadow-md shadow-indigo-950/40 ring-1 ring-indigo-500/30' 
+                      : 'bg-slate-900/40 border-slate-800/80 opacity-60 hover:opacity-100 hover:border-slate-700 hover:bg-slate-800/40'
+                  }`}
+                  title={`${wh.name} deposunu seç (${formatMoney(totals.totalTry, 'TRY').formatted})`}
+                >
+                  <div className="flex items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-1.5">
+                      {wh.company ? (
+                        wh.company.is_personal 
+                          ? <Home size={11} className={isSelected ? 'text-indigo-400' : 'text-slate-500'} />
+                          : <Building size={11} className={isSelected ? 'text-indigo-400' : 'text-slate-500'} />
+                      ) : (
+                        <Globe size={11} className={isSelected ? 'text-indigo-400' : 'text-slate-500'} />
+                      )}
+                      <span className={`text-xs font-bold ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                        {wh.name}
+                      </span>
+                      {wh.company && (
+                        <span className="text-[9px] text-slate-400 font-normal">({wh.company.name})</span>
+                      )}
                     </div>
-                  )}
+                    {isSelected && (
+                      <div className="flex items-center gap-1 bg-black/40 px-1 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={(e) => openEditWh(wh, e)} className="text-slate-300 hover:text-indigo-400 p-0.5" title="Depoyu Düzenle"><Edit3 size={10} /></button>
+                        <button onClick={(e) => handleDeleteWarehouse(wh.id, e)} className="text-slate-300 hover:text-rose-400 p-0.5" title="Depoyu Sil"><Trash2 size={10} /></button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[10px] font-mono mt-0.5">
+                    <span className={`${isSelected ? 'text-slate-200 font-semibold' : 'text-slate-400'}`}>
+                      {formatMoney(totals.totalTry, 'TRY').formatted}
+                    </span>
+                    <span className="text-slate-600 font-sans">/</span>
+                    <span className="text-indigo-300/80">
+                      {formatMoney(totals.totalUsd, 'USD').formatted}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex flex-col mt-1">
-                  <span className="text-xs font-mono font-semibold text-slate-200 opacity-90 tracking-tight">
-                    {formatMoney(totals.totalUsd, 'USD').formatted} / {formatMoney(totals.totalTry, 'TRY').formatted}
-                  </span>
-                  <span className="text-[8px] text-slate-300/70 font-sans uppercase tracking-wider mt-0.5">KDV Dahil Değer</span>
-                </div>
+              )
+            })}
+
+            <button 
+              style={{ animation: 'fadeInUp 0.3s both 0.2s' }} 
+              onClick={openAddWh} 
+              className="p-1.5 px-2 rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-indigo-500 hover:bg-indigo-950/20 shrink-0 transition-all active:scale-95 flex items-center gap-1 text-[11px] font-medium"
+              title="Yeni Depo Oluştur"
+            >
+              <Plus size={13} />
+              <span className="text-[10px]">Depo Ekle</span>
+            </button>
+          </div>
+        </div>
+
+        {/* SAĞ: SEÇİLİ DEPO CANLI ENVANTER & SAĞLIK ÖZETİ (Tek Satır Kompakt Metrik Şeridi) */}
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0 py-0.5 border-t lg:border-t-0 lg:border-l border-slate-800/80 pt-2 lg:pt-0 lg:pl-3">
+          {/* Bağlı Sermaye */}
+          <div 
+            onClick={() => {
+              setRightPanelMode('analytics')
+              setAnalyticsTab('summary')
+            }}
+            className="flex items-center gap-2 bg-[#070b14] hover:bg-slate-800/60 border border-slate-800/90 hover:border-indigo-500/40 px-2.5 py-1 rounded-lg transition-colors cursor-pointer group select-none shrink-0"
+            title="Sermaye ve Kategori Matrisini Aç"
+          >
+            <div className="p-1 rounded bg-indigo-500/10 text-indigo-400 group-hover:text-indigo-300">
+              <Package size={13} />
+            </div>
+            <div className="flex flex-col text-left">
+              <span className="text-[9px] text-slate-400 uppercase font-semibold leading-none">Bağlı Sermaye</span>
+              <div className="text-[11px] font-bold font-mono text-white mt-0.5 leading-none">
+                {formatMoney(categoryAnalytics.totalWarehouseTry, 'TRY').formatted}
+                <span className="text-[9px] text-slate-400 font-normal ml-1">({formatMoney(categoryAnalytics.totalWarehouseUsd, 'USD').formatted})</span>
               </div>
-            )
-          })}
-          <button style={{ animation: 'fadeInUp 0.3s both 0.3s' }} onClick={openAddWh} className="p-2 rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 hover:bg-slate-800/50 shrink-0 transition-all active:scale-95"><Plus size={16} /></button>
+            </div>
+          </div>
+
+          {/* Çeşitlilik & Miktar */}
+          <div className="flex items-center gap-2 bg-[#070b14] border border-slate-800/90 px-2.5 py-1 rounded-lg select-none shrink-0">
+            <div className="p-1 rounded bg-emerald-500/10 text-emerald-400">
+              <Tags size={13} />
+            </div>
+            <div className="flex flex-col text-left">
+              <span className="text-[9px] text-slate-400 uppercase font-semibold leading-none">Çeşit & Stok</span>
+              <div className="text-[11px] font-bold font-mono text-slate-200 mt-0.5 leading-none">
+                {categoryAnalytics.totalWarehouseSkus} <span className="text-[9px] font-normal text-slate-400">SKU</span>
+                <span className="text-slate-600 mx-1">•</span>
+                {categoryAnalytics.totalWarehouseQty} <span className="text-[9px] font-normal text-slate-400">ad.</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Kritik & Tükenen */}
+          <div 
+            onClick={() => {
+              setRightPanelMode('analytics')
+              setAnalyticsTab('critical')
+            }}
+            className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border transition-colors cursor-pointer group select-none shrink-0 ${
+              categoryAnalytics.totalCriticalCount + categoryAnalytics.totalOutOfStockCount > 0
+                ? 'bg-amber-950/20 hover:bg-amber-950/30 border-amber-500/30'
+                : 'bg-[#070b14] border-slate-800/90 text-slate-400'
+            }`}
+            title="Kritik ve Tükenen Ürünleri Görüntüle"
+          >
+            <div className="p-1 rounded bg-amber-500/15 text-amber-400">
+              <AlertTriangle size={13} />
+            </div>
+            <div className="flex flex-col text-left">
+              <span className="text-[9px] text-amber-400/90 uppercase font-semibold leading-none">Kritik & Tükenen</span>
+              <div className="text-[11px] font-bold font-mono text-amber-300 mt-0.5 leading-none">
+                {categoryAnalytics.totalCriticalCount} <span className="text-[9px] font-normal text-slate-400">Kritik</span>
+                {categoryAnalytics.totalOutOfStockCount > 0 && (
+                  <span className="text-rose-400 ml-1.5 font-bold">
+                    • {categoryAnalytics.totalOutOfStockCount} Tükendi
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Ölü / Uyuyan Stok */}
+          <div 
+            onClick={() => {
+              setRightPanelMode('analytics')
+              setAnalyticsTab('dead')
+            }}
+            className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border transition-colors cursor-pointer group select-none shrink-0 ${
+              categoryAnalytics.totalDeadCount > 0
+                ? 'bg-purple-950/20 hover:bg-purple-950/30 border-purple-500/30'
+                : 'bg-[#070b14] border-slate-800/90 text-slate-400'
+            }`}
+            title="Hareketsiz / Ölü Stokları Görüntüle"
+          >
+            <div className="p-1 rounded bg-purple-500/15 text-purple-400">
+              <Moon size={13} />
+            </div>
+            <div className="flex flex-col text-left">
+              <span className="text-[9px] text-purple-400/90 uppercase font-semibold leading-none">Ölü / Uyuyan</span>
+              <div className="text-[11px] font-bold font-mono text-purple-300 mt-0.5 leading-none">
+                {formatMoney(categoryAnalytics.totalDeadValTry, 'TRY').formatted}
+                <span className="text-[9px] px-1 py-0.2 ml-1 rounded bg-purple-500/20 text-purple-300 font-mono">
+                  %{categoryAnalytics.deadPercentage.toFixed(0)}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

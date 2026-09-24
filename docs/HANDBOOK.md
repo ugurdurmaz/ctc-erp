@@ -445,7 +445,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Gider/tedarikçi modüllerinden gelen `expense` hareketleri burada listelenir ve **silinebilir** (kasa/bankadaki gibi ön ek koruması yoktur).
 
 ### 7.6 Stok Yönetimi `/stocks`
-- Üst şerit: depo kartları (KDV dahil USD/TRY toplam), + yeni depo.
+- Üst şerit: Sol tarafta çoklu depo seçim sekmeleri (KDV dahil USD/TRY toplamı, depolar arası hızlı geçiş, düzenle/sil) + "Depo Ekle"; sağ tarafta seçili deponun anlık canlı KPI şeridi (Bağlı Sermaye, Çeşit & Stok, Kritik & Tükenen, Ölü/Uyuyan Stok).
 - Sol: seçili deponun stok kartları, kategori filtre çipleri, "Yönet" (kategori CRUD), arama, Ürün Ekle.
 - Sağ: İki modlu hibrit panel (`[📊 Kategori & Envanter Analizi]` ve `[📦 Ürün Detay & Hareketler]`):
   - **Ürün Seçili Olduğunda:** Hızlı Arama & İşlem (ürün seçince form otomatik dolar), seçili ürün başlığı, hareket formu (tarih, merkez, Giriş/Çıkış, açıklama, miktar, net fiyat, döviz, KDV), hareket tablosu ve üstte "Analize Dön" butonu.
