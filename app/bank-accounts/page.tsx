@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon } from 'lucide-react'
+import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type BankAccount = { id: string; bank_name: string; account_name: string; iban: string; balance: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; company?: { name: string; is_personal: boolean } }
@@ -375,9 +375,21 @@ export default function BankAccountsPage() {
     setCollectingTx(tx)
     setCommissionAmount('')
     
-    const txDateObj = new Date(tx.tx_date)
-    txDateObj.setDate(txDateObj.getDate() + 1)
-    setCollectDate(txDateObj.toISOString().split('T')[0])
+    // Güvenli tarih hesabı: Valör için tx_date'in bir sonraki gününü yerel saat dilimine göre ayarla
+    try {
+      const parts = tx.tx_date.split('-').map(Number)
+      if (parts.length === 3) {
+        const nextDay = new Date(parts[0], parts[1] - 1, parts[2] + 1)
+        const y = nextDay.getFullYear()
+        const m = String(nextDay.getMonth() + 1).padStart(2, '0')
+        const d = String(nextDay.getDate()).padStart(2, '0')
+        setCollectDate(`${y}-${m}-${d}`)
+      } else {
+        setCollectDate(todayISO)
+      }
+    } catch {
+      setCollectDate(todayISO)
+    }
     
     setIsCollectModalOpen(true)
   }
@@ -563,9 +575,45 @@ export default function BankAccountsPage() {
                   <button onClick={() => { setIsTransferModalOpen(true); setTransferTarget(''); setTransferAmount(''); setTransferRate('1'); setTargetCurrency('TRY'); setTransferTargetAmount(''); setTransferCompanyId('common') }} className="shrink-0 bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/50 text-indigo-300 hover:text-white px-4 py-3 rounded-lg text-xs font-bold transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 min-w-[120px]"><ArrowRightLeft size={18} /> Virman / Transfer</button>
                 </div>
 
+                {/* BEKLEYEN PROVİZYON BİLGİLENDİRME & HIZLI İŞLEM BARI */}
+                {displayTransactions.some(t => t.status === 'pending') && (
+                  <div className="mb-3 p-3 bg-gradient-to-r from-amber-950/30 via-slate-900 to-[#0d1322] border border-amber-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md shrink-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+                        <Clock size={16} />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-amber-300 flex items-center gap-2">
+                          <span>Bekleyen POS Provizyonu ({displayTransactions.filter(t => t.status === 'pending').length} Adet)</span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 font-mono font-bold">
+                            Toplam {formatMoney(displayTransactions.filter(t => t.status === 'pending').reduce((sum, t) => sum + t.amount, 0), selectedBank.currency).formatted}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Mağaza kredi kartı satışından gelen provizyonlar henüz banka bakiyesini etkilemez. Ertesi gün banka ekstrenize yansıdığında komisyon kesintisini girerek hesaba aktarabilirsiniz.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {displayTransactions.filter(t => t.status === 'pending').slice(0, 1).map((pTx) => (
+                        <button
+                          key={pTx.id}
+                          type="button"
+                          onClick={() => openCollectModal(pTx)}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg shadow-sm shadow-emerald-950/40 flex items-center gap-1.5 transition-all active:scale-95 whitespace-nowrap cursor-pointer"
+                          title="Komisyon girerek hesaba geçir"
+                        >
+                          <CheckCircle size={13} />
+                          <span>Komisyon Gir & Hesaba Geçir</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="border border-slate-800/80 rounded-lg overflow-hidden flex-1 flex flex-col">
                   <table className="w-full text-left text-[11px]">
-                    <thead className="sticky top-0 bg-[#0a0f1d] z-10"><tr className="border-b border-slate-800/80 text-slate-400"><th className="p-2.5 font-medium">Tarih</th><th className="p-2.5 font-medium">Açıklama & Merkez</th><th className="p-2.5 font-medium text-right text-emerald-400">Giriş (+)</th><th className="p-2.5 font-medium text-right text-rose-400">Çıkış (-)</th><th className="p-2.5 font-medium text-right text-slate-300 bg-slate-800/20">Bakiye</th><th className="p-2.5 font-medium text-center w-[80px]">İşlem</th></tr></thead>
+                    <thead className="sticky top-0 bg-[#0a0f1d] z-10"><tr className="border-b border-slate-800/80 text-slate-400"><th className="p-2.5 font-medium">Tarih</th><th className="p-2.5 font-medium">Açıklama & Merkez</th><th className="p-2.5 font-medium text-right text-emerald-400">Giriş (+)</th><th className="p-2.5 font-medium text-right text-rose-400">Çıkış (-)</th><th className="p-2.5 font-medium text-right text-slate-300 bg-slate-800/20">Bakiye</th><th className="p-2.5 font-medium text-center w-[130px]">İşlem</th></tr></thead>
                     <tbody className="divide-y divide-slate-800/50">
                       {displayTransactions.length === 0 ? (
                         <tr>
@@ -593,9 +641,15 @@ export default function BankAccountsPage() {
                                  : ''} 
                                  
                                  {t.status === 'pending' && (
-                                    <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/30 flex items-center gap-1 animate-pulse">
-                                      ⏱ Bekleyen Provizyon
-                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => openCollectModal(t)}
+                                      className="text-[9px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/40 flex items-center gap-1 animate-pulse transition cursor-pointer"
+                                      title="Komisyon girerek hesaba geçirmek için tıklayın"
+                                    >
+                                      <Clock size={10} />
+                                      <span>⏱ Bekleyen Provizyon</span>
+                                    </button>
                                  )}
                                  
                                  {t.description}
@@ -615,14 +669,25 @@ export default function BankAccountsPage() {
                                {t.status === 'pending' ? 'Bakiye Etkilenmedi' : formatMoney(t.running_balance, t.currency).formatted}
                             </td>
                             <td className="p-2.5 text-center align-top">
-                              <div className="flex items-center justify-center gap-2">
+                              <div className="flex items-center justify-center gap-1.5">
                                 {t.status === 'pending' && (
-                                  <button onClick={() => openCollectModal(t)} className="text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 p-1.5 rounded transition" title="Hesaba Geçir & Komisyon Kes">
-                                    <CheckCircle size={14} />
+                                  <button 
+                                    type="button"
+                                    onClick={() => openCollectModal(t)} 
+                                    className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] px-2 py-1 rounded shadow-sm shadow-emerald-950/40 transition-all active:scale-95 whitespace-nowrap cursor-pointer" 
+                                    title="Banka komisyonunu manuel girerek hesaba geçir"
+                                  >
+                                    <CheckCircle size={12} />
+                                    <span>Hesaba Geçir</span>
                                   </button>
                                 )}
-                                <button onClick={() => handleDeleteTransaction(t.id, t.amount, t.tx_type, t.is_transfer, t.transfer_id, t.status)} className="text-slate-500 hover:text-rose-400 p-1.5 hover:bg-slate-800 rounded transition" title="Sil">
-                                  <Trash2 size={12} />
+                                <button 
+                                  type="button"
+                                  onClick={() => handleDeleteTransaction(t.id, t.amount, t.tx_type, t.is_transfer, t.transfer_id, t.status)} 
+                                  className="text-slate-500 hover:text-rose-400 p-1.5 hover:bg-slate-800 rounded transition cursor-pointer" 
+                                  title="Sil"
+                                >
+                                  <Trash2 size={13} />
                                 </button>
                               </div>
                             </td>
