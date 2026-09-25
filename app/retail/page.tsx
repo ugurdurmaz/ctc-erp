@@ -434,11 +434,16 @@ export default function RetailPOSPage() {
       if (returnForm.refundMethod === 'cash') {
         // Bugünün Nakit Gider & Masraf Satırına Ekle (Kasayı anında düşürür)
         setRows(prev => {
-          const emptyIdx = prev.findIndex(r => r.categoryId === EXPENSE_CATEGORY_ID && !r.description.trim() && parseValue(r.cash) === 0 && parseValue(r.card) === 0)
-          if (emptyIdx !== -1) {
+          // Eğer önceden açıklaması boş ve aynı nakit tutarına sahip bir satır varsa onu kullan;
+          // yoksa açıklaması ve tutarları tamamen boş ilk satırı kullan; yoksa yeni satır ekle.
+          const sameValNoDescIdx = prev.findIndex(r => r.categoryId === EXPENSE_CATEGORY_ID && !r.description.trim() && parseValue(r.cash) === refVal)
+          const totallyEmptyIdx = prev.findIndex(r => r.categoryId === EXPENSE_CATEGORY_ID && !r.description.trim() && parseValue(r.cash) === 0 && parseValue(r.card) === 0)
+          const targetIdx = sameValNoDescIdx !== -1 ? sameValNoDescIdx : totallyEmptyIdx
+
+          if (targetIdx !== -1) {
             const updated = [...prev]
-            updated[emptyIdx] = {
-              ...updated[emptyIdx],
+            updated[targetIdx] = {
+              ...updated[targetIdx],
               description: expenseDesc,
               cash: formatValue(refVal),
               card: '',
@@ -467,11 +472,14 @@ export default function RetailPOSPage() {
       } else if (returnForm.refundMethod === 'card') {
         // Bugünün Kredi Kartı Gider & Masraf Satırına Ekle
         setRows(prev => {
-          const emptyIdx = prev.findIndex(r => r.categoryId === EXPENSE_CATEGORY_ID && !r.description.trim() && parseValue(r.cash) === 0 && parseValue(r.card) === 0)
-          if (emptyIdx !== -1) {
+          const sameValNoDescIdx = prev.findIndex(r => r.categoryId === EXPENSE_CATEGORY_ID && !r.description.trim() && parseValue(r.card) === refVal)
+          const totallyEmptyIdx = prev.findIndex(r => r.categoryId === EXPENSE_CATEGORY_ID && !r.description.trim() && parseValue(r.cash) === 0 && parseValue(r.card) === 0)
+          const targetIdx = sameValNoDescIdx !== -1 ? sameValNoDescIdx : totallyEmptyIdx
+
+          if (targetIdx !== -1) {
             const updated = [...prev]
-            updated[emptyIdx] = {
-              ...updated[emptyIdx],
+            updated[targetIdx] = {
+              ...updated[targetIdx],
               description: expenseDesc,
               cash: '',
               card: formatValue(refVal),
@@ -1085,16 +1093,20 @@ export default function RetailPOSPage() {
       return; 
     }
 
-    // YENİ: Açıklama zorunluluğu doğrulaması
+    // YENİ: Açıklama zorunluluğu doğrulaması (kategori adıyla net bilgilendirme)
     const missingDescRows = rows.filter(r => {
       const hasValue = parseValue(r.cost) > 0 || parseValue(r.cash) > 0 || parseValue(r.card) > 0;
       return hasValue && !r.description.trim();
     });
 
     if (missingDescRows.length > 0) {
+      const catNames = Array.from(new Set(missingDescRows.map(r => {
+        const cat = CATEGORIES.find(c => c.id === r.categoryId);
+        return cat ? cat.name : (r.categoryId === EXPENSE_CATEGORY_ID ? 'Gider & Masraf' : r.categoryId);
+      }))).join(', ');
       toast.error(
-        'HATA: Değer girdiğiniz satırların Açıklama alanını boş bırakamazsınız!',
-        { duration: 5000, icon: '📝' }
+        `HATA: "${catNames}" kutusunda tutar girilmiş ancak Açıklaması boş olan satır var! Lütfen açıklamasını yazın veya tutarı silin.`,
+        { duration: 7000, icon: '📝' }
       );
       return;
     }
@@ -1411,6 +1423,7 @@ export default function RetailPOSPage() {
             const searchQ = (row.description || '').trim().toLocaleLowerCase('tr-TR');
             const isUpward = index >= 3;
             const isDropdownOpen = activeDropdownId === row.id && !isExpenseCat;
+            const hasMissingDesc = !row.description.trim() && (parseValue(row.cost) > 0 || parseValue(row.cash) > 0 || parseValue(row.card) > 0);
             
             // Açıklama girerken veya alana tıklandığında mağaza deposundaki ürünleri listele ve filtrele
             const rowFilteredStocks = isDropdownOpen
@@ -1425,7 +1438,11 @@ export default function RetailPOSPage() {
               : [];
 
             return (
-            <div key={row.id} className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${isDropdownOpen ? 'z-40 relative' : ''}`}>
+            <div 
+              key={row.id} 
+              className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${isDropdownOpen ? 'z-40 relative' : ''} ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''}`}
+              title={hasMissingDesc ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı temizleyin.' : undefined}
+            >
               
               <div className="flex-1 min-w-[50px] relative flex">
                 <div className={`flex items-center w-full bg-transparent border-r border-slate-700 focus-within:bg-indigo-900/20 transition-colors ${row.stockId ? 'bg-emerald-900/10' : ''}`}>
@@ -1445,7 +1462,7 @@ export default function RetailPOSPage() {
                    )}
                    <input 
                      type="text" 
-                     placeholder={isFirst ? "Açıklama veya Ürün Seç..." : ""} 
+                     placeholder={hasMissingDesc ? "⚠️ Açıklama giriniz..." : (isFirst ? "Açıklama veya Ürün Seç..." : "")} 
                      value={row.description} 
                      onChange={(e) => {
                         handleInputChange(row.id, 'description', e.target.value);
@@ -1453,7 +1470,7 @@ export default function RetailPOSPage() {
                         if(!isExpenseCat) setActiveDropdownId(row.id);
                      }} 
                      onFocus={() => !isExpenseCat && setActiveDropdownId(row.id)}
-                     className="w-full bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none placeholder:text-slate-600 font-sans font-normal transition-colors" 
+                     className={`w-full bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none placeholder:text-slate-600 font-sans font-normal transition-colors ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
                    />
                    {row.stockId && (
                      <button
@@ -1909,14 +1926,20 @@ export default function RetailPOSPage() {
                     <Loader2 className="animate-spin text-slate-400" size={16} />
                   </div>
                 )}
-                {expenseRows.map((row, index) => (
-                  <div key={row.id} className="flex text-[11px] hover:bg-slate-800/50 transition-colors group">
+                {expenseRows.map((row, index) => {
+                  const hasMissingDesc = !row.description.trim() && (parseValue(row.cash) > 0 || parseValue(row.card) > 0);
+                  return (
+                  <div 
+                    key={row.id} 
+                    className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''}`}
+                    title={hasMissingDesc ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı silin.' : undefined}
+                  >
                     <input 
                       type="text" 
-                      placeholder={index === 0 ? "Açıklama / Masraf Kalemi..." : ""} 
+                      placeholder={hasMissingDesc ? "⚠️ Açıklama yazınız..." : (index === 0 ? "Açıklama / Masraf Kalemi..." : "")} 
                       value={row.description} 
                       onChange={(e) => handleInputChange(row.id, 'description', e.target.value)} 
-                      className="flex-1 min-w-[50px] bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 placeholder:text-slate-600 font-sans font-normal transition-colors" 
+                      className={`flex-1 min-w-[50px] bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 placeholder:text-slate-600 font-sans font-normal transition-colors ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
                     />
                     <input 
                       type="text" 
@@ -1937,7 +1960,8 @@ export default function RetailPOSPage() {
                       className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-purple-400 text-right focus:outline-none focus:bg-amber-900/20 font-mono font-normal placeholder:text-purple-900/40 transition-colors" 
                     />
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
