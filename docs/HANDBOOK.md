@@ -423,6 +423,11 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Üst şerit: Dünden Devir (salt okunur), Kasa (hesaplanan), Nakit Satış, Kredi Kartı, Toplam Gider, Fotokopi N/K, Ayarlar ⚙, Günü Kaydet.
 - **Ayarlar** (`localStorage: ctc_pos_config`): bağlı merkez, satışların düşüleceği depo, nakit kasa, kart cirosu bankası, kartlı gider kredi kartı. Varsayılan olarak "Mağaza" deposu veya ilk aktif depo otomatik seçilir.
 - **Ürün Arama & Depodan Seçim**: Açıklama alanına odaklanıldığında veya tıklandığında mağazaya tanımlı depodaki tüm ürünler listelenir; arama kutusuna yazıldıkça Türkçe küçük harf uyumlu olarak filtreleme yapılır. Seçilen ürünün adı, adedi ve döviz kuruna göre hesaplanan TRY maliyeti otomatik doldurulur ve satır stoktan düşüş için 📦 ikonu ile bağlanır.
+- **Hızlı İade Al (Müşteri Satış İadesi & Kesinti)**: Üst şeritteki `[ ↩ İade Al ]` butonu ile açılır. Müşterinin önceden (nakit veya kredi kartıyla) satın aldığı bir ürünü iade getirmesi senaryosunda kullanılır:
+  - *Stoklu Ürün Girişi:* Depodan ürün ve iade adedi seçildiğinde `stock_transactions`'a anında `tx_type = 'in'` hareketi eklenir (`Müşteri Ürün İadesi (POS-<tarih>): ...`) ve `recalculateAbsoluteStock` ile depodaki adet artırılır.
+  - *Stoksuz / Serbest Kalem:* Ürün depoda kayıtlı değilse veya hizmet iadesi ise serbest açıklama ile kaydedilir (stok etkilenmez).
+  - *Kesinti & Komisyon Hesabı:* Orijinal satış tutarı ve müşteriye iade edilecek tutar girildiğinde aradaki fark mağaza komisyon/kesinti kazancı (`+₺`) olarak canlı hesaplanır ve rozette gösterilir.
+  - *Finansal Çıkış:* İade nakit yapıldıysa bugünün `Gider & Masraf` satırına nakit gider olarak eklenir (`stock_id = null`), gün içi hesaplanan kasayı anında düşürür ve gün sonu kapanışında `POS-Z-CASH-OUT` ile kasadan çıkar. Kredi kartı masrafı veya banka hesabı seçildiyse ilgili kanala yansıtılır.
 - Taslak: her değişiklik `ctc_pos_draft_<tarih>`'e yazılır; sayfa açılışında taslak varsa "Sistem kapanması algılandı" uyarısı ile geri yüklenir.
 - Yan etkiler: §6.6.
 

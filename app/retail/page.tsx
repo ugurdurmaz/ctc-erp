@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Calendar, ChevronLeft, ChevronRight, Save, Wallet, CreditCard, Eye, EyeOff, Landmark, X, Trash2, StickyNote, Loader2, AlertTriangle, Settings, ArrowRightLeft, Package, Search, Wrench, ExternalLink } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, Save, Wallet, CreditCard, Eye, EyeOff, Landmark, X, Trash2, StickyNote, Loader2, AlertTriangle, Settings, ArrowRightLeft, Package, Search, Wrench, ExternalLink, RotateCcw, CheckCircle2, TrendingUp, Percent, ArrowDownLeft } from 'lucide-react'
 import { formatMoney } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { logActivity } from '@/lib/audit'
@@ -136,6 +136,33 @@ export default function RetailPOSPage() {
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false)
   const [transferForm, setTransferForm] = useState({ type: 'to_bank' as 'to_bank' | 'from_bank', bankId: '', amountStr: '', description: '' })
 
+  // HIZLI İADE AL MODAL STATE
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false)
+  const [isReturnSubmitting, setIsReturnSubmitting] = useState(false)
+  const [returnStockSearch, setReturnStockSearch] = useState('')
+  const [isReturnStockDropdownOpen, setIsReturnStockDropdownOpen] = useState(false)
+  const [returnForm, setReturnForm] = useState<{
+    isStockItem: boolean;
+    selectedStockId: string;
+    customItemName: string;
+    quantity: string;
+    originalPrice: string;
+    refundAmount: string;
+    refundMethod: 'cash' | 'card' | 'bank';
+    bankId: string;
+    notes: string;
+  }>({
+    isStockItem: true,
+    selectedStockId: '',
+    customItemName: '',
+    quantity: '1',
+    originalPrice: '',
+    refundAmount: '',
+    refundMethod: 'cash',
+    bankId: '',
+    notes: ''
+  })
+
   const [activeDropdownId, setActiveDropdownId] = useState<string | null>(null)
 
   // Mağazaya tanımlı aktif hedef depo (seçili olan, veya POS şirketinin deposu, veya 'Mağaza' adlı depo)
@@ -160,6 +187,54 @@ export default function RetailPOSPage() {
     }
     return stocks
   }, [activeWarehouse, posSettings.companyId, warehouses, stocks])
+
+  // Hızlı İade için filtrelenmiş ürün listesi
+  const filteredReturnStocks = useMemo(() => {
+    if (!returnStockSearch.trim()) return storeStocks.slice(0, 40)
+    const q = returnStockSearch.toLocaleLowerCase('tr-TR')
+    return storeStocks.filter(s => 
+      s.name.toLocaleLowerCase('tr-TR').includes(q) || 
+      (s.sku && s.sku.toLocaleLowerCase('tr-TR').includes(q))
+    ).slice(0, 40)
+  }, [storeStocks, returnStockSearch])
+
+  const handleOpenReturnModal = () => {
+    setReturnForm({
+      isStockItem: true,
+      selectedStockId: '',
+      customItemName: '',
+      quantity: '1',
+      originalPrice: '',
+      refundAmount: '',
+      refundMethod: 'cash',
+      bankId: activeBanks[0]?.id || '',
+      notes: ''
+    })
+    setReturnStockSearch('')
+    setIsReturnStockDropdownOpen(false)
+    setIsReturnModalOpen(true)
+  }
+
+  const handleOriginalPriceChange = (val: string) => {
+    setReturnForm(prev => {
+      const shouldSyncRefund = !prev.refundAmount || prev.refundAmount === prev.originalPrice
+      return {
+        ...prev,
+        originalPrice: val,
+        refundAmount: shouldSyncRefund ? val : prev.refundAmount
+      }
+    })
+  }
+
+  const handleSelectReturnStock = (stock: RawStock) => {
+    setReturnForm(prev => ({
+      ...prev,
+      selectedStockId: stock.id,
+      customItemName: stock.name
+    }))
+    setIsReturnStockDropdownOpen(false)
+    setReturnStockSearch('')
+  }
 
   useEffect(() => {
     async function fetchAccounts() {
@@ -283,11 +358,187 @@ export default function RetailPOSPage() {
     await supabase.from('suppliers').update({ balance: absoluteBal }).eq('id', supplierId)
   }
 
+  async function recalculateAbsoluteBankBalance(bankId: string) {
+    const { data: txs } = await supabase.from('bank_transactions').select('amount, tx_type, status').eq('bank_account_id', bankId)
+    let absoluteBal = 0
+    txs?.forEach(t => { if (t.status !== 'pending') absoluteBal += t.tx_type === 'in' ? Number(t.amount) : -Number(t.amount) })
+    await supabase.from('bank_accounts').update({ balance: absoluteBal }).eq('id', bankId)
+  }
+
   async function recalculateAbsoluteStock(stockId: string) {
     const { data: txs } = await supabase.from('stock_transactions').select('quantity, tx_type').eq('stock_id', stockId)
     let absoluteQty = 0
     txs?.forEach(t => { absoluteQty += t.tx_type === 'in' ? Number(t.quantity) : -Number(t.quantity) })
     await supabase.from('stocks').update({ quantity: absoluteQty }).eq('id', stockId)
+  }
+
+  const handleExecuteReturn = async () => {
+    const qty = Math.max(1, parseInt(returnForm.quantity) || 1)
+    const refVal = parseValue(returnForm.refundAmount)
+    const origVal = parseValue(returnForm.originalPrice)
+    const deductionVal = origVal > refVal ? (origVal - refVal) : 0
+
+    if (returnForm.isStockItem && !returnForm.selectedStockId) {
+      toast.error('Lütfen depodan iade alınacak bir ürün seçin!')
+      return
+    }
+    if (!returnForm.isStockItem && !returnForm.customItemName.trim()) {
+      toast.error('Lütfen iade edilen kalemin adını / açıklamasını girin!')
+      return
+    }
+    if (refVal <= 0) {
+      toast.error('Lütfen geçerli bir iade tutarı girin!')
+      return
+    }
+    if (returnForm.refundMethod === 'bank' && !returnForm.bankId) {
+      toast.error('Lütfen iadenin çıkacağı banka hesabını seçin!')
+      return
+    }
+
+    setIsReturnSubmitting(true)
+    try {
+      const finalCompId = posSettings.companyId === '' ? null : posSettings.companyId
+      const selectedStock = returnForm.isStockItem ? stocks.find(s => s.id === returnForm.selectedStockId) : null
+      const itemName = returnForm.isStockItem ? (selectedStock?.name || 'Ürün') : returnForm.customItemName.trim()
+
+      // 1. STOK HAREKETİ (Eğer stok kartı seçildiyse depoya giriş yapılır)
+      if (returnForm.isStockItem && selectedStock) {
+        const { error: stockErr } = await supabase.from('stock_transactions').insert([{
+          stock_id: selectedStock.id,
+          company_id: finalCompId,
+          tx_date: currentDate,
+          description: `Müşteri Ürün İadesi (POS-${currentDate}): ${selectedStock.name} (${qty} ad.) [İade: ${formatMoney(refVal, 'TRY').formatted}${deductionVal > 0 ? ` | Kesinti: ${formatMoney(deductionVal, 'TRY').formatted}` : ''}]`,
+          tx_type: 'in',
+          quantity: qty,
+          unit_price: Number(selectedStock.unit_price) || 0,
+          currency: selectedStock.currency || 'TRY',
+          vat_rate: selectedStock.vat_rate || 0
+        }])
+
+        if (stockErr) {
+          console.error("Stok İade Girişi Hatası:", stockErr)
+          toast.error("Stok iade girişi yapılamadı: " + stockErr.message)
+          setIsReturnSubmitting(false)
+          return
+        }
+
+        await recalculateAbsoluteStock(selectedStock.id)
+        setStocks(prev => prev.map(s => s.id === selectedStock.id ? { ...s, quantity: s.quantity + qty } : s))
+      }
+
+      // 2. FİNANSAL ÇIKIŞ / GİDER MASRAF ÇEKMECESİ
+      const noteSuffix = deductionVal > 0 ? ` [Kesinti: ${formatMoney(deductionVal, 'TRY').formatted}]` : ''
+      const customNote = returnForm.notes.trim() ? ` - ${returnForm.notes.trim()}` : ''
+      const expenseDesc = `Müşteri İadesi: ${itemName} (${qty} ad.)${noteSuffix}${customNote}`
+
+      if (returnForm.refundMethod === 'cash') {
+        // Bugünün Nakit Gider & Masraf Satırına Ekle (Kasayı anında düşürür)
+        setRows(prev => {
+          const emptyIdx = prev.findIndex(r => r.categoryId === EXPENSE_CATEGORY_ID && !r.description.trim() && parseValue(r.cash) === 0 && parseValue(r.card) === 0)
+          if (emptyIdx !== -1) {
+            const updated = [...prev]
+            updated[emptyIdx] = {
+              ...updated[emptyIdx],
+              description: expenseDesc,
+              cash: formatValue(refVal),
+              card: '',
+              cost: formatValue(refVal),
+              stockId: null,
+              supplierId: null,
+              quantity: String(qty)
+            }
+            return updated
+          } else {
+            return [...prev, {
+              id: `gider-return-${Date.now()}`,
+              categoryId: EXPENSE_CATEGORY_ID,
+              description: expenseDesc,
+              cash: formatValue(refVal),
+              card: '',
+              cost: formatValue(refVal),
+              stockId: null,
+              supplierId: null,
+              quantity: String(qty)
+            }]
+          }
+        })
+        setHasUnsavedChanges(true)
+        setSaveStatus('idle')
+      } else if (returnForm.refundMethod === 'card') {
+        // Bugünün Kredi Kartı Gider & Masraf Satırına Ekle
+        setRows(prev => {
+          const emptyIdx = prev.findIndex(r => r.categoryId === EXPENSE_CATEGORY_ID && !r.description.trim() && parseValue(r.cash) === 0 && parseValue(r.card) === 0)
+          if (emptyIdx !== -1) {
+            const updated = [...prev]
+            updated[emptyIdx] = {
+              ...updated[emptyIdx],
+              description: expenseDesc,
+              cash: '',
+              card: formatValue(refVal),
+              cost: formatValue(refVal),
+              stockId: null,
+              supplierId: null,
+              quantity: String(qty)
+            }
+            return updated
+          } else {
+            return [...prev, {
+              id: `gider-return-${Date.now()}`,
+              categoryId: EXPENSE_CATEGORY_ID,
+              description: expenseDesc,
+              cash: '',
+              card: formatValue(refVal),
+              cost: formatValue(refVal),
+              stockId: null,
+              supplierId: null,
+              quantity: String(qty)
+            }]
+          }
+        })
+        setHasUnsavedChanges(true)
+        setSaveStatus('idle')
+      } else if (returnForm.refundMethod === 'bank') {
+        // Doğrudan Banka Hesabından Çıkış Yap
+        const targetCurrency = activeBanks.find(b => b.id === returnForm.bankId)?.currency || 'TRY'
+        const { error: bErr } = await supabase.from('bank_transactions').insert([{
+          bank_account_id: returnForm.bankId,
+          company_id: finalCompId,
+          tx_date: currentDate,
+          description: expenseDesc,
+          tx_type: 'out',
+          amount: refVal,
+          currency: targetCurrency,
+          exchange_rate: 1,
+          is_transfer: false,
+          status: 'completed'
+        }])
+        if (bErr) throw bErr
+
+        await recalculateAbsoluteBankBalance(returnForm.bankId)
+
+        const bankName = activeBanks.find(b => b.id === returnForm.bankId)?.account_name || 'Banka'
+        setDailyNotes(prev => {
+          const line = `• [İADE] ${itemName} (${qty} ad.) - ${bankName} hesabından ${formatMoney(refVal, 'TRY').formatted} iade edildi.${deductionVal > 0 ? ` (${formatMoney(deductionVal, 'TRY').formatted} kesinti kazancı)` : ''}`
+          return prev ? `${prev}\n${line}` : line
+        })
+        setHasUnsavedChanges(true)
+        setSaveStatus('idle')
+      }
+
+      await logActivity('pos', 'create', `Müşteri İadesi: ${itemName} (${qty} ad.) - İade: ${formatMoney(refVal, 'TRY').formatted}, Kesinti: ${formatMoney(deductionVal, 'TRY').formatted}, Kaynak: ${returnForm.refundMethod}`)
+
+      toast.success(
+        `İade başarıyla kaydedildi! ${returnForm.isStockItem ? `${qty} ad. ürün depoya geri alındı.` : ''} ${returnForm.refundMethod === 'cash' ? 'Nakit iade gider çekmecesine işlendi.' : ''}`,
+        { duration: 5000, icon: '↩️' }
+      )
+
+      setIsReturnModalOpen(false)
+    } catch (err: any) {
+      console.error("İade işlemi sırasında hata:", err)
+      toast.error("İade kaydedilirken hata oluştu: " + (err.message || 'Bilinmeyen hata'))
+    } finally {
+      setIsReturnSubmitting(false)
+    }
   }
 
   const getClosingCashForDate = async (dateStr: string) => {
@@ -1536,6 +1787,16 @@ export default function RetailPOSPage() {
             </div>
           </div>
 
+          <button 
+            type="button"
+            onClick={handleOpenReturnModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 hover:text-white border border-rose-700/40 hover:border-rose-500/70 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-sm shadow-rose-950/20 group cursor-pointer"
+            title="Müşteriden Satış İadesi Al (Nakit / Kredi Kartı / Kesintili)"
+          >
+            <RotateCcw size={15} className="text-rose-400 group-hover:rotate-[-45deg] transition-transform duration-200" />
+            <span>İade Al</span>
+          </button>
+
           <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors" title="Mağaza Hesap Ayarları">
             <Settings size={18} />
           </button>
@@ -1925,6 +2186,359 @@ export default function RetailPOSPage() {
           </div>
         </div>
       )}
+
+      {/* HIZLI İADE AL MODAL */}
+      {isReturnModalOpen && (() => {
+        const origVal = parseValue(returnForm.originalPrice)
+        const refVal = parseValue(returnForm.refundAmount)
+        const deductionVal = origVal > refVal ? (origVal - refVal) : 0
+        const deductionPercent = origVal > 0 ? ((deductionVal / origVal) * 100) : 0
+        const selectedStock = returnForm.isStockItem ? stocks.find(s => s.id === returnForm.selectedStockId) : null
+        const currentStockQty = selectedStock ? selectedStock.quantity : 0
+        const qty = Math.max(1, parseInt(returnForm.quantity) || 1)
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-200 overflow-y-auto" style={{ zIndex: 99999 }}>
+            <div className="bg-[#0a0f1d] border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 my-auto">
+              
+              {/* MODAL BAŞLIĞI */}
+              <div className="bg-slate-900/80 px-4 py-3.5 flex justify-between items-center border-b border-slate-700">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                    <RotateCcw size={17} />
+                  </div>
+                  <div>
+                    <h2 className="text-slate-100 font-bold text-sm flex items-center gap-2">
+                      Hızlı Müşteri İadesi Al
+                    </h2>
+                    <p className="text-[11px] text-slate-400">Ürünü depoya geri alır, nakit/banka iadesini ve kesintiyi kaydeder.</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => !isReturnSubmitting && setIsReturnModalOpen(false)} 
+                  disabled={isReturnSubmitting}
+                  className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* MODAL İÇERİĞİ */}
+              <div className="p-4 flex flex-col gap-4 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                
+                {/* 1. SEKME SEÇİMİ: STOKLU ÜRÜN VS SERBEST KALEM */}
+                <div className="flex bg-slate-900/60 p-1 rounded-lg border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setReturnForm({ ...returnForm, isStockItem: true })}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1.5 transition-all ${returnForm.isStockItem ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                  >
+                    <Package size={14} /> Depodaki Ürünü İade Al
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReturnForm({ ...returnForm, isStockItem: false })}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1.5 transition-all ${!returnForm.isStockItem ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                  >
+                    🏷️ Stoksuz / Serbest Kalem
+                  </button>
+                </div>
+
+                {/* 2. ÜRÜN VE ADET SEÇİMİ */}
+                {returnForm.isStockItem ? (
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-bold text-slate-300 uppercase flex items-center justify-between">
+                      <span>İade Alınacak Ürün</span>
+                      {activeWarehouse && (
+                        <span className="text-[10px] text-indigo-400 font-normal lowercase">🏢 depo: {activeWarehouse.name}</span>
+                      )}
+                    </label>
+
+                    {selectedStock ? (
+                      <div className="flex items-center justify-between bg-slate-900/90 border border-indigo-500/40 rounded-lg p-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Package size={18} className="text-indigo-400 shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-slate-200 truncate">{selectedStock.name}</div>
+                            <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                              <span>Mevcut Stok: <strong className="text-emerald-400">{currentStockQty}</strong></span>
+                              <span>•</span>
+                              <span>Yeni Stok: <strong className="text-indigo-400">{currentStockQty + qty}</strong></span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setReturnForm({ ...returnForm, selectedStockId: '', customItemName: '' })}
+                          className="text-[11px] text-rose-400 hover:text-rose-300 font-bold px-2 py-1 rounded hover:bg-rose-950/30 transition-colors"
+                        >
+                          Değiştir
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <div className="flex items-center bg-[#070b14] border border-slate-700 rounded-lg px-2.5 py-1.5 focus-within:border-indigo-500 transition-colors">
+                          <Search size={14} className="text-slate-500 mr-2 shrink-0" />
+                          <input
+                            type="text"
+                            placeholder="Depodaki ürünü ara (ad veya kod)..."
+                            value={returnStockSearch}
+                            onChange={(e) => { setReturnStockSearch(e.target.value); setIsReturnStockDropdownOpen(true); }}
+                            onFocus={() => setIsReturnStockDropdownOpen(true)}
+                            className="w-full bg-transparent text-slate-200 text-xs focus:outline-none placeholder:text-slate-600 font-sans"
+                          />
+                        </div>
+
+                        {isReturnStockDropdownOpen && (
+                          <div className="absolute left-0 right-0 top-full mt-1 bg-[#0a0f1d] border border-slate-700 rounded-lg shadow-xl max-h-48 overflow-y-auto custom-scrollbar z-30 divide-y divide-slate-800">
+                            {filteredReturnStocks.length === 0 ? (
+                              <div className="p-3 text-center text-xs text-slate-500">Ürün bulunamadı</div>
+                            ) : (
+                              filteredReturnStocks.map(s => (
+                                <div
+                                  key={s.id}
+                                  onClick={() => handleSelectReturnStock(s)}
+                                  className="p-2 hover:bg-slate-800/80 cursor-pointer transition-colors flex items-center justify-between text-xs"
+                                >
+                                  <div className="min-w-0 pr-2">
+                                    <div className="font-semibold text-slate-200 truncate">{s.name}</div>
+                                    {s.sku && <div className="text-[10px] text-slate-500 font-mono">{s.sku}</div>}
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
+                                      Stok: {s.quantity}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-slate-300 uppercase">İade Edilen Kalem / Açıklama</label>
+                    <input
+                      type="text"
+                      placeholder="Örn: USB Bellek, Özel Servis İşçiliği, HDMI Kablo..."
+                      value={returnForm.customItemName}
+                      onChange={(e) => setReturnForm({ ...returnForm, customItemName: e.target.value })}
+                      className="bg-[#070b14] border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-teal-500 transition-colors font-sans"
+                    />
+                  </div>
+                )}
+
+                {/* ADET GİRİŞİ */}
+                <div className="flex items-center gap-3">
+                  <div className="flex flex-col gap-1 w-28">
+                    <label className="text-xs font-bold text-slate-400 uppercase">İade Adedi</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={returnForm.quantity}
+                      onChange={(e) => setReturnForm({ ...returnForm, quantity: e.target.value })}
+                      className="bg-[#070b14] border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 text-center font-mono font-bold"
+                    />
+                  </div>
+                  <div className="flex-1 text-[11px] text-slate-400 self-end pb-2">
+                    {returnForm.isStockItem && selectedStock ? (
+                      <span>Bu işlem depoya <strong className="text-emerald-400">+{qty} adet</strong> stok girişi yapacaktır.</span>
+                    ) : (
+                      <span>Stoksuz kalem iadesi olduğu için envanter miktarı değişmez.</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. FİNANSAL DETAYLAR VE KESİNTİ HESAPLAYICI */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-3 flex flex-col gap-3">
+                  <div className="text-xs font-bold text-slate-300 uppercase flex items-center justify-between">
+                    <span>Finansal İade & Kesinti Hesabı</span>
+                    <span className="text-[10px] text-amber-400 font-normal">Komisyonlu / Kesintili İade</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-bold text-slate-400">
+                        Orijinal Satış Tutarı (₺)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="Örn: 500,00"
+                        value={returnForm.originalPrice}
+                        onChange={(e) => handleOriginalPriceChange(e.target.value)}
+                        className="bg-[#070b14] border border-slate-700 text-slate-200 font-mono font-bold text-xs rounded-lg px-2.5 py-2 text-right focus:outline-none focus:border-indigo-500"
+                      />
+                      <span className="text-[9px] text-slate-500">Müşterinin ödediği tutar</span>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-bold text-rose-400">
+                        İade Edilecek Tutar (₺) *
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="Örn: 450,00"
+                        value={returnForm.refundAmount}
+                        onChange={(e) => setReturnForm({ ...returnForm, refundAmount: e.target.value })}
+                        className="bg-[#070b14] border border-rose-500/50 text-rose-300 font-mono font-bold text-xs rounded-lg px-2.5 py-2 text-right focus:outline-none focus:border-rose-400"
+                      />
+                      <span className="text-[9px] text-slate-500">Müşteriye geri verilen</span>
+                    </div>
+                  </div>
+
+                  {/* KESİNTİ / KAZANÇ BİLGİLENDİRME ROZETİ */}
+                  {origVal > 0 && deductionVal > 0 ? (
+                    <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-lg p-2.5 flex items-center justify-between text-xs animate-in fade-in duration-200">
+                      <div className="flex items-center gap-2 text-emerald-300">
+                        <TrendingUp size={16} className="text-emerald-400 shrink-0" />
+                        <div>
+                          <span className="font-bold">Mağaza Kesinti / Kâr Kazancı:</span>
+                          <span className="text-[10px] text-emerald-400 block">Kredi kartı/hizmet komisyonu mağazada kalır</span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono font-black text-emerald-400 text-sm">+{formatMoney(deductionVal, 'TRY').formatted}</span>
+                        <span className="text-[10px] text-emerald-300 block font-mono">%{deductionPercent.toFixed(1)} kesinti</span>
+                      </div>
+                    </div>
+                  ) : origVal > 0 && refVal === origVal ? (
+                    <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-2 flex items-center justify-between text-[11px] text-slate-300">
+                      <span>Tam İade (Kesinti uygulanmadan tüm tutar geri ödeniyor)</span>
+                      <span className="font-mono text-slate-400">Kesinti: 0,00 ₺</span>
+                    </div>
+                  ) : refVal > origVal && origVal > 0 ? (
+                    <div className="bg-amber-950/30 border border-amber-500/30 rounded-lg p-2 text-[11px] text-amber-300 flex items-center gap-1.5">
+                      <AlertTriangle size={14} className="shrink-0 text-amber-400" />
+                      <span>İade tutarı, orijinal satış tutarından {formatMoney(refVal - origVal, 'TRY').formatted} daha yüksek!</span>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* 4. İADE ÖDEME YÖNTEMİ */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-bold text-slate-300 uppercase">İade Nereden Ödenecek?</label>
+                  
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setReturnForm({ ...returnForm, refundMethod: 'cash' })}
+                      className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${returnForm.refundMethod === 'cash' ? 'bg-amber-950/40 border-amber-500 text-amber-300 shadow-sm' : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:border-slate-700'}`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-xs">
+                        <Wallet size={14} /> Nakit (Kasa)
+                      </div>
+                      <span className="text-[9px] leading-tight text-slate-400">Bugünün gider çekmecesinden nakit çıkışı</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setReturnForm({ ...returnForm, refundMethod: 'card' })}
+                      className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${returnForm.refundMethod === 'card' ? 'bg-purple-950/40 border-purple-500 text-purple-300 shadow-sm' : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:border-slate-700'}`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-xs">
+                        <CreditCard size={14} /> K.Kartı / POS
+                      </div>
+                      <span className="text-[9px] leading-tight text-slate-400">Gider kutusuna kartlı masraf olarak yansır</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setReturnForm({ ...returnForm, refundMethod: 'bank' })}
+                      className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${returnForm.refundMethod === 'bank' ? 'bg-indigo-950/40 border-indigo-500 text-indigo-300 shadow-sm' : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:border-slate-700'}`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-xs">
+                        <Landmark size={14} /> Banka EFT
+                      </div>
+                      <span className="text-[9px] leading-tight text-slate-400">Banka hesabından doğrudan çıkış kaydı</span>
+                    </button>
+                  </div>
+
+                  {returnForm.refundMethod === 'bank' && (
+                    <div className="flex flex-col gap-1.5 mt-1 bg-slate-900/70 p-2.5 rounded-lg border border-slate-800">
+                      <label className="text-[10px] font-bold text-indigo-400 uppercase">Çıkış Yapılacak Banka Hesabı</label>
+                      <select
+                        value={returnForm.bankId}
+                        onChange={(e) => setReturnForm({ ...returnForm, bankId: e.target.value })}
+                        className="bg-[#070b14] border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-2 focus:outline-none focus:border-indigo-500"
+                      >
+                        {activeBanks.map(b => (
+                          <option key={b.id} value={b.id}>{b.bank_name} - {b.account_name} ({b.currency})</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. AÇIKLAMA / NOT */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase">İade Nedeni / Açıklama (Opsiyonel)</label>
+                  <input
+                    type="text"
+                    placeholder="Örn: Müşteri kartla almıştı, nakit iade verildi / kutu açılmamış..."
+                    value={returnForm.notes}
+                    onChange={(e) => setReturnForm({ ...returnForm, notes: e.target.value })}
+                    className="bg-[#070b14] border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 font-sans"
+                  />
+                </div>
+
+                {/* 6. ÖZET İŞLEM BİLGİSİ */}
+                {refVal > 0 && (
+                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs flex flex-col gap-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">İşlem Özeti:</span>
+                    <div className="flex justify-between items-center text-slate-300">
+                      <span>• Depo Girişi:</span>
+                      <span className="font-bold text-emerald-400">
+                        {returnForm.isStockItem ? `+${qty} Adet ${selectedStock?.name || 'Ürün'}` : 'Stok kartı etkilenmez'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-300">
+                      <span>• Finansal Çıkış:</span>
+                      <span className="font-bold text-rose-400 font-mono">
+                        -{formatMoney(refVal, 'TRY').formatted} ({returnForm.refundMethod === 'cash' ? 'Bugünün Kasasından' : returnForm.refundMethod === 'card' ? 'Kredi Kartı Masraf' : 'Banka Hesabından'})
+                      </span>
+                    </div>
+                    {deductionVal > 0 && (
+                      <div className="flex justify-between items-center text-slate-300 border-t border-slate-800 pt-1">
+                        <span>• Mağaza Komisyon Kârı:</span>
+                        <span className="font-bold text-emerald-400 font-mono">+{formatMoney(deductionVal, 'TRY').formatted}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* MODAL AKSİYON BUTONLARI */}
+              <div className="bg-slate-900/80 px-4 py-3 border-t border-slate-800 flex justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsReturnModalOpen(false)}
+                  disabled={isReturnSubmitting}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg transition-colors disabled:opacity-50"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteReturn}
+                  disabled={isReturnSubmitting || refVal <= 0 || (returnForm.isStockItem && !returnForm.selectedStockId) || (!returnForm.isStockItem && !returnForm.customItemName.trim())}
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition-all flex items-center gap-2 active:scale-95 shadow-lg shadow-rose-900/30"
+                >
+                  {isReturnSubmitting ? (
+                    <><Loader2 size={14} className="animate-spin" /> İade Kaydediliyor...</>
+                  ) : (
+                    <><RotateCcw size={14} /> İadeyi Onayla & Kaydet</>
+                  )}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Global CSS Animasyon Desteği */}
       <style jsx global>{`
