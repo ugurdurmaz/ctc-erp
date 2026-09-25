@@ -372,7 +372,7 @@ Gün kaydedilirken sırasıyla:
 
 Kayıt öncesi doğrulamalar: kartlı gider varsa ayarlarda kredi kartı seçili olmalı; `servis` ve `gider` dışındaki kategorilerde satış girilen satırın **maliyeti boş olamaz**.
 
-Günlük kasa formülü (ekranda): `Dünden Devir + Nakit Satış (ciro+fotokopi) − Nakit Gider − Bankaya Yatan + Bankadan Çekilen`.
+Günlük kasa formülü (ekranda): `Dünden Devir + Nakit Satış (ciro+fotokopi) + Teslim Edilen Servis Fişleri Nakit Tahsilatı − Nakit Gider − Bankaya Yatan + Bankadan Çekilen`.
 
 ### 6.7 Dashboard P&L Hesabı (son 6 ay)
 

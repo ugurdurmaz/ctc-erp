@@ -549,6 +549,29 @@ export default function RetailPOSPage() {
     }
   }
 
+  const getDeliveredTicketsCashForDate = async (dateStr: string) => {
+    try {
+      const targetDateObj = new Date(dateStr);
+      const prevDate = new Date(targetDateObj.getTime() - 86400000).toISOString().split('T')[0];
+      const nextDate = new Date(targetDateObj.getTime() + 86400000).toISOString().split('T')[0];
+
+      const { data: ticketsData } = await supabase
+        .from('technical_service_tickets')
+        .select('total_cost, payment_method, delivered_at')
+        .eq('status', 'delivered')
+        .eq('payment_method', 'cash')
+        .gte('delivered_at', `${prevDate}T00:00:00Z`)
+        .lte('delivered_at', `${nextDate}T23:59:59Z`);
+
+      if (!ticketsData) return 0;
+      return ticketsData
+        .filter(t => t.delivered_at && new Date(t.delivered_at).toLocaleDateString('en-CA') === dateStr)
+        .reduce((acc, t) => acc + (Number(t.total_cost) || 0), 0);
+    } catch {
+      return 0;
+    }
+  }
+
   const getClosingCashForDate = async (dateStr: string) => {
     const { data: summary } = await supabase.from('pos_daily_summaries').select('*').eq('date', dateStr).single()
     const { data: txs } = await supabase.from('pos_transactions').select('*').eq('date', dateStr)
@@ -571,7 +594,9 @@ export default function RetailPOSPage() {
       else if (tr.transfer_type === 'from_bank') cashIn += Number(tr.amount || 0)
     })
 
-    return Number(summary?.opening_cash || 0) + cashIn - cashOut
+    const srvCash = await getDeliveredTicketsCashForDate(dateStr)
+
+    return Number(summary?.opening_cash || 0) + cashIn + srvCash - cashOut
   }
 
   const syncForwardBalances = async () => {
@@ -626,7 +651,9 @@ export default function RetailPOSPage() {
         else if (tr.transfer_type === 'from_bank') cashIn += Number(tr.amount || 0)
       })
 
-      currentCarryOver = currentCarryOver + cashIn - cashOut
+      const srvCash = await getDeliveredTicketsCashForDate(targetDate)
+
+      currentCarryOver = currentCarryOver + cashIn + srvCash - cashOut
     }
   }
 
@@ -1056,7 +1083,7 @@ export default function RetailPOSPage() {
   const grandTotalCash = retailCash + fotoCashAmount
   const grandTotalCard = retailCard + fotoCardAmount
 
-  const calculatedKasa = parseValue(openingCash) + grandTotalCash - expenseCash - totalToBank + totalFromBank
+  const calculatedKasa = parseValue(openingCash) + grandTotalCash + deliveredTicketsCash - expenseCash - totalToBank + totalFromBank
 
   const saveDayData = async () => {
     if (expenseCard > 0 && !posSettings.targetCreditCardId) {
@@ -1698,7 +1725,10 @@ export default function RetailPOSPage() {
         {/* SOL GRUP */}
         <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
           {/* KASA */}
-          <div className="flex items-center gap-2 bg-indigo-950/30 border border-indigo-500/30 px-3 py-1.5 rounded-lg" title={`Dünden Devir: ${openingCash || '0,00'} ₺`}>
+          <div 
+            className="flex items-center gap-2 bg-indigo-950/30 border border-indigo-500/30 px-3 py-1.5 rounded-lg" 
+            title={`Dünden Devir: ${openingCash || '0,00'} ₺\nNakit Giriş: ${formatMoney(grandTotalCash + deliveredTicketsCash, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCash, 'TRY').formatted} + Servis: ${formatMoney(deliveredTicketsCash, 'TRY').formatted})\nNakit Gider: ${formatMoney(expenseCash, 'TRY').formatted}\nKasa Sonu: ${formatMoney(calculatedKasa, 'TRY').formatted}`}
+          >
             <span className="text-slate-400 font-sans font-bold text-[10px] uppercase">Kasa:</span>
             <span className="text-indigo-400 font-black text-sm">{formatMoney(calculatedKasa, 'TRY').formatted}</span>
             <button onClick={() => setIsTransferModalOpen(true)} className="ml-1 bg-indigo-600/20 hover:bg-indigo-600/50 text-indigo-300 p-1 rounded transition-colors" title="Bankaya Para Yatır / Çek">
