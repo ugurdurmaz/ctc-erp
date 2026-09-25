@@ -32,6 +32,8 @@ export type RecurringTemplate = {
   default_source_type?: 'card' | 'bank' | 'cash'
   default_source_id?: string
   note?: string
+  start_month?: string
+  created_at?: string
 }
 
 type Company = { id: string; name: string; is_personal: boolean }
@@ -84,7 +86,8 @@ function parseCategoryRow(id: string, rawName: string): { category: Category | n
           due_day: parsed.due_day !== undefined && parsed.due_day !== null ? Number(parsed.due_day) : 1,
           default_source_type: parsed.default_source_type || undefined,
           default_source_id: parsed.default_source_id || undefined,
-          note: parsed.note || ''
+          note: parsed.note || '',
+          start_month: parsed.start_month || undefined
         }
       }
     } catch (e) {
@@ -155,6 +158,7 @@ export default function ExpensesPage() {
   const [tmplSourceType, setTmplSourceType] = useState<'' | 'card' | 'bank' | 'cash'>('card')
   const [tmplSourceId, setTmplSourceId] = useState('')
   const [tmplNote, setTmplNote] = useState('')
+  const [tmplStartMonth, setTmplStartMonth] = useState('')
 
   // Hızlı Öde Modalı State (Kredi Kartı Destekli)
   const [isQuickPayModalOpen, setIsQuickPayModalOpen] = useState(false)
@@ -171,7 +175,7 @@ export default function ExpensesPage() {
   const [quickPayCategoryId, setQuickPayCategoryId] = useState('')
 
   // Takip Şeridi Filtresi & Görünüm Düzeni: 'list' (Varsayılan Yoğun Liste) | 'grid' (Kart)
-  const [trackerFilter, setTrackerFilter] = useState<'all' | 'pending' | 'paid'>('all')
+  const [trackerFilter, setTrackerFilter] = useState<'all' | 'pending' | 'paid' | 'past_unpaid'>('all')
   const [trackerLayout, setTrackerLayout] = useState<'list' | 'grid'>('list')
 
   // Normal Form State
@@ -231,7 +235,7 @@ export default function ExpensesPage() {
     for (const item of data) {
       const res = parseCategoryRow(item.id, item.name)
       if (res.template) {
-        parsedTmpls.push(res.template)
+        parsedTmpls.push({ ...res.template, created_at: item.created_at })
       } else if (res.category) {
         parsedCats.push(res.category)
       }
@@ -476,6 +480,7 @@ export default function ExpensesPage() {
     setTmplSourceType('card')
     setTmplSourceId(cards[0]?.id || '')
     setTmplNote('')
+    setTmplStartMonth('')
     setIsTemplateModalOpen(true)
   }
 
@@ -490,6 +495,7 @@ export default function ExpensesPage() {
     setTmplSourceType(tmpl.default_source_type || 'card')
     setTmplSourceId(tmpl.default_source_id || '')
     setTmplNote(tmpl.note || '')
+    setTmplStartMonth(tmpl.start_month || '')
     setIsTemplateModalOpen(true)
   }
 
@@ -512,7 +518,8 @@ export default function ExpensesPage() {
       due_day: dueDayNum,
       default_source_type: tmplSourceType || null,
       default_source_id: tmplSourceId || null,
-      note: tmplNote.trim()
+      note: tmplNote.trim(),
+      start_month: tmplStartMonth ? tmplStartMonth : null
     }
 
     const rawName = `REC_TEMPLATE::${JSON.stringify(tmplObj)}`
@@ -576,7 +583,7 @@ export default function ExpensesPage() {
     return Math.min(dueDay, lastDay)
   }
 
-  function openQuickPayModal(tmpl: RecurringTemplate) {
+  function openQuickPayModal(tmpl: RecurringTemplate, targetMonthKey?: string, targetMonthLabel?: string) {
     setQuickPayTemplate(tmpl)
     setQuickPayDate(todayISO)
     setQuickPayAmount(tmpl.amount > 0 ? tmpl.amount.toString() : '')
@@ -587,7 +594,7 @@ export default function ExpensesPage() {
 
     setQuickPayCompanyId(tmpl.company_id)
     setQuickPayCategoryId(tmpl.category_id || (categories[0]?.id || ''))
-    setQuickPayDesc(`${tmpl.title} - ${currentMonthName}`)
+    setQuickPayDesc(`${tmpl.title} - ${targetMonthLabel || currentMonthName}`)
 
     // Kullanıcının özellikle belirttiği Kredi Kartı veya varsayılan kaynak kontrolü
     const prefType = tmpl.default_source_type || 'card'
@@ -855,6 +862,74 @@ export default function ExpensesPage() {
     })
   }, [recurringTemplates, expenses, currentYearMonth, currentDay, selectedCompanyFilter, currentMonthDate])
 
+  // Geçmiş aylardan ödenmemiş kalan sabit giderler (Backlog)
+  const pastUnpaidList = useMemo(() => {
+    const list: Array<{
+      template: RecurringTemplate
+      monthKey: string
+      monthLabel: string
+      amount: number
+      currency: 'TRY' | 'USD' | 'EUR'
+      daysOverdue: number
+      effectiveDueDay: number
+    }> = []
+
+    const targetTemplates = recurringTemplates.filter(t => 
+      selectedCompanyFilter === 'all' || t.company_id === selectedCompanyFilter
+    )
+
+    const now = new Date()
+    // Son 3 geçmiş ayı kontrol et (Ağustos, Temmuz, Haziran vb.)
+    for (let i = 1; i <= 3; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const mLabel = d.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
+      const lastDayOfPastMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+
+      targetTemplates.forEach(tmpl => {
+        // Eğer şablonda özel başlangıç ayı tanımlıysa ve mKey < start_month ise atla
+        if (tmpl.start_month && mKey < tmpl.start_month) return
+
+        // Eğer başlangıç ayı tanımlı değilse, şablonun oluşturulma ayından öncesini atla
+        const createdMonth = tmpl.created_at ? tmpl.created_at.substring(0, 7) : currentYearMonth
+        if (!tmpl.start_month && mKey < createdMonth) return
+
+        // Bu geçmiş ay için ödeme var mı?
+        const isPaid = expenses.some(e => {
+          const txD = e.tx_date
+          if (!txD) return false
+          const matchesDate = txD.startsWith(mKey)
+          const matchesDescMonth = e.description?.toLowerCase().includes(mLabel.toLowerCase()) || e.description?.includes(mKey)
+          if (!matchesDate && !matchesDescMonth) return false
+
+          if (e.transfer_id && e.transfer_id.includes(tmpl.id)) return true
+          if (e.description?.toLowerCase().includes(tmpl.title.toLowerCase())) return true
+          if (e.company_id === tmpl.company_id && e.category_id === tmpl.category_id && Math.abs(e.amount - tmpl.amount) < 0.01) return true
+          return false
+        })
+
+        if (!isPaid) {
+          const effDueDay = tmpl.due_day === 0 ? lastDayOfPastMonth : Math.min(tmpl.due_day, lastDayOfPastMonth)
+          const pastDueDate = new Date(d.getFullYear(), d.getMonth(), effDueDay)
+          const diffMs = now.getTime() - pastDueDate.getTime()
+          const daysOverdue = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
+
+          list.push({
+            template: tmpl,
+            monthKey: mKey,
+            monthLabel: mLabel,
+            amount: tmpl.amount,
+            currency: tmpl.currency,
+            daysOverdue,
+            effectiveDueDay: effDueDay
+          })
+        }
+      })
+    }
+
+    return list
+  }, [recurringTemplates, expenses, selectedCompanyFilter, currentYearMonth])
+
   const totalRecurringCount = recurringStatusList.length
   const paidRecurringCount = recurringStatusList.filter(r => r.isPaid).length
   const pendingRecurringCount = totalRecurringCount - paidRecurringCount
@@ -875,11 +950,31 @@ export default function ExpensesPage() {
     return acc + (r.template.amount * rate)
   }, 0)
 
-  const filteredTrackerList = recurringStatusList.filter(r => {
-    if (trackerFilter === 'paid') return r.isPaid
-    if (trackerFilter === 'pending') return !r.isPaid
-    return true
-  })
+  const filteredTrackerList = useMemo(() => {
+    if (trackerFilter === 'past_unpaid') {
+      return pastUnpaidList.map(p => ({
+        template: p.template,
+        isPaid: false,
+        matchedExpense: undefined as ExpenseTransaction | undefined,
+        diffDays: -p.daysOverdue,
+        effectiveDueDay: p.effectiveDueDay,
+        isPastUnpaid: true,
+        pastMonthLabel: p.monthLabel,
+        pastMonthKey: p.monthKey
+      }))
+    }
+
+    return recurringStatusList.filter(r => {
+      if (trackerFilter === 'paid') return r.isPaid
+      if (trackerFilter === 'pending') return !r.isPaid
+      return true
+    }).map(r => ({
+      ...r,
+      isPastUnpaid: false,
+      pastMonthLabel: undefined as string | undefined,
+      pastMonthKey: undefined as string | undefined
+    }))
+  }, [trackerFilter, pastUnpaidList, recurringStatusList])
 
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] relative">
@@ -1213,7 +1308,7 @@ export default function ExpensesPage() {
                     onClick={() => setTrackerFilter('all')} 
                     className={`px-2 py-1 rounded transition-colors font-medium ${trackerFilter === 'all' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
                   >
-                    Tümü ({totalRecurringCount})
+                    Bu Ay ({totalRecurringCount})
                   </button>
                   <button 
                     onClick={() => setTrackerFilter('pending')} 
@@ -1227,6 +1322,14 @@ export default function ExpensesPage() {
                   >
                     <CheckCircle2 size={10} /> Ödenenler ({paidRecurringCount})
                   </button>
+                  {pastUnpaidList.length > 0 && (
+                    <button 
+                      onClick={() => setTrackerFilter('past_unpaid')} 
+                      className={`px-2 py-1 rounded transition-colors font-bold flex items-center gap-1 animate-pulse ${trackerFilter === 'past_unpaid' ? 'bg-rose-900/60 text-rose-200 border border-rose-500' : 'bg-rose-950/40 text-rose-400 border border-rose-500/40 hover:bg-rose-900/40'}`}
+                    >
+                      <AlertTriangle size={11} /> Geçmişten Kalanlar ({pastUnpaidList.length})
+                    </button>
+                  )}
                 </div>
 
                 {/* Görünüm Geçişi: Liste / Kart */}
@@ -1263,8 +1366,24 @@ export default function ExpensesPage() {
               </div>
             </div>
 
+            {/* Geçmiş Dönem Ödenmemiş Sabit Gider Uyarısı (Eğer varsa ve başka sekmedeyse) */}
+            {pastUnpaidList.length > 0 && trackerFilter !== 'past_unpaid' && (
+              <div className="mb-2 px-3 py-1.5 bg-rose-950/40 border border-rose-500/40 rounded-lg flex items-center justify-between text-xs animate-in fade-in duration-200">
+                <div className="flex items-center gap-2 text-rose-300 font-bold">
+                  <AlertTriangle size={13} className="text-rose-400 animate-pulse shrink-0" />
+                  <span>Geçmiş dönemlerden ödenmemiş <strong>{pastUnpaidList.length} adet</strong> sabit gider borcu bulunuyor!</span>
+                </div>
+                <button
+                  onClick={() => setTrackerFilter('past_unpaid')}
+                  className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold transition-all cursor-pointer"
+                >
+                  Gecikmişleri İncele & Öde →
+                </button>
+              </div>
+            )}
+
             {/* Çoklu Ürün Sığması İçin Liste / Kart Görünümü */}
-            {totalRecurringCount === 0 ? (
+            {totalRecurringCount === 0 && trackerFilter !== 'past_unpaid' ? (
               <div className="flex items-center justify-between py-2 px-3 bg-[#070b14]/70 border border-dashed border-slate-800 rounded-lg">
                 <div className="flex items-center gap-2 text-slate-400 text-xs">
                   <Sparkles size={14} className="text-indigo-400" />
@@ -1295,13 +1414,19 @@ export default function ExpensesPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/40">
-                    {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays, effectiveDueDay }) => {
+                    {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays, effectiveDueDay, isPastUnpaid, pastMonthLabel, pastMonthKey }) => {
                       const comp = companies.find(c => c.id === tmpl.company_id)
                       const isPersonal = comp?.is_personal
                       const catName = getCategoryName(tmpl.category_id)
 
                       let dueBadge = null
-                      if (isPaid) {
+                      if (isPastUnpaid) {
+                        dueBadge = (
+                          <span className="inline-flex items-center gap-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/50">
+                            <AlertTriangle size={11} className="shrink-0 animate-pulse text-rose-400" /> {Math.abs(diffDays)} gün gecikti ({pastMonthLabel})
+                          </span>
+                        )
+                      } else if (isPaid) {
                         dueBadge = (
                           <span className="inline-flex items-center gap-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                             <CheckCircle2 size={11} className="shrink-0" /> Ödendi ({formatDateTR(matchedExpense!.tx_date)})
@@ -1329,13 +1454,14 @@ export default function ExpensesPage() {
 
                       return (
                         <tr 
-                          key={tmpl.id} 
-                          className={`hover:bg-slate-800/30 transition-colors ${isPaid ? 'opacity-85' : ''}`}
+                          key={isPastUnpaid ? `past_${tmpl.id}_${pastMonthKey}` : tmpl.id} 
+                          className={`hover:bg-slate-800/30 transition-colors ${isPaid ? 'opacity-85' : isPastUnpaid ? 'bg-rose-950/10' : ''}`}
                         >
                           <td className="py-2 px-3 align-middle">{dueBadge}</td>
                           <td className="py-2 px-3 align-middle">
                             <div className="font-bold text-slate-200 truncate max-w-[240px]" title={tmpl.title}>
                               {tmpl.title}
+                              {isPastUnpaid && <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 font-bold ml-1.5">({pastMonthLabel})</span>}
                             </div>
                             {tmpl.note && (
                               <div className="text-[9px] text-slate-500 truncate max-w-[240px]">
@@ -1392,9 +1518,9 @@ export default function ExpensesPage() {
                               </span>
                             ) : (
                               <button
-                                onClick={() => openQuickPayModal(tmpl)}
-                                className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-md transition-all active:scale-95 inline-flex items-center gap-1 shadow-sm shadow-indigo-950/40"
-                                title="Kredi Kartı veya Bankadan Hızlı Öde"
+                                onClick={() => openQuickPayModal(tmpl, pastMonthKey, pastMonthLabel)}
+                                className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-md transition-all active:scale-95 inline-flex items-center gap-1 shadow-sm shadow-indigo-950/40 cursor-pointer"
+                                title={isPastUnpaid ? `${pastMonthLabel} Borcunu Öde` : "Kredi Kartı veya Bankadan Hızlı Öde"}
                               >
                                 <Zap size={10} className="text-amber-300" /> Hızlı Öde
                               </button>
@@ -1411,13 +1537,19 @@ export default function ExpensesPage() {
               /* --- ALTERNATİF KART / IZGARA GÖRÜNÜMÜ --- */
               /* ========================================================================= */
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-2.5 max-h-48 overflow-y-auto custom-scrollbar p-0.5">
-                {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays, effectiveDueDay }) => {
+                {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays, effectiveDueDay, isPastUnpaid, pastMonthLabel, pastMonthKey }) => {
                   const comp = companies.find(c => c.id === tmpl.company_id)
                   const isPersonal = comp?.is_personal
                   const catName = getCategoryName(tmpl.category_id)
 
                   let dueStatusBadge = null
-                  if (isPaid) {
+                  if (isPastUnpaid) {
+                    dueStatusBadge = (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/50">
+                        <AlertTriangle size={10} className="shrink-0 text-rose-400 animate-pulse" /> {Math.abs(diffDays)} gün gecikti ({pastMonthLabel})
+                      </span>
+                    )
+                  } else if (isPaid) {
                     dueStatusBadge = (
                       <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                         <CheckCircle2 size={10} /> Ödendi ({formatDateTR(matchedExpense!.tx_date)})
@@ -1445,20 +1577,21 @@ export default function ExpensesPage() {
 
                   return (
                     <div 
-                      key={tmpl.id}
-                      className={`p-2.5 rounded-xl border transition-all flex flex-col justify-between ${isPaid ? 'bg-[#070b14]/90 border-slate-800/80 hover:border-slate-700' : 'bg-[#0a0f1e] border-indigo-500/30 hover:border-indigo-400 shadow-md'}`}
+                      key={isPastUnpaid ? `past_grid_${tmpl.id}_${pastMonthKey}` : tmpl.id} 
+                      className={`p-2.5 rounded-xl border transition-all flex flex-col justify-between ${isPaid ? 'bg-[#070b14]/90 border-slate-800/80 hover:border-slate-700' : isPastUnpaid ? 'bg-rose-950/20 border-rose-500/40 hover:border-rose-500 shadow-md' : 'bg-[#0a0f1e] border-indigo-500/30 hover:border-indigo-400 shadow-md'}`}
                     >
                       <div>
                         <div className="flex items-center justify-between gap-1 mb-1">
                           <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold truncate max-w-[120px] flex items-center gap-1 ${isPersonal ? 'bg-slate-800 text-slate-300' : 'bg-indigo-950/60 text-indigo-300 border border-indigo-800/50'}`}>
                             {isPersonal ? <Home size={9} /> : <Building size={9} />}
-                            {comp?.name || 'Ortak'}
+                            {comp?.name || 'Merkez'}
                           </span>
                           <span className="text-[9px] text-slate-500 truncate">{catName}</span>
                         </div>
 
                         <h4 className="text-[12px] font-bold text-slate-200 truncate mt-1" title={tmpl.title}>
                           {tmpl.title}
+                          {isPastUnpaid && <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/20 text-rose-300 font-bold ml-1">({pastMonthLabel})</span>}
                         </h4>
 
                         <div className="mt-0.5">
@@ -1498,9 +1631,9 @@ export default function ExpensesPage() {
                               <span className="truncate">{tmpl.default_source_id ? getPaymentSourceName(tmpl.default_source_type || '', tmpl.default_source_id) : 'Ödeme Seç'}</span>
                             </div>
                             <button
-                              onClick={() => openQuickPayModal(tmpl)}
-                              className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 rounded-md transition-all active:scale-95 flex items-center gap-1 shadow-md shadow-indigo-950/40 shrink-0"
-                              title="Kredi Kartı veya Bankadan Hızlı Öde"
+                              onClick={() => openQuickPayModal(tmpl, pastMonthKey, pastMonthLabel)}
+                              className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 rounded-md transition-all active:scale-95 flex items-center gap-1 shadow-md shadow-indigo-950/40 shrink-0 cursor-pointer"
+                              title={isPastUnpaid ? `${pastMonthLabel} Borcunu Öde` : "Kredi Kartı veya Bankadan Hızlı Öde"}
                             >
                               <Zap size={10} className="text-amber-300" /> Hızlı Öde
                             </button>
@@ -2181,15 +2314,27 @@ export default function ExpensesPage() {
                 )}
               </div>
 
-              <div>
-                <label className="block text-[10px] text-slate-400 mb-1">Not / İban / Abone No (İsteğe Bağlı)</label>
-                <input 
-                  type="text" 
-                  placeholder="Örn: Hizmet No: 1029384, İban son 4 hane..." 
-                  value={tmplNote} 
-                  onChange={(e) => setTmplNote(e.target.value)} 
-                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-indigo-500 transition-colors" 
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-1">Takip Başlangıç Ayı (Opsiyonel)</label>
+                  <input 
+                    type="month" 
+                    value={tmplStartMonth} 
+                    onChange={(e) => setTmplStartMonth(e.target.value)} 
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-indigo-500 transition-colors text-xs font-mono" 
+                  />
+                  <span className="text-[9px] text-slate-500">Boş bırakılırsa oluşturulduğu ay baz alınır.</span>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-1">Not / İban / Abone No (İsteğe Bağlı)</label>
+                  <input 
+                    type="text" 
+                    placeholder="Örn: Hizmet No: 1029384, İban son 4 hane..." 
+                    value={tmplNote} 
+                    onChange={(e) => setTmplNote(e.target.value)} 
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-indigo-500 transition-colors text-xs" 
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end gap-2.5 mt-4 pt-3 border-t border-slate-800">

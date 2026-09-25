@@ -400,13 +400,15 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - **Üst:** Şirket filtresi (Holding / Ortak / şirketler), Net Finansal Durum = banka + kasa + müşteri alacağı − tedarikçi borcu − kart borcu.
 - **Orta (Sol 2 Kolon):** 6 aylık P&L bar grafiği + 5 KPI kartı (Ciro, SMM, Gider, POS Kârı, Net Kâr, aylık trend %) + altta **6 Aylık Finansal Özet Tablosu** (aylık ciro, maliyet/gider, net kâr ve kâr marjı).
 - **Sağ (1 Kolon):**
-  1. **Son İşlem Akışı:** Son 30 işlem (müşteri, tedarikçi, gider birleşik akış, tarih ve tutar göstergeli).
-  2. **Cari Borç & Alacak Kıyaslama Widget'ı (Yeni):**
+  1. **Yaklaşan ve Ay Sonu Vadeleri (Sabit Gider Takibi):** Mevcut ayın sabit gider şablonlarının (kira, aidat, fatura, SGK, BağKur vb.) vadesine kalan gün / ay sonu durumu, ödenen/kalan bütçe; geçmiş dönemlerden ödenmemiş sarkan sabit borçlar için acil uyarı şeridi ve hızlı ödeme yönlendirmesi.
+  2. **Cari Borç & Alacak Kıyaslama Widget'ı:**
      - **Sekmeler:** `Müşteri Alacakları` ve `Tedarikçi Borçları` geçişi.
      - **Dönem Kıyaslama Seçicisi:** "Geçen Ay Sonu" veya "Son 30 Gün" eşiklerine göre anlık geriye dönük hesaplama.
      - **Mini KPI Strip:** Toplam açık bakiye, geçmiş döneme göre değişim tutarı ve yüzde artış/azalış/ödendi göstergesi.
      - **Dinamik Liste:** Carilerin güncel bakiyesi, önceki dönem bakiyesi, fark tutarı, yüzdesi ve toplam içindeki pay çubuğu (progress bar), isimle canlı arama.
-- **Alt:** Açılır özet kartları (Banka, Kasa, Müşteri, Stok/Depo, Kredi Kartı, Tedarikçi, Ticari Gider; Yönetici için ayrıca Şahsi Gider).
+- **Alt:** Açılır 8 özet kartı (Banka, Kasa, Müşteri, Stok/Depo, Kredi Kartı, Tedarikçi, Ticari Gider; Yönetici için ayrıca Şahsi Gider).
+- **Alt Alanın Altı (Tam Genişlik):**
+  - **Son İşlem Akışı:** Tüm modüllerden son işlemlerin (Müşteri, Tedarikçi, Gider, Teknik Servis) genişletilmiş detay tablosu; modül filtre hapları (`Tümü`, `Müşteri`, `Tedarikçi`, `Gider`, `Servis`), canlı metin/tutar araması ve renkli işlem türü rozetleri.
 - **Rol ve Şirket Bazlı İzolasyon (Multi-Tenant Koruma):**
   - Kısıtlı personel (`allowed_companies` tanımlı kullanıcı, örn. İbrahim Evgilli / Bilgisayar Hastanesi) oturum açtığında:
     - Üst şirket seçici dropdown gizlenir; yerine "🏢 [Şirket Adı] 🔒 Kilitli" rozeti gelir. Filtre personelin şirketine zorunlu kilitlenir.
@@ -480,8 +482,11 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 
 ### 7.10 Genel Giderler `/expenses`
 - Üst: Ticari ve Şahsi gider toplamları (tüm zamanlar).
-- Sol: merkez bazlı dağılım, kategori listesi (CRUD, toplamlı).
-- Sağ: gider formu (tarih, merkez **zorunlu**, kategori, ödeme kaynağı kasa/banka/kart, açıklama, döviz, kur, tutar), arama, tablo.
+- Sol: Merkez bazlı dağılım, Sabit Gider Şablonları (CRUD, `REC_TEMPLATE::`, `start_month` takip başlangıç ayı seçimi) ve Gider Kategorileri (`fixed::`, `variable::`).
+- Sağ: 
+  - **Sabit Gider Takip Şeridi:** Mevcut ayın düzenli kira, aidat, fatura, SGK/BağKur vb. ödeme durumu (`Ödendi`, `Gecikti`, `Bugün`, `X gün kaldı`, `Ay Sonu`); görünüm değiştirici (Yoğun Liste / Kart Izgara); filtreler (`Bu Ay`, `Bekleyenler`, `Ödenenler`, `Geçmişten Kalanlar`).
+  - **Geçmiş Dönem Ödenmemiş Sabit Giderler (Backlog):** Önceki aylarda ödenmemiş kalan şablonların tespiti (`pastUnpaidList`), acil uyarı şeridi ve geçmiş aya özel otomatik açıklamalı Hızlı Ödeme desteği.
+  - **Manuel Gider Formu & Tablosu:** Tarih, merkez **zorunlu**, kategori, ödeme kaynağı kasa/banka/kart, açıklama, döviz, kur, tutar, arama ve tablo listesi.
 - Gider ekle: `expense_transactions` + kaynağa `EXP-<tx_id>` hareketi (kartta `expense`, diğerlerinde `out`). Silme her ikisini geri alır. **Düzenleme yok.**
 
 ### 7.11 Abonelik / Kredi `/subscriptions`

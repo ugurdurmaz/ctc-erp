@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney } from '@/lib/utils'
-import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, TrendingUp, ChevronDown, ChevronUp, Building, Home as HomeIcon, Filter, BarChart4, ArrowUpRightFromSquare, ArrowDownRightFromSquare, Sparkles, Activity, FileText, Scale, Users, Building2, Search, X, Lock, Wrench } from 'lucide-react'
+import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, TrendingUp, ChevronDown, ChevronUp, Building, Home as HomeIcon, Filter, BarChart4, ArrowUpRightFromSquare, ArrowDownRightFromSquare, Sparkles, Activity, FileText, Scale, Users, Building2, Search, X, Lock, Wrench, Calendar, Clock, AlertTriangle, CheckCircle2, Zap } from 'lucide-react'
 
 type ExchangeRates = { USD: number | null, EUR: number | null }
 
@@ -34,6 +35,21 @@ type TimelineItem = {
   amountTry: number
   type: 'in' | 'out' | 'expense' | 'debt'
   companyId: string | null
+}
+
+type RecurringTemplate = {
+  id: string
+  title: string
+  company_id: string
+  category_id?: string
+  amount: number
+  currency: 'TRY' | 'USD' | 'EUR'
+  due_day: number
+  default_source_type?: 'card' | 'bank' | 'cash'
+  default_source_id?: string
+  note?: string
+  start_month?: string
+  created_at?: string
 }
 
 function formatDateTR(dateStr: string) {
@@ -87,6 +103,13 @@ export default function Home() {
   const [cariTab, setCariTab] = useState<'receivables' | 'payables'>('receivables')
   const [cariPeriod, setCariPeriod] = useState<'month' | '30days'>('month')
   const [cariSearch, setCariSearch] = useState<string>('')
+
+  // Sabit Gider Şablonları ve Vadeler State'leri
+  const [recurringTemplates, setRecurringTemplates] = useState<RecurringTemplate[]>([])
+
+  // Alt Alan Son İşlemler Arama & Filtre State'leri
+  const [recentSearch, setRecentSearch] = useState<string>('')
+  const [recentModuleFilter, setRecentModuleFilter] = useState<'all' | 'customer' | 'supplier' | 'expense' | 'technical-service'>('all')
 
   const [rates, setRates] = useState<ExchangeRates>({ USD: null, EUR: null })
   const [loading, setLoading] = useState(true)
@@ -156,6 +179,34 @@ export default function Home() {
 
       const { data: srvData } = await supabase.from('technical_service_tickets').select('id, ticket_no, brand_model, customer_name, status, total_cost, parts_cost, labor_cost, delivered_at, company_id, created_at')
       setTechTickets(srvData || [])
+
+      // Sabit Gider Şablonlarını expense_categories'den çekme
+      const { data: catData } = await supabase.from('expense_categories').select('id, name, created_at')
+      const tmpls: RecurringTemplate[] = []
+      catData?.forEach(c => {
+        if (c.name.startsWith('REC_TEMPLATE::')) {
+          try {
+            const parsed = JSON.parse(c.name.slice(14))
+            tmpls.push({
+              id: c.id,
+              title: parsed.title || 'Sabit Gider',
+              company_id: parsed.company_id || '',
+              category_id: parsed.category_id || '',
+              amount: Number(parsed.amount) || 0,
+              currency: parsed.currency || 'TRY',
+              due_day: parsed.due_day !== undefined && parsed.due_day !== null ? Number(parsed.due_day) : 1,
+              default_source_type: parsed.default_source_type,
+              default_source_id: parsed.default_source_id,
+              note: parsed.note || '',
+              start_month: parsed.start_month,
+              created_at: c.created_at
+            })
+          } catch (e) {
+            // yoksay
+          }
+        }
+      })
+      setRecurringTemplates(tmpls)
 
     } catch (err) {
       console.error(err)
@@ -595,6 +646,133 @@ export default function Home() {
     return list.filter(item => item.name.toLowerCase().includes(q))
   }, [cariTab, customerComparisonList, supplierComparisonList, cariSearch])
 
+  // =====================================================================
+  // --- SABİT GİDER TAKİBİ, AY SONU VADELERİ & GEÇMİŞ DÖNEM TESPİTİ ---
+  // =====================================================================
+  const currentMonthDate = useMemo(() => new Date(), [])
+  const currentYearMonth = `${currentMonthDate.getFullYear()}-${String(currentMonthDate.getMonth() + 1).padStart(2, '0')}`
+  const currentMonthName = currentMonthDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
+  const currentDay = currentMonthDate.getDate()
+
+  const getEffectiveDueDay = (dueDay: number, date: Date = currentMonthDate): number => {
+    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+    if (dueDay === 0 || !dueDay || dueDay > 31) {
+      return lastDay
+    }
+    return Math.min(dueDay, lastDay)
+  }
+
+  // Bu ayın sabit giderleri durumu
+  const currentMonthRecurringStatus = useMemo(() => {
+    const matchedTemplates = recurringTemplates.filter(t => isMatch(t.company_id))
+
+    return matchedTemplates.map(tmpl => {
+      const matchedExpense = expenses.find(e => {
+        const txD = e.tx_date || e.date || e.created_at?.substring(0, 10)
+        if (!txD || !txD.startsWith(currentYearMonth)) return false
+        if (e.description?.toLowerCase().includes(tmpl.title.toLowerCase())) return true
+        if (e.company_id === tmpl.company_id && Math.abs(e.amount - tmpl.amount) < 0.01) return true
+        return false
+      })
+
+      const isPaid = !!matchedExpense
+      const effectiveDueDay = getEffectiveDueDay(tmpl.due_day, currentMonthDate)
+      const diffDays = effectiveDueDay - currentDay
+      const amountTRY = getTryEquivalent(tmpl.amount, tmpl.currency)
+
+      return {
+        template: tmpl,
+        isPaid,
+        matchedExpense,
+        effectiveDueDay,
+        diffDays,
+        amountTRY
+      }
+    }).sort((a, b) => {
+      if (a.isPaid && !b.isPaid) return 1
+      if (!a.isPaid && b.isPaid) return -1
+      return a.diffDays - b.diffDays
+    })
+  }, [recurringTemplates, expenses, currentYearMonth, currentDay, currentMonthDate, isMatch, rates])
+
+  // Geçmiş aylardan ödenmemiş kalan sabit giderler (Backlog)
+  const pastUnpaidRecurringList = useMemo(() => {
+    const list: Array<{
+      template: RecurringTemplate
+      monthKey: string
+      monthLabel: string
+      amount: number
+      currency: string
+      amountTRY: number
+      effectiveDueDay: number
+      daysOverdue: number
+    }> = []
+
+    const matchedTemplates = recurringTemplates.filter(t => isMatch(t.company_id))
+    const now = new Date()
+
+    // Son 3 geçmiş ayı kontrol et (Ağustos, Temmuz, vb.)
+    for (let i = 1; i <= 3; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const mLabel = d.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
+      const lastDayOfPastMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+
+      matchedTemplates.forEach(tmpl => {
+        // Eğer şablonda özel başlangıç ayı tanımlıysa ve mKey < start_month ise kontrol etme
+        if (tmpl.start_month && mKey < tmpl.start_month) return
+
+        // Eğer start_month yoksa, oluşturulma ayından öncesini atla
+        const createdMonth = tmpl.created_at ? tmpl.created_at.substring(0, 7) : currentYearMonth
+        if (!tmpl.start_month && mKey < createdMonth) return
+
+        const isPaidInPastMonth = expenses.some(e => {
+          const txD = e.tx_date || e.date || e.created_at?.substring(0, 10)
+          if (!txD || !txD.startsWith(mKey)) return false
+          if (e.description?.toLowerCase().includes(tmpl.title.toLowerCase())) return true
+          if (e.company_id === tmpl.company_id && Math.abs(e.amount - tmpl.amount) < 0.01) return true
+          return false
+        })
+
+        if (!isPaidInPastMonth) {
+          const effDueDay = tmpl.due_day === 0 ? lastDayOfPastMonth : Math.min(tmpl.due_day, lastDayOfPastMonth)
+          const pastDueDate = new Date(d.getFullYear(), d.getMonth(), effDueDay)
+          const diffMs = now.getTime() - pastDueDate.getTime()
+          const daysOverdue = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
+
+          list.push({
+            template: tmpl,
+            monthKey: mKey,
+            monthLabel: mLabel,
+            amount: tmpl.amount,
+            currency: tmpl.currency,
+            amountTRY: getTryEquivalent(tmpl.amount, tmpl.currency),
+            effectiveDueDay: effDueDay,
+            daysOverdue
+          })
+        }
+      })
+    }
+
+    return list
+  }, [recurringTemplates, expenses, currentYearMonth, isMatch, rates])
+
+  const recurringTotalBudget = currentMonthRecurringStatus.reduce((acc, r) => acc + r.amountTRY, 0)
+  const recurringPaidTotal = currentMonthRecurringStatus.filter(r => r.isPaid).reduce((acc, r) => acc + r.amountTRY, 0)
+  const recurringPendingTotal = recurringTotalBudget - recurringPaidTotal
+  const recurringPaidCount = currentMonthRecurringStatus.filter(r => r.isPaid).length
+  const recurringTotalCount = currentMonthRecurringStatus.length
+  const pastUnpaidTotalTRY = pastUnpaidRecurringList.reduce((acc, p) => acc + p.amountTRY, 0)
+
+  // Alt Alan: Son İşlemler Filtrelenmiş Liste
+  const filteredRecentTransactions = useMemo(() => {
+    return allTimelineItems.filter(tx => {
+      const matchesModule = recentModuleFilter === 'all' || tx.module === recentModuleFilter
+      const matchesSearch = !recentSearch || tx.description.toLowerCase().includes(recentSearch.toLowerCase())
+      return matchesModule && matchesSearch
+    }).slice(0, 40)
+  }, [allTimelineItems, recentModuleFilter, recentSearch])
+
   return (
     <div className="space-y-4 pb-8 max-w-[1600px] mx-auto">
       
@@ -756,58 +934,179 @@ export default function Home() {
             </div>
           </div>
 
-          {/* SAĞ KOLON: 1. SON İŞLEM AKIŞI + 2. CARİ BORÇ & ALACAK KIYASLAMA (ÖNERİ 2) */}
+          {/* SAĞ KOLON: 1. YAKLAŞAN VE AY SONU VADELERİ + 2. CARİ BORÇ & ALACAK KIYASLAMA */}
           <div className="flex flex-col gap-4 lg:col-span-1">
              
-             {/* 1. SON İŞLEMLER AKIŞI */}
+             {/* 1. YAKLAŞAN VE AY SONU VADELERİ (SABİT GİDER TAKİBİ) */}
              <div style={{ animation: 'fadeInUp 0.5s both 0.25s' }} className="bg-[#0d1322] border border-slate-800/80 rounded-xl shadow-xl overflow-hidden flex flex-col h-[270px]">
+                {/* Kart Başlığı & Ay Bilgisi */}
                 <div className="p-2.5 bg-[#0a0f1d] border-b border-slate-800/80 flex items-center justify-between shrink-0">
-                   <h3 className="text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2">
-                     <Activity size={14} className="text-emerald-400" /> Son İşlem Akışı
-                   </h3>
-                   <span className="text-[9px] text-slate-500 font-mono">Son {recentTransactions.length} Hareket</span>
+                   <div className="flex items-center gap-1.5 min-w-0">
+                     <Clock size={14} className="text-amber-400 shrink-0" />
+                     <h3 className="text-white font-bold text-xs uppercase tracking-wider truncate">
+                       Yaklaşan ve Ay Sonu Vadeleri
+                     </h3>
+                   </div>
+                   <div className="flex items-center gap-1.5 shrink-0">
+                     <span className="text-[9px] text-slate-400 font-mono capitalize">{currentMonthName}</span>
+                     <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                       recurringPaidCount === recurringTotalCount && recurringTotalCount > 0
+                         ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                         : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                     }`}>
+                       {recurringPaidCount}/{recurringTotalCount} Ödendi
+                     </span>
+                   </div>
                 </div>
+
+                {/* Mini Bütçe & Kalan Şeridi */}
+                <div className="px-3 py-1.5 bg-[#070b14]/70 border-b border-slate-800/60 flex items-center justify-between text-[9px] shrink-0 font-mono">
+                  <div>
+                    <span className="text-slate-500 block font-sans text-[8px] uppercase tracking-wider">Kalan Sabit Borç</span>
+                    <span className="text-xs font-black text-amber-400">{formatMoney(recurringPendingTotal, 'TRY').formatted}</span>
+                  </div>
+                  <div className="text-right">
+                    <Link href="/expenses" className="text-indigo-400 hover:text-indigo-300 font-sans font-bold flex items-center gap-1 hover:underline">
+                      Tümünü Yönet <ArrowUpRight size={11} />
+                    </Link>
+                  </div>
+                </div>
+
+                {/* Geçmiş Aylardan Ödenmemiş Uyarısı (Varsa) */}
+                {pastUnpaidRecurringList.length > 0 && (
+                  <div className="px-2.5 py-1 bg-rose-950/30 border-b border-rose-500/30 flex items-center justify-between text-[9px] shrink-0">
+                    <span className="text-rose-400 font-bold flex items-center gap-1 truncate">
+                      <AlertTriangle size={11} className="shrink-0 animate-pulse" />
+                      Geçmişten {pastUnpaidRecurringList.length} ödenmemiş borç!
+                    </span>
+                    <Link href="/expenses" className="text-rose-300 hover:text-white font-mono font-bold underline shrink-0">
+                      +{formatMoney(pastUnpaidTotalTRY, 'TRY').formatted}
+                    </Link>
+                  </div>
+                )}
+
+                {/* Vadeler Listesi */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5">
-                   {recentTransactions.length === 0 ? (
-                     <div className="h-full flex flex-col items-center justify-center p-4 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner m-1">
-                        <FileText size={22} className="mb-2 opacity-70 text-emerald-400 animate-bounce" />
-                        <span className="text-[10px] font-bold text-slate-400">Son İşlem Yok</span>
-                        <span className="text-[8px] mt-0.5 text-slate-500">Sistemde henüz bir hareket bulunmuyor.</span>
-                     </div>
-                   ) : recentTransactions.map((tx, idx) => {
-                      let icon, colorClass, sign
-                      if (tx.module === 'expense') { icon = <ArrowDownRightFromSquare size={11}/>; colorClass = 'text-purple-400'; sign = '-' }
-                      else if (tx.module === 'customer') {
-                         if (tx.type === 'in') { icon = <ArrowUpRightFromSquare size={11}/>; colorClass = 'text-blue-400'; sign = '+' }
-                         else { icon = <Wallet size={11}/>; colorClass = 'text-emerald-400'; sign = '+' }
-                      }
-                      else if (tx.module === 'supplier') {
-                         if (tx.type === 'debt') { icon = <ArrowDownRightFromSquare size={11}/>; colorClass = 'text-amber-400'; sign = '-' }
-                         else { icon = <Wallet size={11}/>; colorClass = 'text-rose-400'; sign = '-' }
-                      }
-                      else if (tx.module === 'technical-service') {
-                         icon = <Wrench size={11}/>; colorClass = 'text-indigo-400'; sign = '+'
+                  {/* Geçmiş dönemden sarkanlar varsa en tepede kırmızı uyarıyla listelenir */}
+                  {pastUnpaidRecurringList.map((p) => {
+                    const comp = companies.find(c => c.id === p.template.company_id)
+                    return (
+                      <div
+                        key={`past_${p.template.id}_${p.monthKey}`}
+                        className="flex justify-between items-center p-1.5 rounded-lg bg-rose-950/20 border border-rose-500/40 hover:border-rose-500 transition-colors"
+                      >
+                        <div className="flex items-start gap-1.5 min-w-0 pr-2">
+                          <div className="p-1 rounded bg-rose-500/10 text-rose-400 shrink-0">
+                            <AlertTriangle size={11} />
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] font-bold text-slate-200 truncate">{p.template.title}</span>
+                              <span className="text-[8px] bg-rose-500/20 text-rose-300 px-1 rounded font-bold shrink-0">
+                                {p.monthLabel}
+                              </span>
+                            </div>
+                            <div className="text-[8px] text-rose-400 font-mono">
+                              {p.daysOverdue} gün gecikti • {comp?.name || 'Merkez'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-[10px] font-mono font-bold text-rose-400">
+                            {formatMoney(p.amount, p.currency).formatted}
+                          </div>
+                          <Link
+                            href="/expenses"
+                            className="text-[8px] text-indigo-400 hover:text-indigo-300 font-bold block hover:underline"
+                          >
+                            Hızlı Öde →
+                          </Link>
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {/* Bu ayın vadeleri */}
+                  {currentMonthRecurringStatus.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center p-4 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner m-1">
+                      <Clock size={20} className="mb-2 opacity-70 text-amber-400 animate-bounce" />
+                      <span className="text-[10px] font-bold text-slate-400">Tanımlı Sabit Gider Yok</span>
+                      <Link href="/expenses" className="text-[9px] text-indigo-400 hover:underline mt-1 font-bold">
+                        Genel Giderlerden Şablon Ekle →
+                      </Link>
+                    </div>
+                  ) : (
+                    currentMonthRecurringStatus.map((item, idx) => {
+                      const comp = companies.find(c => c.id === item.template.company_id)
+                      let badgeColor = 'bg-slate-800 text-slate-300 border-slate-700'
+                      let badgeText = `${item.diffDays} gün kaldı`
+
+                      if (item.isPaid) {
+                        badgeColor = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                        badgeText = `Ödendi (${formatDateTR(item.matchedExpense?.tx_date || '')})`
+                      } else if (item.diffDays < 0) {
+                        badgeColor = 'bg-rose-500/15 text-rose-400 border-rose-500/30 font-bold'
+                        badgeText = `${Math.abs(item.diffDays)} gün gecikti!`
+                      } else if (item.diffDays === 0) {
+                        badgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse font-bold'
+                        badgeText = 'Bugün son gün!'
+                      } else if (item.template.due_day === 0) {
+                        badgeColor = 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                        badgeText = `Ay Sonu (${item.effectiveDueDay}. gün)`
+                      } else {
+                        badgeText = `Ayın ${item.effectiveDueDay}'i (${item.diffDays} gün)`
                       }
 
                       return (
-                        <div 
-                           key={tx.id} 
-                           style={{ animation: 'fadeSlideRight 0.4s both', animationDelay: `${0.2 + (idx * 0.03)}s` }}
-                           className="flex justify-between items-center p-1.5 rounded-lg bg-[#070b14] border border-slate-800/50 hover:border-slate-600 transition-colors cursor-default"
+                        <div
+                          key={item.template.id}
+                          style={{ animation: 'fadeSlideRight 0.3s both', animationDelay: `${0.1 + (idx * 0.03)}s` }}
+                          className={`flex justify-between items-center p-1.5 rounded-lg border transition-colors ${
+                            item.isPaid
+                              ? 'bg-[#070b14]/50 border-slate-800/40 opacity-70'
+                              : item.diffDays < 0
+                              ? 'bg-rose-950/10 border-rose-500/30 hover:border-rose-500/50'
+                              : 'bg-[#070b14] border-slate-800/60 hover:border-slate-700'
+                          }`}
                         >
-                           <div className="flex items-start gap-2 min-w-0 pr-2">
-                              <div className={`p-1 rounded-md bg-slate-800/50 shrink-0 ${colorClass}`}>{icon}</div>
-                              <div className="flex flex-col min-w-0">
-                                 <span className="text-[10px] font-bold text-slate-200 truncate">{tx.description}</span>
-                                 <span className="text-[8px] text-slate-500 font-mono">{formatDateTR(tx.date)}</span>
+                          <div className="flex items-start gap-1.5 min-w-0 pr-2">
+                            <div className={`p-1 rounded shrink-0 ${
+                              item.isPaid ? 'bg-emerald-500/10 text-emerald-400' : item.diffDays < 0 ? 'bg-rose-500/10 text-rose-400' : 'bg-slate-800/50 text-slate-400'
+                            }`}>
+                              {item.isPaid ? <CheckCircle2 size={11} /> : <Calendar size={11} />}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[10px] font-bold truncate ${item.isPaid ? 'line-through text-slate-400' : 'text-slate-200'}`}>
+                                  {item.template.title}
+                                </span>
+                                <span className={`text-[8px] px-1 py-0.2 rounded border font-mono shrink-0 ${badgeColor}`}>
+                                  {badgeText}
+                                </span>
                               </div>
-                           </div>
-                           <div className={`text-[10px] font-mono font-bold shrink-0 ${colorClass}`}>
-                              {sign}{formatMoney(tx.amountTry, 'TRY').formatted}
-                           </div>
+                              <div className="text-[8px] text-slate-500 font-sans truncate">
+                                {comp?.name || 'Merkez'}
+                                {item.template.note ? ` • ${item.template.note}` : ''}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className={`text-[10px] font-mono font-bold ${item.isPaid ? 'text-slate-500' : 'text-slate-200'}`}>
+                              {formatMoney(item.template.amount, item.template.currency).formatted}
+                            </div>
+                            {!item.isPaid && (
+                              <Link
+                                href="/expenses"
+                                className="text-[8px] text-indigo-400 hover:text-indigo-300 font-bold block hover:underline"
+                              >
+                                Öde →
+                              </Link>
+                            )}
+                          </div>
                         </div>
                       )
-                   })}
+                    })
+                  )}
                 </div>
              </div>
 
@@ -1236,6 +1535,182 @@ export default function Home() {
           </div>
         )}
 
+      </div>
+
+      {/* ========================================================================= */}
+      {/* --- ALT ALANIN ALTINA ALINAN: SON İŞLEM AKIŞI (GENİŞ TABLO & AKIŞ) --- */}
+      {/* ========================================================================= */}
+      <div style={{ animation: 'fadeInUp 0.5s both 0.3s' }} className="bg-[#0d1322] border border-slate-800/80 rounded-xl shadow-xl overflow-hidden flex flex-col">
+        {/* Üst Başlık, Filtre Sekmeleri ve Arama */}
+        <div className="p-3 bg-[#0a0f1d] border-b border-slate-800/80 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20">
+              <Activity size={16} />
+            </div>
+            <div>
+              <h3 className="text-white font-bold text-sm tracking-wide flex items-center gap-2">
+                Son İşlem Akışı
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono font-normal">
+                  {filteredRecentTransactions.length} Hareket
+                </span>
+              </h3>
+              <p className="text-[10px] text-slate-400">Müşteri, tedarikçi, masraf ve teknik servis son hareket dökümü</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            {/* Modül Filtre Hapları */}
+            <div className="flex items-center bg-[#070b14] border border-slate-800 rounded-lg p-0.5 text-[10px] font-bold">
+              <button
+                onClick={() => setRecentModuleFilter('all')}
+                className={`px-2 py-1 rounded transition-colors cursor-pointer ${recentModuleFilter === 'all' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'}`}
+              >
+                Tümü
+              </button>
+              <button
+                onClick={() => setRecentModuleFilter('customer')}
+                className={`px-2 py-1 rounded transition-colors cursor-pointer flex items-center gap-1 ${recentModuleFilter === 'customer' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-blue-300'}`}
+              >
+                <Users size={11} /> Müşteri
+              </button>
+              <button
+                onClick={() => setRecentModuleFilter('supplier')}
+                className={`px-2 py-1 rounded transition-colors cursor-pointer flex items-center gap-1 ${recentModuleFilter === 'supplier' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-400 hover:text-amber-300'}`}
+              >
+                <Building2 size={11} /> Tedarikçi
+              </button>
+              <button
+                onClick={() => setRecentModuleFilter('expense')}
+                className={`px-2 py-1 rounded transition-colors cursor-pointer flex items-center gap-1 ${recentModuleFilter === 'expense' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-400 hover:text-purple-300'}`}
+              >
+                <CreditCard size={11} /> Gider
+              </button>
+              <button
+                onClick={() => setRecentModuleFilter('technical-service')}
+                className={`px-2 py-1 rounded transition-colors cursor-pointer flex items-center gap-1 ${recentModuleFilter === 'technical-service' ? 'bg-teal-600 text-white shadow-xs' : 'text-slate-400 hover:text-teal-300'}`}
+              >
+                <Wrench size={11} /> Servis
+              </button>
+            </div>
+
+            {/* Arama Input'u */}
+            <div className="relative flex-1 sm:w-56">
+              <Search size={12} className="absolute left-2.5 top-2.5 text-slate-500" />
+              <input
+                type="text"
+                placeholder="İşlem veya cari ara..."
+                value={recentSearch}
+                onChange={(e) => setRecentSearch(e.target.value)}
+                className="w-full bg-[#070b14] border border-slate-800 text-white text-[11px] pl-7 pr-7 py-1.5 rounded-lg focus:outline-none focus:border-indigo-500"
+              />
+              {recentSearch && (
+                <button onClick={() => setRecentSearch('')} className="absolute right-2 top-2 text-slate-500 hover:text-white cursor-pointer">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Tablo Görünümü */}
+        <div className="max-h-[380px] overflow-y-auto custom-scrollbar">
+          {filteredRecentTransactions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-8 text-slate-500 text-center">
+              <Activity size={28} className="mb-2 opacity-50 text-slate-400" />
+              <p className="text-xs font-bold text-slate-300">İşlem Hareketi Bulunamadı</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">Seçilen filtre ve arama kriterlerine uygun kayıt bulunmuyor.</p>
+            </div>
+          ) : (
+            <table className="w-full text-left text-[11px] border-collapse">
+              <thead className="sticky top-0 bg-[#0a0f1d] z-10 text-[10px] text-slate-400 border-b border-slate-800/80 shadow-xs">
+                <tr>
+                  <th className="py-2.5 px-3 font-semibold w-28">Tarih</th>
+                  <th className="py-2.5 px-3 font-semibold w-36">İşlem Türü</th>
+                  <th className="py-2.5 px-3 font-semibold">Açıklama</th>
+                  <th className="py-2.5 px-3 font-semibold w-40">Merkez</th>
+                  <th className="py-2.5 px-3 font-semibold text-right w-36">Tutar</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/40">
+                {filteredRecentTransactions.map((tx, idx) => {
+                  let icon, colorClass, sign, typeName, typeBadge
+                  if (tx.module === 'expense') {
+                    icon = <ArrowDownRightFromSquare size={12} />
+                    colorClass = 'text-purple-400'
+                    sign = '-'
+                    typeName = 'Gider / Masraf'
+                    typeBadge = 'bg-purple-950/60 text-purple-300 border-purple-800/50'
+                  } else if (tx.module === 'customer') {
+                    if (tx.type === 'in') {
+                      icon = <ArrowUpRightFromSquare size={12} />
+                      colorClass = 'text-blue-400'
+                      sign = '+'
+                      typeName = 'Müşteri Fatura'
+                      typeBadge = 'bg-blue-950/60 text-blue-300 border-blue-800/50'
+                    } else {
+                      icon = <Wallet size={12} />
+                      colorClass = 'text-emerald-400'
+                      sign = '+'
+                      typeName = 'Müşteri Tahsilat'
+                      typeBadge = 'bg-emerald-950/60 text-emerald-300 border-emerald-800/50'
+                    }
+                  } else if (tx.module === 'supplier') {
+                    if (tx.type === 'debt') {
+                      icon = <ArrowDownRightFromSquare size={12} />
+                      colorClass = 'text-amber-400'
+                      sign = '-'
+                      typeName = 'Tedarikçi Alış'
+                      typeBadge = 'bg-amber-950/60 text-amber-300 border-amber-800/50'
+                    } else {
+                      icon = <Wallet size={12} />
+                      colorClass = 'text-rose-400'
+                      sign = '-'
+                      typeName = 'Tedarikçi Ödeme'
+                      typeBadge = 'bg-rose-950/60 text-rose-300 border-rose-800/50'
+                    }
+                  } else if (tx.module === 'technical-service') {
+                    icon = <Wrench size={12} />
+                    colorClass = 'text-teal-400'
+                    sign = '+'
+                    typeName = 'Servis Teslimat'
+                    typeBadge = 'bg-teal-950/60 text-teal-300 border-teal-800/50'
+                  }
+
+                  const comp = companies.find(c => c.id === tx.companyId)
+
+                  return (
+                    <tr
+                      key={tx.id}
+                      className="hover:bg-slate-800/30 transition-colors"
+                    >
+                      <td className="py-2.5 px-3 font-mono text-slate-400 whitespace-nowrap">
+                        {formatDateTR(tx.date)}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className={`inline-flex items-center gap-1.5 text-[9px] px-2 py-0.5 rounded-md border font-bold ${typeBadge}`}>
+                          {icon} {typeName}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-slate-200 truncate max-w-[450px]" title={tx.description}>
+                          {tx.description}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className="text-[10px] text-slate-400 font-medium truncate block max-w-[140px]">
+                          {comp?.name || 'Holding / Ortak'}
+                        </span>
+                      </td>
+                      <td className={`py-2.5 px-3 text-right font-mono font-bold text-xs ${colorClass}`}>
+                        {sign}{formatMoney(tx.amountTry, 'TRY').formatted}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
 
       <style jsx global>{`
