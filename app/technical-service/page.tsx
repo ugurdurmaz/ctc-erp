@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
@@ -73,7 +73,7 @@ interface TechnicalTicket {
 interface Company { id: string; name: string; is_personal: boolean }
 interface Customer { id: string; name: string; phone: string; balance: number }
 interface Supplier { id: string; company_name: string; balance: number; currency?: string }
-interface StockItem { id: string; name: string; quantity: number; unit_price: number; currency: string; warehouse_id: string }
+interface StockItem { id: string; name: string; sku?: string; category?: string; quantity: number; unit_price: number; currency: string; warehouse_id: string }
 interface ServiceItem { id: string; name: string; unit_price: number; currency: string }
 interface CashRegister { id: string; name: string; balance: number; currency: string; company_id: string | null }
 interface BankAccount { id: string; bank_name: string; balance: number; currency: string; company_id: string | null }
@@ -214,6 +214,39 @@ export default function TechnicalServicePage() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'customer_debt' | 'free'>('cash')
   const [paymentTargetId, setPaymentTargetId] = useState('')
   const [deductPartsFromStock, setDeductPartsFromStock] = useState(true)
+  const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().substring(0, 10))
+
+  // Yedek Parça Arama ve Dropdown State'leri
+  const [partSearchQuery, setPartSearchQuery] = useState('')
+  const [isPartDropdownOpen, setIsPartDropdownOpen] = useState(false)
+  const partDropdownRef = useRef<HTMLDivElement>(null)
+
+  // Dropdown dışına tıklandığında menüyü kapat
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (partDropdownRef.current && !partDropdownRef.current.contains(e.target as Node)) {
+        setIsPartDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Arama Sorgusuna Göre Filtrelenmiş Yedek Parçalar
+  const filteredStocks = useMemo(() => {
+    const q = partSearchQuery.toLocaleLowerCase('tr-TR').trim()
+    if (!q) return stocks.slice(0, 80)
+    return stocks.filter(s => {
+      const nameMatch = s.name.toLocaleLowerCase('tr-TR').includes(q)
+      const skuMatch = s.sku ? s.sku.toLocaleLowerCase('tr-TR').includes(q) : false
+      const catMatch = s.category ? s.category.toLocaleLowerCase('tr-TR').includes(q) : false
+      return nameMatch || skuMatch || catMatch
+    }).sort((a, b) => {
+      if (b.quantity > 0 && a.quantity <= 0) return 1
+      if (a.quantity > 0 && b.quantity <= 0) return -1
+      return a.name.localeCompare(b.name, 'tr-TR')
+    }).slice(0, 80)
+  }, [stocks, partSearchQuery])
 
   // Personel İzolasyon Kontrolü
   const isRestricted = !isAdmin && profile?.allowed_companies && profile.allowed_companies.length > 0
@@ -243,8 +276,8 @@ export default function TechnicalServicePage() {
       const { data: custData } = await supabase.from('customers').select('id, name, phone, balance').order('name')
       setCustomers(custData || [])
 
-      // 3. Stoklar
-      const { data: stData } = await supabase.from('stocks').select('id, name, quantity, unit_price, currency, warehouse_id').order('name')
+      // 3. Stoklar (Arama ve filtreleme için sku, category dahil)
+      const { data: stData } = await supabase.from('stocks').select('id, name, sku, category, quantity, unit_price, currency, warehouse_id').order('name')
       setStocks(stData || [])
 
       // 4. Hizmetler
@@ -723,6 +756,14 @@ export default function TechnicalServicePage() {
     const initialQuickVal = t.total_cost > 0 ? t.total_cost : (t.estimated_cost > 0 ? t.estimated_cost : 0)
     setQuickPriceInput(initialQuickVal > 0 ? initialQuickVal.toString() : '')
 
+    if (t.delivered_at) {
+      setDeliveryDate(new Date(t.delivered_at).toLocaleDateString('en-CA'))
+    } else {
+      setDeliveryDate(new Date().toISOString().substring(0, 10))
+    }
+    setPartSearchQuery('')
+    setIsPartDropdownOpen(false)
+
     setPaymentMethod((t.payment_method as any) || 'cash')
     setPaymentTargetId(t.payment_target_id || '')
     setSelectedServiceId('')
@@ -735,20 +776,88 @@ export default function TechnicalServicePage() {
     setIsDetailModalOpen(true)
   }
 
-  // Hızlı Tamir Ücreti Uygula / Güncelle
+  // Sabit Hedef Fiyat Mantığıyla İşçiliği Otomatik Dengele
+  const autoRebalanceLabor = (
+    targetTotal: number, 
+    partsList: UsedPart[], 
+    servicesList: PerformedService[],
+    extService: boolean,
+    extCost: string,
+    suppId?: string
+  ) => {
+    if (targetTotal <= 0) return
+    const partsTotal = partsList.reduce((acc, p) => acc + (Number(p.total) || 0), 0)
+    const suppCost = extService ? (parseFloat(extCost) || 0) : 0
+    const otherServices = servicesList.filter(s => 
+      s.name !== 'Cihaz Onarım & Servis Bedeli' && 
+      s.name !== 'Genel Tamir Bedeli' && 
+      !s.name.startsWith('Fason Onarım Bedeli')
+    )
+    const otherTotal = otherServices.reduce((acc, s) => acc + (Number(s.price) || 0), 0)
+    const netLabor = Math.max(0, Number((targetTotal - partsTotal - suppCost - otherTotal).toFixed(2)))
+
+    const newServices: PerformedService[] = []
+    if (extService && suppCost > 0) {
+      const targetSuppId = suppId || selectedSupplierId
+      const supp = suppliers.find(s => s.id === targetSuppId)
+      newServices.push({ name: `Fason Onarım Bedeli (${supp?.company_name || 'Dış Servis'})`, price: suppCost })
+    }
+    newServices.push({ name: 'Cihaz Onarım & Servis Bedeli', price: netLabor })
+    newServices.push(...otherServices)
+
+    setPerformedServices(newServices)
+  }
+
+  // Hızlı Tamir Ücreti Uygula / Güncelle (Müşteriye Verilen Toplam Fiyat)
   const handleApplyQuickPrice = (amount?: number) => {
     const val = amount !== undefined ? amount : (parseFloat(quickPriceInput) || 0)
     if (val < 0) return
 
-    setPerformedServices(prev => {
-      const others = prev.filter(s => s.name !== 'Cihaz Onarım & Servis Bedeli' && s.name !== 'Genel Tamir Bedeli')
-      if (val > 0) {
-        return [{ name: 'Cihaz Onarım & Servis Bedeli', price: val }, ...others]
-      }
-      return others
-    })
+    const partsTotal = usedParts.reduce((acc, p) => acc + (Number(p.total) || 0), 0)
+    const suppCost = isExternalService ? (parseFloat(externalServiceCost) || 0) : 0
+    
+    // Kullanıcının manuel eklediği diğer özel hizmetler (Genel Onarım ve Fason hariç)
+    const otherServices = performedServices.filter(s => 
+      s.name !== 'Cihaz Onarım & Servis Bedeli' && 
+      s.name !== 'Genel Tamir Bedeli' && 
+      !s.name.startsWith('Fason Onarım Bedeli')
+    )
+    const otherServicesTotal = otherServices.reduce((acc, s) => acc + (Number(s.price) || 0), 0)
+
+    // Net İşçilik = Toplam Hedef - Parça Toplamı - Fason Maliyeti - Diğer Hizmetler
+    const netLabor = val - partsTotal - suppCost - otherServicesTotal
+
+    const newServices: PerformedService[] = []
+
+    // 1. Dış servis varsa ve maliyeti > 0 ise fason bedelini hizmet satırı olarak ekle
+    if (isExternalService && suppCost > 0) {
+      const supp = suppliers.find(s => s.id === selectedSupplierId)
+      const laborName = `Fason Onarım Bedeli (${supp?.company_name || 'Dış Servis'})`
+      newServices.push({ name: laborName, price: suppCost })
+    }
+
+    // 2. Kalan net işçilik bedeli
+    if (netLabor > 0 || (val > 0 && newServices.length === 0 && otherServices.length === 0)) {
+      newServices.push({ 
+        name: 'Cihaz Onarım & Servis Bedeli', 
+        price: Math.max(0, Number(netLabor.toFixed(2))) 
+      })
+    }
+
+    // 3. Varsa diğer özel hizmetleri koru
+    newServices.push(...otherServices)
+
+    setPerformedServices(newServices)
     setQuickPriceInput(val > 0 ? val.toString() : '')
-    toast.success(`Tamir servis bedeli ${formatMoney(val, 'TRY').formatted} olarak belirlendi!`)
+
+    if (netLabor < 0) {
+      toast.error(
+        `Belirlenen toplam tutar (${formatMoney(val, 'TRY').formatted}), parça (${formatMoney(partsTotal, 'TRY').formatted}) ve dış servis (${formatMoney(suppCost, 'TRY').formatted}) maliyetinden az! İşçilik 0 ₺ olarak ayarlandı.`, 
+        { duration: 5000 }
+      )
+    } else {
+      toast.success(`Müşteri toplam tutarı ${formatMoney(val, 'TRY').formatted} olarak belirlendi. (Net İşçilik: ${formatMoney(Math.max(0, netLabor), 'TRY').formatted})`)
+    }
   }
 
   // Yedek Parça Ekle
@@ -769,14 +878,30 @@ export default function TechnicalServicePage() {
       total
     }
 
-    setUsedParts(prev => [...prev, newPart])
+    const updatedParts = [...usedParts, newPart]
+    setUsedParts(updatedParts)
     setSelectedStockId('')
     setSelectedPartPrice('')
     setStockQty('1')
+    setPartSearchQuery('')
+    setIsPartDropdownOpen(false)
+
+    // Eğer sabit hedef toplam fiyat girilmişse, eklenen parça tutarını işçilikten otomatik düşerek toplamı sabit tut
+    const targetTotal = parseFloat(quickPriceInput) || 0
+    if (targetTotal > 0) {
+      autoRebalanceLabor(targetTotal, updatedParts, performedServices, isExternalService, externalServiceCost)
+    }
   }
 
   const handleRemovePart = (index: number) => {
-    setUsedParts(prev => prev.filter((_, i) => i !== index))
+    const updatedParts = usedParts.filter((_, i) => i !== index)
+    setUsedParts(updatedParts)
+
+    // Eğer sabit hedef toplam fiyat girilmişse, çıkarılan parçanın tutarını işçiliğe geri aktar
+    const targetTotal = parseFloat(quickPriceInput) || 0
+    if (targetTotal > 0) {
+      autoRebalanceLabor(targetTotal, updatedParts, performedServices, isExternalService, externalServiceCost)
+    }
   }
 
   // Tanımlı Hizmet Ekle
@@ -833,6 +958,7 @@ export default function TechnicalServicePage() {
       const isDeliveredNow = detailStatus === 'delivered' && selectedTicket.status !== 'delivered'
       const isCompletedNow = (detailStatus === 'ready' || detailStatus === 'delivered') && !selectedTicket.completed_at
       const shouldProcessPayment = detailStatus === 'delivered' && (isDeliveredNow || selectedTicket.payment_status === 'unpaid')
+      const finalDeliveryDate = deliveryDate || new Date().toISOString().substring(0, 10)
 
       const updates: any = {
         status: detailStatus,
@@ -879,6 +1005,7 @@ export default function TechnicalServicePage() {
             supplier_id: selectedSupplierId,
             company_id: selectedTicket.company_id,
             amount: suppCostNum,
+            tx_date: finalDeliveryDate,
             description: `${descPrefix} - ${updates.brand_model || selectedTicket.brand_model}`
           }).eq('id', existingSuppTx.id)
 
@@ -889,7 +1016,7 @@ export default function TechnicalServicePage() {
           await supabase.from('supplier_transactions').insert([{
             supplier_id: selectedSupplierId,
             company_id: selectedTicket.company_id,
-            tx_date: new Date().toISOString().substring(0, 10),
+            tx_date: finalDeliveryDate,
             description: `${descPrefix} - ${updates.brand_model || selectedTicket.brand_model}`,
             tx_type: 'debt',
             amount: suppCostNum,
@@ -915,8 +1042,10 @@ export default function TechnicalServicePage() {
         updates.completed_at = new Date().toISOString()
       }
 
-      if (detailStatus === 'delivered' && !selectedTicket.delivered_at) {
-        updates.delivered_at = new Date().toISOString()
+      if (detailStatus === 'delivered') {
+        updates.delivered_at = `${finalDeliveryDate}T12:00:00.000Z`
+      } else if (selectedTicket.status === 'delivered') {
+        updates.delivered_at = null
       }
 
       // Cihaz şimdi teslim ediliyorsa veya teslim edilmişse tahsilat işlemlerini gerçekleştir (mükerrer kayıt engeliyle)
@@ -958,14 +1087,15 @@ export default function TechnicalServicePage() {
             const cash = cashes.find(c => c.id === paymentTargetId) || cashes[0]
             if (cash) {
               if (existingCashTx) {
-                // Önceden bu bilet için nakit tahsilat varsa ve tutar değiştiyse güncelle, ASLA mükerrer satır ekleme
+                // Önceden bu bilet için nakit tahsilat varsa ve tutar/tarih değiştiyse güncelle, ASLA mükerrer satır ekleme
                 const diff = calcTotalCost - Number(existingCashTx.amount)
-                if (diff !== 0) {
-                  await supabase.from('cash_transactions').update({
-                    amount: calcTotalCost,
-                    description: `${payDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`
-                  }).eq('id', existingCashTx.id)
+                await supabase.from('cash_transactions').update({
+                  amount: calcTotalCost,
+                  tx_date: finalDeliveryDate,
+                  description: `${payDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`
+                }).eq('id', existingCashTx.id)
 
+                if (diff !== 0) {
                   await supabase.from('cash_registers').update({
                     balance: Number(cash.balance || 0) + diff
                   }).eq('id', cash.id)
@@ -974,7 +1104,7 @@ export default function TechnicalServicePage() {
                 await supabase.from('cash_transactions').insert([{
                   cash_register_id: cash.id,
                   company_id: selectedTicket.company_id,
-                  tx_date: new Date().toISOString().substring(0, 10),
+                  tx_date: finalDeliveryDate,
                   description: `${payDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`,
                   tx_type: 'in',
                   amount: calcTotalCost,
@@ -994,12 +1124,13 @@ export default function TechnicalServicePage() {
             if (bank) {
               if (existingBankTx) {
                 const diff = calcTotalCost - Number(existingBankTx.amount)
-                if (diff !== 0) {
-                  await supabase.from('bank_transactions').update({
-                    amount: calcTotalCost,
-                    description: `${cardDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`
-                  }).eq('id', existingBankTx.id)
+                await supabase.from('bank_transactions').update({
+                  amount: calcTotalCost,
+                  tx_date: finalDeliveryDate,
+                  description: `${cardDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`
+                }).eq('id', existingBankTx.id)
 
+                if (diff !== 0) {
                   await supabase.from('bank_accounts').update({
                     balance: Number(bank.balance || 0) + diff
                   }).eq('id', bank.id)
@@ -1008,7 +1139,7 @@ export default function TechnicalServicePage() {
                 await supabase.from('bank_transactions').insert([{
                   bank_account_id: bank.id,
                   company_id: selectedTicket.company_id,
-                  tx_date: new Date().toISOString().substring(0, 10),
+                  tx_date: finalDeliveryDate,
                   description: `${cardDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`,
                   tx_type: 'in',
                   status: 'completed',
@@ -1027,12 +1158,13 @@ export default function TechnicalServicePage() {
           } else if (paymentMethod === 'customer_debt' && selectedTicket.customer_id) {
             if (existingCustTx) {
               const diff = calcTotalCost - Number(existingCustTx.amount)
-              if (diff !== 0) {
-                await supabase.from('customer_transactions').update({
-                  amount: calcTotalCost,
-                  description: `${debtDescPrefix} - ${updates.brand_model || selectedTicket.brand_model}`
-                }).eq('id', existingCustTx.id)
+              await supabase.from('customer_transactions').update({
+                amount: calcTotalCost,
+                tx_date: finalDeliveryDate,
+                description: `${debtDescPrefix} - ${updates.brand_model || selectedTicket.brand_model}`
+              }).eq('id', existingCustTx.id)
 
+              if (diff !== 0) {
                 const cust = customers.find(c => c.id === selectedTicket.customer_id)
                 if (cust) {
                   await supabase.from('customers').update({
@@ -1044,7 +1176,7 @@ export default function TechnicalServicePage() {
               await supabase.from('customer_transactions').insert([{
                 customer_id: selectedTicket.customer_id,
                 company_id: selectedTicket.company_id,
-                tx_date: new Date().toISOString().substring(0, 10),
+                tx_date: finalDeliveryDate,
                 description: `${debtDescPrefix} - ${updates.brand_model || selectedTicket.brand_model}`,
                 tx_type: 'debt',
                 amount: calcTotalCost,
@@ -1092,7 +1224,7 @@ export default function TechnicalServicePage() {
             stockInserts.push({
               stock_id: part.stock_id,
               company_id: selectedTicket.company_id || null,
-              tx_date: new Date().toISOString().substring(0, 10),
+              tx_date: finalDeliveryDate,
               description: `${stockDescPrefix} (${part.name})`,
               tx_type: 'out',
               quantity: Number(part.quantity),
@@ -2242,7 +2374,14 @@ export default function TechnicalServicePage() {
                     <input
                       type="checkbox"
                       checked={isExternalService}
-                      onChange={(e) => setIsExternalService(e.target.checked)}
+                      onChange={(e) => {
+                        const checked = e.target.checked
+                        setIsExternalService(checked)
+                        const targetTotal = parseFloat(quickPriceInput) || 0
+                        if (targetTotal > 0) {
+                          autoRebalanceLabor(targetTotal, usedParts, performedServices, checked, externalServiceCost)
+                        }
+                      }}
                       className="w-4 h-4 rounded text-amber-500 focus:ring-0 bg-slate-900 border-slate-700 cursor-pointer"
                     />
                     <div className="flex items-center gap-2">
@@ -2266,7 +2405,14 @@ export default function TechnicalServicePage() {
                         <label className="block text-slate-300 text-[10px] font-bold mb-1">Anlaşmalı Tedarikçi *</label>
                         <select
                           value={selectedSupplierId}
-                          onChange={(e) => setSelectedSupplierId(e.target.value)}
+                          onChange={(e) => {
+                            const sId = e.target.value
+                            setSelectedSupplierId(sId)
+                            const targetTotal = parseFloat(quickPriceInput) || 0
+                            if (targetTotal > 0 && parseFloat(externalServiceCost) > 0) {
+                              autoRebalanceLabor(targetTotal, usedParts, performedServices, true, externalServiceCost, sId)
+                            }
+                          }}
                           className="w-full px-2.5 py-1.5 bg-[#070b14] border border-slate-800 rounded-xl text-white text-xs font-medium focus:outline-none focus:border-amber-500"
                         >
                           <option value="">-- Tedarikçi Seçin --</option>
@@ -2282,7 +2428,14 @@ export default function TechnicalServicePage() {
                           <input
                             type="number"
                             value={externalServiceCost}
-                            onChange={(e) => setExternalServiceCost(e.target.value)}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              setExternalServiceCost(val)
+                              const targetTotal = parseFloat(quickPriceInput) || 0
+                              if (targetTotal > 0 && isExternalService) {
+                                autoRebalanceLabor(targetTotal, usedParts, performedServices, true, val)
+                              }
+                            }}
                             placeholder="0.00"
                             className="w-full px-2.5 py-1.5 bg-[#070b14] border border-slate-800 rounded-xl text-white text-xs font-mono font-bold focus:outline-none focus:border-amber-500"
                           />
@@ -2313,15 +2466,21 @@ export default function TechnicalServicePage() {
                             const cost = parseFloat(externalServiceCost) || 0
                             const supp = suppliers.find(s => s.id === selectedSupplierId)
                             const laborName = `Fason Onarım Bedeli (${supp?.company_name || 'Dış Servis'})`
-                            setPerformedServices(prev => {
-                              const filtered = prev.filter(p => !p.name.startsWith('Fason Onarım Bedeli'))
-                              return [...filtered, { name: laborName, price: cost }]
-                            })
-                            toast.success('Fason bedeli servis işçilik listesine eklendi!')
+                            const targetTotal = parseFloat(quickPriceInput) || 0
+                            if (targetTotal > 0) {
+                              autoRebalanceLabor(targetTotal, usedParts, performedServices, true, externalServiceCost)
+                              toast.success(`Fason maliyeti (${formatMoney(cost, 'TRY').formatted}) toplam fiyata dahil edildi ve net işçilik dengelendi.`)
+                            } else {
+                              setPerformedServices(prev => {
+                                const filtered = prev.filter(p => !p.name.startsWith('Fason Onarım Bedeli'))
+                                return [...filtered, { name: laborName, price: cost }]
+                              })
+                              toast.success('Fason bedeli servis listesine eklendi!')
+                            }
                           }}
-                          className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-lg text-[10px] font-bold border border-amber-500/40 transition shrink-0 ml-2"
+                          className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-lg text-[10px] font-bold border border-amber-500/40 transition shrink-0 ml-2 cursor-pointer"
                         >
-                          + Müşteri Tamir Fiyatına Ekle
+                          + Müşteri Toplam Fiyatına Dahil Et
                         </button>
                       )}
                     </div>
@@ -2338,10 +2497,10 @@ export default function TechnicalServicePage() {
                     </div>
                     <div>
                       <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-wider block">
-                        Tamir Ücreti Belirleme (Fiyatın Yansıması)
+                        Tamir Ücreti Belirleme (Müşteriye Verilen Toplam Fiyat)
                       </span>
                       <p className="text-[10px] text-slate-400">
-                        Aşağıdaki işçilik ve parça listesinden toplanır veya buradan doğrudan tek tutar olarak belirlenir.
+                        Müşteriye verdiğiniz toplam onarım tutarını girin. Yedek parça ve dış servis maliyetleri bu tutardan düşülerek kalan kısım net işçilik bedeli hesaplanır.
                       </p>
                     </div>
                   </div>
@@ -2351,14 +2510,14 @@ export default function TechnicalServicePage() {
                       type="button"
                       onClick={() => handleApplyQuickPrice(selectedTicket.estimated_cost)}
                       className="px-3 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-bold text-[11px] rounded-xl transition flex items-center gap-1.5 cursor-pointer shrink-0"
-                      title="Kabuldeki ön tahmin tutarını tamir fiyatına aktar"
+                      title="Kabuldeki ön tahmin tutarını toplam fiyata aktar"
                     >
                       <span>⚡ Ön Tahmini ({formatMoney(selectedTicket.estimated_cost, 'TRY').formatted}) Uygula</span>
                     </button>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 pt-1 border-t border-slate-800/80">
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-800/80">
                   <div className="relative flex-1 sm:max-w-xs">
                     <input
                       type="number"
@@ -2370,7 +2529,7 @@ export default function TechnicalServicePage() {
                           handleApplyQuickPrice()
                         }
                       }}
-                      placeholder="Sabit Tamir Tutarı Gir..."
+                      placeholder="Müşteriye Verilen Toplam (Örn: 750)"
                       className="w-full px-3 py-1.5 bg-[#070b14] border border-indigo-500/40 rounded-xl text-white font-mono font-bold text-xs focus:outline-none focus:border-indigo-400"
                     />
                     <span className="absolute right-3 top-1.5 text-slate-400 text-xs font-bold">₺</span>
@@ -2379,15 +2538,25 @@ export default function TechnicalServicePage() {
                     type="button"
                     onClick={() => handleApplyQuickPrice()}
                     disabled={!quickPriceInput || parseFloat(quickPriceInput) < 0}
-                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-[11px] rounded-xl transition cursor-pointer active:scale-95"
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-[11px] rounded-xl transition cursor-pointer active:scale-95 shadow-md shadow-indigo-600/30"
                   >
-                    Fiyatı Uygula
+                    Fiyatı Dağıt / Uygula
                   </button>
 
-                  <div className="ml-auto hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
-                    <span>Mevcut Toplam:</span>
-                    <span className="text-emerald-400 font-bold text-xs">
-                      {formatMoney(calcTotalCost, 'TRY').formatted}
+                  <div className="ml-auto flex flex-wrap items-center gap-1.5 text-[10px] text-slate-400 font-mono">
+                    <span className="bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
+                      Parça: <b className="text-purple-300">{formatMoney(calcPartsCost, 'TRY').formatted}</b>
+                    </span>
+                    {isExternalService && parseFloat(externalServiceCost) > 0 && (
+                      <span className="bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                        Dış Servis: <b className="text-amber-300">{formatMoney(parseFloat(externalServiceCost) || 0, 'TRY').formatted}</b>
+                      </span>
+                    )}
+                    <span className="bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/30">
+                      İşçilik: <b className="text-blue-300">{formatMoney(calcLaborCost, 'TRY').formatted}</b>
+                    </span>
+                    <span className="bg-emerald-500/15 px-2.5 py-0.5 rounded-lg border border-emerald-500/30 font-bold text-emerald-400 text-xs">
+                      TOPLAM: {formatMoney(calcTotalCost, 'TRY').formatted}
                     </span>
                   </div>
                 </div>
@@ -2546,30 +2715,123 @@ export default function TechnicalServicePage() {
                   {/* Parça Ekleme Formu */}
                   <div className="bg-[#070b14] p-2.5 rounded-xl border border-slate-800/80 space-y-2">
                     <div className="w-full">
-                      <select
-                        value={selectedStockId}
-                        onChange={(e) => {
-                          const sid = e.target.value
-                          setSelectedStockId(sid)
-                          const st = stocks.find(s => s.id === sid)
-                          if (st) {
-                            setSelectedPartPrice(getTryPrice(st.unit_price, st.currency).toString())
-                          } else {
-                            setSelectedPartPrice('')
-                          }
-                        }}
-                        className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] focus:outline-none focus:border-purple-500 truncate"
-                      >
-                        <option value="">-- Depodan Parça Seç --</option>
-                        {stocks.map(s => {
-                          const tryVal = getTryPrice(s.unit_price, s.currency)
+                      {selectedStockId ? (
+                        (() => {
+                          const st = stocks.find(s => s.id === selectedStockId)
                           return (
-                            <option key={s.id} value={s.id}>
-                              {s.name} (Stok: {s.quantity} - {s.currency && s.currency !== 'TRY' ? `${formatMoney(s.unit_price, s.currency).formatted} ≈ ` : ''}{formatMoney(tryVal, 'TRY').formatted})
-                            </option>
+                            <div className="flex items-center justify-between p-2 bg-purple-950/40 border border-purple-500/40 rounded-xl">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Package size={14} className="text-purple-400 shrink-0" />
+                                <div className="truncate">
+                                  <span className="font-bold text-white text-xs block truncate">{st?.name}</span>
+                                  <span className="text-[10px] text-slate-400">
+                                    Mevcut Stok: <b className={(st?.quantity || 0) > 0 ? "text-emerald-400" : "text-rose-400"}>{st?.quantity || 0} Adet</b>
+                                    {st?.sku && <span className="ml-1 text-slate-500 font-mono">({st.sku})</span>}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedStockId('')
+                                  setSelectedPartPrice('')
+                                  setPartSearchQuery('')
+                                }}
+                                className="p-1 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition cursor-pointer shrink-0"
+                                title="Farklı parça seç"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
                           )
-                        })}
-                      </select>
+                        })()
+                      ) : (
+                        <div className="relative" ref={partDropdownRef}>
+                          <div className="relative">
+                            <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+                            <input
+                              type="text"
+                              placeholder="🔍 Depodan Parça Ara (İsim, Model veya Kod)..."
+                              value={partSearchQuery}
+                              onChange={(e) => {
+                                setPartSearchQuery(e.target.value)
+                                setIsPartDropdownOpen(true)
+                              }}
+                              onFocus={() => setIsPartDropdownOpen(true)}
+                              className="w-full pl-8 pr-7 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-white text-[11px] placeholder:text-slate-500 focus:outline-none focus:border-purple-500"
+                            />
+                            {partSearchQuery && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPartSearchQuery('')
+                                  setIsPartDropdownOpen(false)
+                                }}
+                                className="absolute right-2.5 top-2 text-slate-500 hover:text-slate-300"
+                              >
+                                <X size={12} />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Dropdown Sonuçları */}
+                          {isPartDropdownOpen && (
+                            <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-[#0f172a] border border-purple-500/40 rounded-xl shadow-2xl overflow-hidden max-h-56 flex flex-col animate-in fade-in duration-100">
+                              <div className="p-1.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between text-[10px] text-purple-300 font-medium">
+                                <span>Depodaki Parçalar ({filteredStocks.length} ürün)</span>
+                                <span className="text-slate-500">Seçmek için tıklayın</span>
+                              </div>
+                              <div className="overflow-y-auto custom-scrollbar divide-y divide-slate-800/50">
+                                {filteredStocks.length === 0 ? (
+                                  <div className="p-3 text-center text-slate-500 text-[11px]">
+                                    Aramanıza uygun yedek parça bulunamadı.
+                                  </div>
+                                ) : (
+                                  filteredStocks.map((st) => {
+                                    const tryVal = getTryPrice(st.unit_price, st.currency)
+                                    return (
+                                      <button
+                                        key={st.id}
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedStockId(st.id)
+                                          setSelectedPartPrice(tryVal.toString())
+                                          setIsPartDropdownOpen(false)
+                                          setPartSearchQuery('')
+                                        }}
+                                        className="w-full p-2 text-left hover:bg-purple-950/40 flex items-center justify-between gap-2 transition cursor-pointer group"
+                                      >
+                                        <div className="min-w-0">
+                                          <span className="font-medium text-slate-200 text-[11px] block truncate group-hover:text-purple-300">
+                                            {st.name}
+                                          </span>
+                                          <div className="flex items-center gap-1.5 text-[9px] text-slate-400 mt-0.5">
+                                            {st.sku && <span className="font-mono text-slate-500">Kod: {st.sku} •</span>}
+                                            {st.category && <span>{st.category} •</span>}
+                                            <span className={st.quantity > 0 ? "text-emerald-400 font-bold" : "text-rose-400"}>
+                                              {st.quantity > 0 ? `Stok: ${st.quantity} ad.` : 'Tükendi (0)'}
+                                            </span>
+                                          </div>
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                          <span className="font-mono font-bold text-white text-[11px] block">
+                                            {formatMoney(tryVal, 'TRY').formatted}
+                                          </span>
+                                          {st.currency && st.currency !== 'TRY' && (
+                                            <span className="font-mono text-[9px] text-slate-500 block">
+                                              {formatMoney(st.unit_price, st.currency).formatted}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </button>
+                                    )
+                                  })
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 pt-1 border-t border-slate-800/50">
@@ -2671,7 +2933,20 @@ export default function TechnicalServicePage() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <label className="block text-slate-300 font-bold mb-1 flex items-center gap-1">
+                        <Calendar size={13} className="text-emerald-400" />
+                        <span>Teslim & Tahsilat Tarihi *</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={deliveryDate}
+                        onChange={(e) => setDeliveryDate(e.target.value)}
+                        className="w-full px-3 py-2 bg-[#070b14] border border-emerald-500/40 rounded-xl text-white font-mono font-bold text-xs focus:outline-none focus:border-emerald-400"
+                      />
+                    </div>
+
                     <div>
                       <label className="block text-slate-300 font-bold mb-1">Tahsilat Yöntemi</label>
                       <select
@@ -2725,6 +3000,9 @@ export default function TechnicalServicePage() {
                         <span>Parçaları depodan otomatik düş</span>
                       </label>
                     </div>
+                  </div>
+                  <div className="text-[11px] text-slate-400 bg-[#070b14]/60 p-2 rounded-xl border border-slate-800/80">
+                    💡 Cihazı dün veya geçmiş bir tarihte teslim ettiyseniz teslim tarihini seçebilirsiniz. Kasa hareketi ve Mağaza (POS) gün sonu göstergeleri bu tarihe işlenecektir.
                   </div>
                 </div>
               )}
