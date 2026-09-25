@@ -1720,31 +1720,29 @@ export default function RetailPOSPage() {
       )}
 
       {/* ÜST BİLGİ BARI */}
-      <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex flex-wrap justify-between items-center gap-2 px-1.5 py-2 bg-[#0a0f1d] border-b border-slate-800 shrink-0 select-none shadow-sm z-10">
+      <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex items-center justify-between gap-1.5 px-2 py-1.5 bg-[#0a0f1d] border-b border-slate-800 shrink-0 select-none shadow-sm z-10 overflow-x-auto">
         
         {/* SOL GRUP */}
-        <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+        <div className="flex items-center gap-1.5 text-xs font-mono shrink-0">
           {/* KASA */}
           <div 
-            className="flex items-center gap-2 bg-indigo-950/30 border border-indigo-500/30 px-3 py-1.5 rounded-lg" 
+            className="flex items-center gap-1.5 bg-indigo-950/30 border border-indigo-500/30 px-2 py-1 rounded-lg" 
             title={`Dünden Devir: ${openingCash || '0,00'} ₺\nNakit Giriş: ${formatMoney(grandTotalCash + deliveredTicketsCash, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCash, 'TRY').formatted} + Servis: ${formatMoney(deliveredTicketsCash, 'TRY').formatted})\nNakit Gider: ${formatMoney(expenseCash, 'TRY').formatted}\nKasa Sonu: ${formatMoney(calculatedKasa, 'TRY').formatted}`}
           >
-            <span className="text-slate-400 font-sans font-bold text-[10px] uppercase">Kasa:</span>
-            <span className="text-indigo-400 font-black text-sm">{formatMoney(calculatedKasa, 'TRY').formatted}</span>
-            <button onClick={() => setIsTransferModalOpen(true)} className="ml-1 bg-indigo-600/20 hover:bg-indigo-600/50 text-indigo-300 p-1 rounded transition-colors" title="Bankaya Para Yatır / Çek">
-              <Landmark size={14} />
+            <span className="text-slate-400 font-sans font-bold text-[9px] uppercase">Kasa:</span>
+            <span className="text-indigo-400 font-black text-xs font-mono">{formatMoney(calculatedKasa, 'TRY').formatted}</span>
+            <button onClick={() => setIsTransferModalOpen(true)} className="p-0.5 bg-indigo-600/20 hover:bg-indigo-600/50 text-indigo-300 rounded transition-colors" title="Bankaya Para Yatır / Çek">
+              <Landmark size={13} />
             </button>
           </div>
           
-          <div className="hidden md:block w-px h-5 bg-slate-800 mx-0.5"></div>
-          
           {/* NAKİT SATIŞ & TAHSİLAT */}
-          <div className="flex items-center gap-2 bg-emerald-950/30 border border-emerald-500/30 px-2.5 py-1.5 rounded-lg" title={`Toplam Nakit: ${formatMoney(grandTotalCash + deliveredTicketsCash, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCash, 'TRY').formatted}, Servis: ${formatMoney(deliveredTicketsCash, 'TRY').formatted})`}>
-            <Wallet size={14} className="text-emerald-500 shrink-0"/>
+          <div className="flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-500/30 px-2 py-1 rounded-lg" title={`Toplam Nakit: ${formatMoney(grandTotalCash + deliveredTicketsCash, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCash, 'TRY').formatted}, Servis: ${formatMoney(deliveredTicketsCash, 'TRY').formatted})`}>
+            <Wallet size={13} className="text-emerald-500 shrink-0"/>
             <div className="flex flex-col">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 <span className="text-slate-400 font-sans font-bold text-[9px] uppercase">Nakit:</span>
-                <span className="text-emerald-400 font-bold">{formatMoney(grandTotalCash + deliveredTicketsCash, 'TRY').formatted}</span>
+                <span className="text-emerald-400 font-bold text-xs font-mono">{formatMoney(grandTotalCash + deliveredTicketsCash, 'TRY').formatted}</span>
               </div>
               <div className="flex items-center gap-1 text-[8px] font-sans text-slate-400 leading-none mt-0.5">
                 <span>Mğz: <b className="text-emerald-300 font-normal font-mono">{formatMoney(grandTotalCash, 'TRY').formatted}</b></span>
@@ -1759,12 +1757,12 @@ export default function RetailPOSPage() {
           </div>
           
           {/* KREDİ KARTI SATIŞ & TAHSİLAT */}
-          <div className="flex items-center gap-2 bg-purple-950/30 border border-purple-500/30 px-2.5 py-1.5 rounded-lg" title={`Toplam Kredi Kartı: ${formatMoney(grandTotalCard + deliveredTicketsCard, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCard, 'TRY').formatted}, Servis: ${formatMoney(deliveredTicketsCard, 'TRY').formatted})`}>
-            <CreditCard size={14} className="text-purple-500 shrink-0"/>
+          <div className="flex items-center gap-1.5 bg-purple-950/30 border border-purple-500/30 px-2 py-1 rounded-lg" title={`Toplam Kredi Kartı: ${formatMoney(grandTotalCard + deliveredTicketsCard, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCard, 'TRY').formatted}, Servis: ${formatMoney(deliveredTicketsCard, 'TRY').formatted})`}>
+            <CreditCard size={13} className="text-purple-500 shrink-0"/>
             <div className="flex flex-col">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 <span className="text-slate-400 font-sans font-bold text-[9px] uppercase">K.Kartı:</span>
-                <span className="text-purple-400 font-bold">{formatMoney(grandTotalCard + deliveredTicketsCard, 'TRY').formatted}</span>
+                <span className="text-purple-400 font-bold text-xs font-mono">{formatMoney(grandTotalCard + deliveredTicketsCard, 'TRY').formatted}</span>
               </div>
               <div className="flex items-center gap-1 text-[8px] font-sans text-slate-400 leading-none mt-0.5">
                 <span>Mğz: <b className="text-purple-300 font-normal font-mono">{formatMoney(grandTotalCard, 'TRY').formatted}</b></span>
@@ -1779,12 +1777,12 @@ export default function RetailPOSPage() {
           </div>
 
           {/* SERVİS FİŞLERİ TAHSİLAT KUTUSU */}
-          <div className="flex items-center gap-2 bg-teal-950/30 border border-teal-500/30 px-2.5 py-1.5 rounded-lg" title={`Bugün teslim edilen ${deliveredTickets.length} servis fişinden tahsil edilen toplam tutar`}>
-            <Wrench size={14} className="text-teal-400 shrink-0"/>
+          <div className="flex items-center gap-1.5 bg-teal-950/30 border border-teal-500/30 px-2 py-1 rounded-lg" title={`Bugün teslim edilen ${deliveredTickets.length} servis fişinden tahsil edilen toplam tutar`}>
+            <Wrench size={13} className="text-teal-400 shrink-0"/>
             <div className="flex flex-col">
-              <div className="flex items-center gap-1.5">
-                <span className="text-teal-300 font-sans font-bold text-[9px] uppercase">Servis Fişleri:</span>
-                <span className="text-teal-300 font-bold">{formatMoney(deliveredTicketsTotal, 'TRY').formatted}</span>
+              <div className="flex items-center gap-1">
+                <span className="text-teal-300 font-sans font-bold text-[9px] uppercase">Servis:</span>
+                <span className="text-teal-300 font-bold text-xs font-mono">{formatMoney(deliveredTicketsTotal, 'TRY').formatted}</span>
               </div>
               <div className="flex items-center gap-1 text-[8px] font-mono text-slate-400 leading-none mt-0.5">
                 <span className="text-emerald-400">N: {formatMoney(deliveredTicketsCash, 'TRY').formatted}</span>
@@ -1794,22 +1792,20 @@ export default function RetailPOSPage() {
             </div>
           </div>
           
-          <div className="hidden lg:block w-px h-5 bg-slate-800 mx-0.5"></div>
-          
           {/* TOPLAM GİDER */}
-          <div className="flex items-center gap-2 bg-amber-950/30 border border-amber-500/30 px-3 py-1.5 rounded-lg">
-            <span className="text-slate-400 font-sans font-bold text-[10px] uppercase">Toplam Gider:</span>
-            <span className="text-amber-400 font-bold">{formatMoney(expenseGrandTotal, 'TRY').formatted}</span>
+          <div className="flex items-center gap-1.5 bg-amber-950/30 border border-amber-500/30 px-2 py-1 rounded-lg" title={`Toplam Gider: ${formatMoney(expenseGrandTotal, 'TRY').formatted} (Nakit: ${formatMoney(expenseCash, 'TRY').formatted} + Kart: ${formatMoney(expenseCard, 'TRY').formatted})`}>
+            <span className="text-slate-400 font-sans font-bold text-[9px] uppercase">Gider:</span>
+            <span className="text-amber-400 font-bold text-xs font-mono">{formatMoney(expenseGrandTotal, 'TRY').formatted}</span>
           </div>
         </div>
 
         {/* SAĞ GRUP */}
-        <div className="flex items-center gap-3 mt-2 md:mt-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           
-          <div className="flex items-center gap-2 bg-blue-950/30 border border-blue-500/30 px-2.5 py-1 rounded-lg">
-            <span className="text-blue-400 font-sans font-bold text-[10px] uppercase tracking-wide">🖨️ Fotokopi:</span>
+          <div className="flex items-center gap-1.5 bg-blue-950/30 border border-blue-500/30 px-2 py-1 rounded-lg">
+            <span className="text-blue-400 font-sans font-bold text-[9px] uppercase tracking-wide">🖨️ Foto:</span>
             <div className="flex items-center gap-1">
-              <span className="text-slate-400 text-[10px] font-bold">N</span>
+              <span className="text-slate-400 text-[9px] font-bold">N</span>
               <input 
                 type="text" 
                 inputMode="decimal" 
@@ -1817,11 +1813,11 @@ export default function RetailPOSPage() {
                 value={photoCash} 
                 onChange={(e) => { setPhotoCash(e.target.value); setHasUnsavedChanges(true); setSaveStatus('idle'); }} 
                 onBlur={(e) => handlePhotoBlur('cash', e.target.value)} 
-                className="w-16 bg-[#070b14] border border-slate-700 text-emerald-400 text-right focus:outline-none focus:border-blue-500 font-mono font-bold text-xs rounded px-1.5 py-0.5 placeholder:text-slate-600 transition-colors" 
+                className="w-14 bg-[#070b14] border border-slate-700 text-emerald-400 text-right focus:outline-none focus:border-blue-500 font-mono font-bold text-[11px] rounded px-1 py-0.5 placeholder:text-slate-600 transition-colors" 
               />
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-slate-400 text-[10px] font-bold">K</span>
+              <span className="text-slate-400 text-[9px] font-bold">K</span>
               <input 
                 type="text" 
                 inputMode="decimal" 
@@ -1829,7 +1825,7 @@ export default function RetailPOSPage() {
                 value={photoCard} 
                 onChange={(e) => { setPhotoCard(e.target.value); setHasUnsavedChanges(true); setSaveStatus('idle'); }} 
                 onBlur={(e) => handlePhotoBlur('card', e.target.value)} 
-                className="w-16 bg-[#070b14] border border-slate-700 text-purple-400 text-right focus:outline-none focus:border-blue-500 font-mono font-bold text-xs rounded px-1.5 py-0.5 placeholder:text-slate-600 transition-colors" 
+                className="w-14 bg-[#070b14] border border-slate-700 text-purple-400 text-right focus:outline-none focus:border-blue-500 font-mono font-bold text-[11px] rounded px-1 py-0.5 placeholder:text-slate-600 transition-colors" 
               />
             </div>
           </div>
@@ -1837,24 +1833,24 @@ export default function RetailPOSPage() {
           <button 
             type="button"
             onClick={handleOpenReturnModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 hover:text-white border border-rose-700/40 hover:border-rose-500/70 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-sm shadow-rose-950/20 group cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 hover:text-white border border-rose-700/40 hover:border-rose-500/70 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-sm shadow-rose-950/20 group cursor-pointer shrink-0"
             title="Müşteriden Satış İadesi Al (Nakit / Kredi Kartı / Kesintili)"
           >
-            <RotateCcw size={15} className="text-rose-400 group-hover:rotate-[-45deg] transition-transform duration-200" />
+            <RotateCcw size={13} className="text-rose-400 group-hover:rotate-[-45deg] transition-transform duration-200" />
             <span>İade Al</span>
           </button>
 
-          <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors" title="Mağaza Hesap Ayarları">
-            <Settings size={18} />
+          <button onClick={() => setIsSettingsModalOpen(true)} className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors shrink-0" title="Mağaza Hesap Ayarları">
+            <Settings size={16} />
           </button>
 
-          <div className="flex items-center gap-1 bg-[#070b14] border border-slate-700 rounded p-1 relative">
-            <button onClick={() => changeDate(-1)} disabled={isFetching || isSaving || isSyncing} className="p-1 hover:bg-slate-800 rounded text-slate-400 transition-colors disabled:opacity-50">
-              <ChevronLeft size={16} />
+          <div className="flex items-center gap-0.5 bg-[#070b14] border border-slate-700 rounded-lg p-0.5 relative shrink-0">
+            <button onClick={() => changeDate(-1)} disabled={isFetching || isSaving || isSyncing} className="p-0.5 hover:bg-slate-800 rounded text-slate-400 transition-colors disabled:opacity-50">
+              <ChevronLeft size={15} />
             </button>
-            <div onClick={() => !isFetching && !isSaving && !isSyncing && dateInputRef.current?.showPicker()} className="flex items-center gap-2 px-2 py-0.5 text-xs font-bold text-white min-w-[120px] justify-center cursor-pointer hover:bg-slate-800/80 rounded transition-colors group">
-              <Calendar size={14} className="text-indigo-400 group-hover:text-indigo-300 transition-colors"/>
-              {currentDate.split('-').reverse().join('.')}
+            <div onClick={() => !isFetching && !isSaving && !isSyncing && dateInputRef.current?.showPicker()} className="flex items-center gap-1.5 px-1.5 py-0.5 text-xs font-bold text-white min-w-[105px] justify-center cursor-pointer hover:bg-slate-800/80 rounded transition-colors group">
+              <Calendar size={13} className="text-indigo-400 group-hover:text-indigo-300 transition-colors"/>
+              <span>{currentDate.split('-').reverse().join('.')}</span>
             </div>
             <input 
               ref={dateInputRef} 
@@ -1864,29 +1860,29 @@ export default function RetailPOSPage() {
               className="sr-only" 
               style={{ colorScheme: 'dark' }} 
             />
-            <button onClick={() => changeDate(1)} disabled={isFetching || isSaving || isSyncing} className="p-1 hover:bg-slate-800 rounded text-slate-400 transition-colors disabled:opacity-50">
-              <ChevronRight size={16} />
+            <button onClick={() => changeDate(1)} disabled={isFetching || isSaving || isSyncing} className="p-0.5 hover:bg-slate-800 rounded text-slate-400 transition-colors disabled:opacity-50">
+              <ChevronRight size={15} />
             </button>
           </div>
           
           <button 
             onClick={saveDayData}
             disabled={isSaving || isSyncing || isFetching || saveStatus === 'success' || !hasUnsavedChanges}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all shadow-lg min-w-[150px] justify-center
+            className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-lg min-w-[115px] justify-center shrink-0 whitespace-nowrap
               ${saveStatus === 'success' ? 'bg-emerald-600 text-white shadow-emerald-900/20' : 
                 saveStatus === 'error' ? 'bg-rose-600 text-white shadow-rose-900/20' : 
                 'bg-blue-600 hover:bg-blue-700 text-white active:scale-95 shadow-blue-900/20 disabled:opacity-30 disabled:active:scale-100 disabled:cursor-not-allowed'}`}
           >
             {isSaving ? (
-              <><Loader2 size={16} className="animate-spin" /> Kaydediliyor...</>
+              <><Loader2 size={14} className="animate-spin" /> Kaydediliyor...</>
             ) : isSyncing ? (
-              <><Loader2 size={16} className="animate-spin text-amber-300" /> Hesaplar İşleniyor...</>
+              <><Loader2 size={14} className="animate-spin text-amber-300" /> İşleniyor...</>
             ) : saveStatus === 'success' ? (
               <>Kaydedildi ✅</>
             ) : saveStatus === 'error' ? (
               <>Hata! Tekrar Dene</>
             ) : (
-              <><Save size={16} /> Günü Kaydet</>
+              <><Save size={14} /> Günü Kaydet</>
             )}
           </button>
         </div>
