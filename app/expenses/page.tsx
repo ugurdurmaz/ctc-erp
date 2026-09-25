@@ -81,7 +81,7 @@ function parseCategoryRow(id: string, rawName: string): { category: Category | n
           category_id: parsed.category_id || '',
           amount: Number(parsed.amount) || 0,
           currency: parsed.currency || 'TRY',
-          due_day: Number(parsed.due_day) || 1,
+          due_day: parsed.due_day !== undefined && parsed.due_day !== null ? Number(parsed.due_day) : 1,
           default_source_type: parsed.default_source_type || undefined,
           default_source_id: parsed.default_source_id || undefined,
           note: parsed.note || ''
@@ -486,7 +486,7 @@ export default function ExpensesPage() {
     setTmplCategoryId(tmpl.category_id || '')
     setTmplAmount(tmpl.amount ? tmpl.amount.toString() : '')
     setTmplCurrency(tmpl.currency || 'TRY')
-    setTmplDueDay(tmpl.due_day ? tmpl.due_day.toString() : '1')
+    setTmplDueDay(tmpl.due_day !== undefined && tmpl.due_day !== null ? tmpl.due_day.toString() : '1')
     setTmplSourceType(tmpl.default_source_type || 'card')
     setTmplSourceId(tmpl.default_source_id || '')
     setTmplNote(tmpl.note || '')
@@ -500,7 +500,8 @@ export default function ExpensesPage() {
     }
 
     const amountNum = parseFloat(tmplAmount) || 0
-    const dueDayNum = Math.min(31, Math.max(1, parseInt(tmplDueDay, 10) || 1))
+    const parsedDue = parseInt(tmplDueDay, 10)
+    const dueDayNum = parsedDue === 0 ? 0 : Math.min(31, Math.max(1, isNaN(parsedDue) ? 1 : parsedDue))
 
     const tmplObj = {
       title: tmplTitle.trim(),
@@ -565,6 +566,15 @@ export default function ExpensesPage() {
   const currentYearMonth = `${currentMonthDate.getFullYear()}-${String(currentMonthDate.getMonth() + 1).padStart(2, '0')}`
   const currentMonthName = currentMonthDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
   const currentDay = currentMonthDate.getDate()
+  const lastDayOfCurrentMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0).getDate()
+
+  function getEffectiveDueDay(dueDay: number, date: Date = currentMonthDate): number {
+    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+    if (dueDay === 0 || !dueDay || dueDay > 31) {
+      return lastDay
+    }
+    return Math.min(dueDay, lastDay)
+  }
 
   function openQuickPayModal(tmpl: RecurringTemplate) {
     setQuickPayTemplate(tmpl)
@@ -832,16 +842,18 @@ export default function ExpensesPage() {
       })
 
       const isPaid = !!matchedExpense
-      const diffDays = tmpl.due_day - currentDay
+      const effectiveDueDay = getEffectiveDueDay(tmpl.due_day, currentMonthDate)
+      const diffDays = effectiveDueDay - currentDay
 
       return {
         template: tmpl,
         isPaid,
         matchedExpense,
-        diffDays
+        diffDays,
+        effectiveDueDay
       }
     })
-  }, [recurringTemplates, expenses, currentYearMonth, currentDay, selectedCompanyFilter])
+  }, [recurringTemplates, expenses, currentYearMonth, currentDay, selectedCompanyFilter, currentMonthDate])
 
   const totalRecurringCount = recurringStatusList.length
   const paidRecurringCount = recurringStatusList.filter(r => r.isPaid).length
@@ -1048,8 +1060,8 @@ export default function ExpensesPage() {
                                   {isPersonal ? <Home size={9} /> : <Building size={9} />}
                                   {comp?.name || 'Merkez'}
                                 </span>
-                                <span className="text-[9px] text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded">
-                                  Her ayın {tmpl.due_day}. günü
+                                <span className="text-[9px] text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded font-mono">
+                                  {tmpl.due_day === 0 ? '⭐ Her Ay Sonu' : `Her ayın ${tmpl.due_day}. günü`}
                                 </span>
                               </div>
                               <h4 className="text-[11px] font-bold text-slate-200 truncate">{tmpl.title}</h4>
@@ -1283,7 +1295,7 @@ export default function ExpensesPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/40">
-                    {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays }) => {
+                    {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays, effectiveDueDay }) => {
                       const comp = companies.find(c => c.id === tmpl.company_id)
                       const isPersonal = comp?.is_personal
                       const catName = getCategoryName(tmpl.category_id)
@@ -1298,19 +1310,19 @@ export default function ExpensesPage() {
                       } else if (diffDays < 0) {
                         dueBadge = (
                           <span className="inline-flex items-center gap-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30">
-                            <AlertTriangle size={11} className="shrink-0" /> {Math.abs(diffDays)} gün gecikti (Ayın {tmpl.due_day}'i)
+                            <AlertTriangle size={11} className="shrink-0" /> {Math.abs(diffDays)} gün gecikti ({tmpl.due_day === 0 ? `Ay Sonu: ${effectiveDueDay}` : `Ayın ${effectiveDueDay}'i`})
                           </span>
                         )
                       } else if (diffDays === 0) {
                         dueBadge = (
                           <span className="inline-flex items-center gap-1.5 text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 animate-pulse">
-                            <Clock size={11} className="shrink-0" /> Bugün son gün!
+                            <Clock size={11} className="shrink-0" /> Bugün son gün! ({tmpl.due_day === 0 ? 'Ay Sonu' : `Ayın ${effectiveDueDay}'i`})
                           </span>
                         )
                       } else {
                         dueBadge = (
                           <span className="inline-flex items-center gap-1.5 text-[9px] font-medium px-2 py-0.5 rounded-full bg-slate-800/90 text-slate-300 border border-slate-700">
-                            <Calendar size={11} className="text-slate-400 shrink-0" /> {diffDays} gün kaldı (Ayın {tmpl.due_day}'i)
+                            <Calendar size={11} className="text-slate-400 shrink-0" /> {diffDays} gün kaldı ({tmpl.due_day === 0 ? `Ay Sonu: ${effectiveDueDay}` : `Ayın ${effectiveDueDay}'i`})
                           </span>
                         )
                       }
@@ -1399,7 +1411,7 @@ export default function ExpensesPage() {
               /* --- ALTERNATİF KART / IZGARA GÖRÜNÜMÜ --- */
               /* ========================================================================= */
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-2.5 max-h-48 overflow-y-auto custom-scrollbar p-0.5">
-                {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays }) => {
+                {filteredTrackerList.map(({ template: tmpl, isPaid, matchedExpense, diffDays, effectiveDueDay }) => {
                   const comp = companies.find(c => c.id === tmpl.company_id)
                   const isPersonal = comp?.is_personal
                   const catName = getCategoryName(tmpl.category_id)
@@ -1414,19 +1426,19 @@ export default function ExpensesPage() {
                   } else if (diffDays < 0) {
                     dueStatusBadge = (
                       <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30">
-                        <AlertTriangle size={10} /> {Math.abs(diffDays)} gün gecikti
+                        <AlertTriangle size={10} /> {Math.abs(diffDays)} gün gecikti ({tmpl.due_day === 0 ? 'Ay Sonu' : `Ayın ${effectiveDueDay}'i`})
                       </span>
                     )
                   } else if (diffDays === 0) {
                     dueStatusBadge = (
                       <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 animate-pulse">
-                        <Clock size={10} /> Bugün son gün!
+                        <Clock size={10} /> Bugün son gün! ({tmpl.due_day === 0 ? 'Ay Sonu' : `Ayın ${effectiveDueDay}'i`})
                       </span>
                     )
                   } else {
                     dueStatusBadge = (
                       <span className="inline-flex items-center gap-1 text-[9px] font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                        <Calendar size={10} /> {diffDays} gün kaldı (Ayın {tmpl.due_day}'i)
+                        <Calendar size={10} /> {diffDays} gün kaldı ({tmpl.due_day === 0 ? `Ay Sonu: ${effectiveDueDay}` : `Ayın ${effectiveDueDay}'i`})
                       </span>
                     )
                   }
@@ -2043,16 +2055,41 @@ export default function ExpensesPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] text-slate-400 mb-1">Vade / Ödeme Günü (Ayın)</label>
-                  <input 
-                    type="number" 
-                    min="1" 
-                    max="31" 
-                    required 
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] text-slate-400">Vade / Ödeme Günü</label>
+                    <button
+                      type="button"
+                      onClick={() => setTmplDueDay(tmplDueDay === '0' ? '1' : '0')}
+                      className={`text-[9px] px-1.5 py-0.5 rounded font-bold transition-all flex items-center gap-1 ${
+                        tmplDueDay === '0' 
+                          ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/40' 
+                          : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                      }`}
+                    >
+                      {tmplDueDay === '0' ? '✓ Ay Sonu Seçili' : '⚡ Her Ay Sonu'}
+                    </button>
+                  </div>
+                  <select 
                     value={tmplDueDay} 
                     onChange={(e) => setTmplDueDay(e.target.value)} 
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500 transition-colors" 
-                  />
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors text-xs font-mono"
+                  >
+                    <option value="0" className="text-indigo-400 font-bold bg-[#0d1322]">
+                      ⭐ Her Ay Sonu (Ayına göre 28, 29, 30 veya 31)
+                    </option>
+                    <optgroup label="Ayın Belirli Bir Günü" className="bg-[#0d1322] text-slate-400 font-bold">
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                        <option key={day} value={day.toString()} className="text-white font-normal">
+                          Her ayın {day}. günü
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  {tmplDueDay === '0' && (
+                    <p className="text-[9px] text-indigo-400 mt-1 flex items-center gap-1">
+                      <span>ℹ️</span> Bu ay için ödeme günü <b>{lastDayOfCurrentMonth} {currentMonthName.split(' ')[0]}</b> olarak hesaplanacaktır.
+                    </p>
+                  )}
                 </div>
               </div>
 
