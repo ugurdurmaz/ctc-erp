@@ -41,12 +41,27 @@ export default function BankAccountsPage() {
   const [txAmount, setTxAmount] = useState('')
 
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false)
+  const [transferDate, setTransferDate] = useState(todayISO)
   const [transferCompanyId, setTransferCompanyId] = useState('common')
   const [transferTarget, setTransferTarget] = useState('') 
   const [transferAmount, setTransferAmount] = useState('')
   const [transferRate, setTransferRate] = useState('1')
   const [transferTargetAmount, setTransferTargetAmount] = useState('')
   const [targetCurrency, setTargetCurrency] = useState('TRY')
+
+  // Transaction Edit Modal States
+  const [isTxEditModalOpen, setIsTxEditModalOpen] = useState(false)
+  const [editingTx, setEditingTx] = useState<BankTransaction | null>(null)
+  const [editTxDate, setEditTxDate] = useState('')
+  const [editTxBankAccountId, setEditTxBankAccountId] = useState('')
+  const [editTxCompanyId, setEditTxCompanyId] = useState('common')
+  const [editTxType, setEditTxType] = useState<'in' | 'out'>('in')
+  const [editTxDesc, setEditTxDesc] = useState('')
+  const [editTxAmount, setEditTxAmount] = useState('')
+  const [editTxStatus, setEditTxStatus] = useState<string>('completed')
+  const [isEditingTransfer, setIsEditingTransfer] = useState(false)
+  const [pairedTxInfo, setPairedTxInfo] = useState<{ type: 'bank' | 'cash'; id: string; targetId: string; name: string; amount: number; currency: string } | null>(null)
+  const [editTargetAmount, setEditTargetAmount] = useState('')
 
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean; title: string; message: string; confirmText: string; cancelText: string; isDanger: boolean; onConfirm: () => void;
@@ -247,7 +262,7 @@ export default function BankAccountsPage() {
     const finalCompId = transferCompanyId === 'common' ? null : transferCompanyId
 
     try {
-      const outPayload = { bank_account_id: selectedBankId, company_id: finalCompId, tx_date: todayISO, description: 'Hesaplar Arası Transfer Çıkışı', tx_type: 'out', amount: amountOut, currency: currentBank.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId, status: 'completed' }
+      const outPayload = { bank_account_id: selectedBankId, company_id: finalCompId, tx_date: transferDate || todayISO, description: 'Hesaplar Arası Transfer Çıkışı', tx_type: 'out', amount: amountOut, currency: currentBank.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId, status: 'completed' }
       const { data: outTxData, error: txErr1 } = await supabase.from('bank_transactions').insert([outPayload]).select().single()
       if (txErr1) throw txErr1
       
@@ -260,7 +275,7 @@ export default function BankAccountsPage() {
         const targetBank = banks.find(b => b.id === tId); if (!targetBank) throw new Error('Hedef banka bulunamadı')
         targetName = targetBank.bank_name
         
-        const inPayload = { bank_account_id: tId, company_id: finalCompId, tx_date: todayISO, description: `${currentBank.bank_name} Hesabından Transfer Geldi`, tx_type: 'in', amount: amountIn, currency: targetBank.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId, status: 'completed' }
+        const inPayload = { bank_account_id: tId, company_id: finalCompId, tx_date: transferDate || todayISO, description: `${currentBank.bank_name} Hesabından Transfer Geldi`, tx_type: 'in', amount: amountIn, currency: targetBank.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId, status: 'completed' }
         const { data: inTxData, error: txErr2 } = await supabase.from('bank_transactions').insert([inPayload]).select().single()
         if (txErr2) throw txErr2
         
@@ -271,7 +286,7 @@ export default function BankAccountsPage() {
         const targetCash = cashes.find(c => c.id === tId); if (!targetCash) throw new Error('Hedef kasa bulunamadı')
         targetName = targetCash.name
         
-        const inPayload = { cash_register_id: tId, company_id: finalCompId, tx_date: todayISO, description: `${currentBank.bank_name} Hesabından Çekilen Nakit`, tx_type: 'in', amount: amountIn, currency: targetCash.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId }
+        const inPayload = { cash_register_id: tId, company_id: finalCompId, tx_date: transferDate || todayISO, description: `${currentBank.bank_name} Hesabından Çekilen Nakit`, tx_type: 'in', amount: amountIn, currency: targetCash.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId }
         const { data: inTxData, error: txErr3 } = await supabase.from('cash_transactions').insert([inPayload]).select().single()
         if (txErr3) throw txErr3
         
@@ -281,10 +296,220 @@ export default function BankAccountsPage() {
 
       await logActivity('bank_transfer', 'INSERT', `Transfer: ${currentBank.bank_name} -> ${targetName}`, outTxData.id, amountOut, currentBank.currency, null, { source_tx: outTxData, target_tx: targetEntityData, rate }, finalCompId)
 
-      setIsTransferModalOpen(false); setTransferAmount(''); setTransferRate('1'); setTransferTarget(''); setTransferTargetAmount(''); setTransferCompanyId('common')
+      setIsTransferModalOpen(false); setTransferAmount(''); setTransferRate('1'); setTransferTarget(''); setTransferTargetAmount(''); setTransferCompanyId('common'); setTransferDate(todayISO)
       fetchTransactions(selectedBankId); fetchBanks(); fetchCashes()
       toast.success(`${targetName} hesabına başarıyla transfer yapıldı.`)
     } catch (err: any) { toast.error("Transfer Hatası: " + err.message) }
+  }
+
+  async function openEditTxModal(tx: BankTransaction) {
+    setEditingTx(tx)
+    setEditTxDate(tx.tx_date)
+    setEditTxBankAccountId(tx.bank_account_id)
+    setEditTxCompanyId(tx.company_id || 'common')
+    setEditTxType(tx.tx_type)
+    setEditTxDesc(tx.description)
+    setEditTxAmount(tx.amount.toString())
+    setEditTxStatus(tx.status || 'completed')
+    setPairedTxInfo(null)
+    setEditTargetAmount('')
+
+    const isTrf = Boolean(tx.is_transfer && tx.transfer_id)
+    setIsEditingTransfer(isTrf)
+
+    if (isTrf && tx.transfer_id) {
+      try {
+        const { data: bTxs } = await supabase
+          .from('bank_transactions')
+          .select('*, bank:bank_accounts(bank_name, account_name, currency)')
+          .eq('transfer_id', tx.transfer_id)
+          .neq('id', tx.id)
+          .limit(1)
+
+        if (bTxs && bTxs.length > 0) {
+          const pair = bTxs[0]
+          const bName = pair.bank ? `${pair.bank.bank_name} - ${pair.bank.account_name}` : 'Diğer Banka Hesabı'
+          setPairedTxInfo({
+            type: 'bank',
+            id: pair.id,
+            targetId: pair.bank_account_id,
+            name: bName,
+            amount: pair.amount,
+            currency: pair.currency
+          })
+          setEditTargetAmount(pair.amount.toString())
+        } else {
+          const { data: cTxs } = await supabase
+            .from('cash_transactions')
+            .select('*, cash:cash_registers(name, currency)')
+            .eq('transfer_id', tx.transfer_id)
+            .neq('id', tx.id)
+            .limit(1)
+
+          if (cTxs && cTxs.length > 0) {
+            const pair = cTxs[0]
+            const cName = pair.cash ? pair.cash.name : 'Nakit Kasa'
+            setPairedTxInfo({
+              type: 'cash',
+              id: pair.id,
+              targetId: pair.cash_register_id,
+              name: cName,
+              amount: pair.amount,
+              currency: pair.currency
+            })
+            setEditTargetAmount(pair.amount.toString())
+          }
+        }
+      } catch (e) {
+        console.error('Error fetching paired transfer tx:', e)
+      }
+    }
+
+    setIsTxEditModalOpen(true)
+  }
+
+  const handleEditTxAmountChange = (val: string) => {
+    setEditTxAmount(val)
+    if (isEditingTransfer && pairedTxInfo) {
+      if (pairedTxInfo.currency === editingTx?.currency) {
+        setEditTargetAmount(val)
+      } else {
+        const num = parseFloat(val) || 0
+        const oldAmount = editingTx?.amount || 1
+        if (num > 0 && oldAmount > 0) {
+          const ratio = num / oldAmount
+          setEditTargetAmount((pairedTxInfo.amount * ratio).toFixed(2))
+        }
+      }
+    }
+  }
+
+  async function handleSaveEditedTransaction(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingTx) return
+    const newAmount = parseFloat(editTxAmount)
+    if (isNaN(newAmount) || newAmount < 0) {
+      toast.error('Geçerli bir tutar giriniz.')
+      return
+    }
+    const finalCompId = editTxCompanyId === 'common' ? null : editTxCompanyId
+
+    try {
+      const affectedBanks = new Set<string>()
+      const affectedCashes = new Set<string>()
+
+      affectedBanks.add(editingTx.bank_account_id)
+      if (editTxBankAccountId && editTxBankAccountId !== editingTx.bank_account_id) {
+        affectedBanks.add(editTxBankAccountId)
+      }
+
+      if (isEditingTransfer && editingTx.transfer_id) {
+        const payload: any = {
+          tx_date: editTxDate,
+          company_id: finalCompId,
+          description: editTxDesc,
+          amount: newAmount,
+          status: editTxStatus
+        }
+        if (editTxBankAccountId) {
+          payload.bank_account_id = editTxBankAccountId
+        }
+
+        const { error: updErr1 } = await supabase
+          .from('bank_transactions')
+          .update(payload)
+          .eq('id', editingTx.id)
+        if (updErr1) throw updErr1
+
+        if (pairedTxInfo) {
+          let pairedNewAmount = newAmount
+          if (editTargetAmount) {
+            const parsedTarget = parseFloat(editTargetAmount)
+            if (!isNaN(parsedTarget) && parsedTarget > 0) {
+              pairedNewAmount = parsedTarget
+            }
+          } else if (pairedTxInfo.currency !== editingTx.currency && editingTx.amount > 0) {
+            const ratio = newAmount / editingTx.amount
+            pairedNewAmount = Math.round(pairedTxInfo.amount * ratio * 100) / 100
+          }
+
+          const pairedPayload: any = {
+            tx_date: editTxDate,
+            company_id: finalCompId,
+            amount: pairedNewAmount
+          }
+
+          if (pairedTxInfo.type === 'bank') {
+            affectedBanks.add(pairedTxInfo.targetId)
+            await supabase.from('bank_transactions').update(pairedPayload).eq('id', pairedTxInfo.id)
+          } else {
+            affectedCashes.add(pairedTxInfo.targetId)
+            await supabase.from('cash_transactions').update(pairedPayload).eq('id', pairedTxInfo.id)
+          }
+        }
+
+        await logActivity(
+          'bank_transfer',
+          'UPDATE',
+          `Transfer hareketi güncellendi (Ref: ${editingTx.transfer_id}): ${editTxDesc}`,
+          editingTx.id,
+          newAmount,
+          editingTx.currency,
+          editingTx,
+          payload,
+          finalCompId
+        )
+
+        toast.success('Transfer hareketi ve karşı hesap kaydı güncellendi.')
+      } else {
+        const payload: any = {
+          tx_date: editTxDate,
+          company_id: finalCompId,
+          tx_type: editTxType,
+          description: editTxDesc,
+          amount: newAmount,
+          status: editTxStatus
+        }
+        if (editTxBankAccountId) {
+          payload.bank_account_id = editTxBankAccountId
+        }
+
+        const { error: updErr } = await supabase
+          .from('bank_transactions')
+          .update(payload)
+          .eq('id', editingTx.id)
+        if (updErr) throw updErr
+
+        await logActivity(
+          'bank_tx',
+          'UPDATE',
+          `Banka hareketi güncellendi: ${editTxDesc}`,
+          editingTx.id,
+          newAmount,
+          editingTx.currency,
+          editingTx,
+          payload,
+          finalCompId
+        )
+
+        toast.success('Banka hareketi başarıyla güncellendi.')
+      }
+
+      for (const bId of Array.from(affectedBanks)) {
+        await recalculateAbsoluteBankBalance(bId)
+      }
+      for (const cId of Array.from(affectedCashes)) {
+        await recalculateAbsoluteCashBalance(cId)
+      }
+
+      setIsTxEditModalOpen(false)
+      setEditingTx(null)
+      if (selectedBankId) fetchTransactions(selectedBankId)
+      fetchBanks()
+      fetchCashes()
+    } catch (err: any) {
+      toast.error('Güncelleme sırasında hata: ' + err.message)
+    }
   }
 
   function handleDeleteTransaction(txId: string, amount: number, type: 'in' | 'out', isTransfer: boolean, transferId?: string, status?: string) {
@@ -572,7 +797,7 @@ export default function BankAccountsPage() {
                     <div className="w-28"><label className="block text-[9px] text-slate-400 mb-0.5">Tutar ({selectedBank.currency})</label><input type="number" step="0.01" required placeholder="0.00" value={txAmount} onChange={(e) => setTxAmount(e.target.value)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none font-mono transition-colors" /></div>
                     <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded text-[11px] font-bold transition-all active:scale-95 h-[26px]">Ekle</button>
                   </form>
-                  <button onClick={() => { setIsTransferModalOpen(true); setTransferTarget(''); setTransferAmount(''); setTransferRate('1'); setTargetCurrency('TRY'); setTransferTargetAmount(''); setTransferCompanyId('common') }} className="shrink-0 bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/50 text-indigo-300 hover:text-white px-4 py-3 rounded-lg text-xs font-bold transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 min-w-[120px]"><ArrowRightLeft size={18} /> Virman / Transfer</button>
+                  <button onClick={() => { setIsTransferModalOpen(true); setTransferDate(todayISO); setTransferTarget(''); setTransferAmount(''); setTransferRate('1'); setTargetCurrency('TRY'); setTransferTargetAmount(''); setTransferCompanyId('common') }} className="shrink-0 bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/50 text-indigo-300 hover:text-white px-4 py-3 rounded-lg text-xs font-bold transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 min-w-[120px]"><ArrowRightLeft size={18} /> Virman / Transfer</button>
                 </div>
 
                 {/* BEKLEYEN PROVİZYON BİLGİLENDİRME & HIZLI İŞLEM BARI */}
@@ -681,6 +906,14 @@ export default function BankAccountsPage() {
                                     <span>Hesaba Geçir</span>
                                   </button>
                                 )}
+                                <button 
+                                  type="button"
+                                  onClick={() => openEditTxModal(t)} 
+                                  className="text-slate-500 hover:text-indigo-400 p-1.5 hover:bg-slate-800 rounded transition cursor-pointer" 
+                                  title="Hareketi Düzenle"
+                                >
+                                  <Edit3 size={13} />
+                                </button>
                                 <button 
                                   type="button"
                                   onClick={() => handleDeleteTransaction(t.id, t.amount, t.tx_type, t.is_transfer, t.transfer_id, t.status)} 
@@ -795,13 +1028,26 @@ export default function BankAccountsPage() {
             <form onSubmit={handleSaveTransfer} className="space-y-4 text-[11px]">
               <div className="bg-[#070b14] p-3 rounded-lg border border-slate-800/80"><span className="block text-[9px] text-slate-500 uppercase font-bold mb-1">Çıkış Yapılacak Kaynak Hesap</span><div className="flex items-center justify-between text-slate-300 font-medium"><span>{selectedBank.bank_name} - {selectedBank.account_name}</span><span className="font-mono text-indigo-400">{selectedBank.currency}</span></div></div>
               
-              <div>
-                <label className="block text-slate-400 mb-1">Bu Transfer Hangi Merkeze Ait? *</label>
-                <select value={transferCompanyId} onChange={(e) => setTransferCompanyId(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors">
-                   <option value="common">🌍 Ortak / Bağımsız İşlem</option>
-                   <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                   <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Transfer Tarihi *</label>
+                  <input
+                    type="date"
+                    required
+                    value={transferDate}
+                    onChange={(e) => setTransferDate(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    style={{ colorScheme: 'dark' }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Bu Transfer Hangi Merkeze Ait? *</label>
+                  <select value={transferCompanyId} onChange={(e) => setTransferCompanyId(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors">
+                     <option value="common">🌍 Ortak / Bağımsız İşlem</option>
+                     <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                     <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                  </select>
+                </div>
               </div>
 
               <div><label className="block text-slate-400 mb-1">Hedef Hesap (Paranın Gideceği Yer) *</label><select value={transferTarget} onChange={(e) => handleTransferTargetSelect(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"><option value="">Seçiniz</option>{banks.filter(b => b.id !== selectedBank.id).length > 0 && <optgroup label="Diğer Banka Hesapları">{banks.filter(b => b.id !== selectedBank.id).map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name} - {b.account_name} ({b.currency})</option>)}</optgroup>}{cashes.length > 0 && <optgroup label="Nakit Kasalar">{cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name} ({c.currency})</option>)}</optgroup>}</select></div>
@@ -813,6 +1059,176 @@ export default function BankAccountsPage() {
                 )}
               </div>
               <div className="flex justify-end gap-2 pt-4 border-t border-slate-800"><button type="button" onClick={() => setIsTransferModalOpen(false)} className="px-4 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button><button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded font-medium transition-all active:scale-95 shadow-lg shadow-indigo-900/20 flex items-center gap-1.5"><ArrowRightLeft size={14}/> Transferi Gerçekleştir</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- BANKA HAREKETİ DÜZENLEME MODALI --- */}
+      {isTxEditModalOpen && editingTx && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-md p-5 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Edit3 size={16} className="text-indigo-400" /> Banka Hareketini Düzenle
+              </h3>
+              <button 
+                type="button" 
+                onClick={() => { setIsTxEditModalOpen(false); setEditingTx(null) }} 
+                className="text-slate-400 hover:text-white transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Bilgilendirme Bannerları */}
+            {isEditingTransfer ? (
+              <div className="mb-3 p-2.5 bg-indigo-950/40 border border-indigo-500/30 rounded-lg flex items-center gap-2 text-indigo-300 text-[11px]">
+                <ArrowRightLeft size={16} className="shrink-0 text-indigo-400" />
+                <span>
+                  Bu bir <strong>Virman / Transfer</strong> işlemidir. Tarih ve tutar güncellemeleri karşı hesaba{pairedTxInfo?.name ? ` (${pairedTxInfo.name})` : ''} da otomatik yansıyacaktır.
+                </span>
+              </div>
+            ) : editingTx.transfer_id && (editingTx.transfer_id.startsWith('POS') || editingTx.transfer_id.startsWith('SUPP') || editingTx.transfer_id.startsWith('CUST') || editingTx.transfer_id.startsWith('EXP')) ? (
+              <div className="mb-3 p-2.5 bg-amber-950/30 border border-amber-500/30 rounded-lg flex items-center gap-2 text-amber-300 text-[11px]">
+                <AlertTriangle size={16} className="shrink-0 text-amber-400" />
+                <span>
+                  Bu hareket harici bir modülden (Mağaza, Cari veya Gider) yansımıştır. Yapacağınız değişiklik doğrudan bu banka ekstre kaydını ve banka bakiyesini güncelleyecektir.
+                </span>
+              </div>
+            ) : null}
+
+            <form onSubmit={handleSaveEditedTransaction} className="space-y-3.5 text-[11px]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-bold">İşlem Tarihi *</label>
+                  <input
+                    type="date"
+                    required
+                    value={editTxDate}
+                    onChange={(e) => setEditTxDate(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    style={{ colorScheme: 'dark' }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-bold">İlgili Merkez *</label>
+                  <select
+                    value={editTxCompanyId}
+                    onChange={(e) => setEditTxCompanyId(e.target.value)}
+                    required
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  >
+                    <option value="common">🌍 Ortak / Bağımsız İşlem</option>
+                    <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                    <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-bold">Banka Hesabı</label>
+                  <select
+                    disabled={isEditingTransfer}
+                    value={editTxBankAccountId}
+                    onChange={(e) => setEditTxBankAccountId(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50 transition-colors"
+                  >
+                    {banks.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.bank_name} - {b.account_name} ({b.currency})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-bold">İşlem Yönü</label>
+                  <select
+                    disabled={isEditingTransfer}
+                    value={editTxType}
+                    onChange={(e) => setEditTxType(e.target.value as any)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50 transition-colors"
+                  >
+                    <option value="in">Giriş / Gelir (+)</option>
+                    <option value="out">Çıkış / Gider (-)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-bold">Açıklama *</label>
+                <input
+                  type="text"
+                  required
+                  value={editTxDesc}
+                  onChange={(e) => setEditTxDesc(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  placeholder="İşlem açıklaması"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-bold">
+                    Tutar ({editingTx.currency}) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={editTxAmount}
+                    onChange={(e) => handleEditTxAmountChange(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white font-mono text-base focus:outline-none focus:border-indigo-500 transition-colors"
+                  />
+                </div>
+
+                {isEditingTransfer && pairedTxInfo && pairedTxInfo.currency !== editingTx.currency ? (
+                  <div>
+                    <label className="block text-emerald-400/80 mb-1 font-bold">
+                      Karşı Tutar ({pairedTxInfo.currency}) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={editTargetAmount}
+                      onChange={(e) => setEditTargetAmount(e.target.value)}
+                      className="w-full bg-emerald-900/10 border border-emerald-500/30 rounded px-3 py-2 text-emerald-400 font-mono text-base focus:outline-none transition-colors"
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-bold">İşlem Durumu</label>
+                    <select
+                      value={editTxStatus}
+                      onChange={(e) => setEditTxStatus(e.target.value)}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    >
+                      <option value="completed">Tamamlandı (Hesaba İşlendi)</option>
+                      <option value="pending">Bekleyen Provizyon</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => { setIsTxEditModalOpen(false); setEditingTx(null) }}
+                  className="px-4 py-2 rounded text-slate-400 hover:bg-slate-800 transition-colors text-xs"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded font-medium transition-all active:scale-95 shadow-lg shadow-indigo-900/20 text-xs flex items-center gap-1.5"
+                >
+                  <CheckCircle size={14} /> Değişiklikleri Kaydet
+                </button>
+              </div>
             </form>
           </div>
         </div>

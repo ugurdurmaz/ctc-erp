@@ -39,6 +39,7 @@ export default function CashRegistersPage() {
   const [txAmount, setTxAmount] = useState('')
 
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false)
+  const [transferDate, setTransferDate] = useState(todayISO)
   const [transferCompanyId, setTransferCompanyId] = useState('common')
   const [transferTarget, setTransferTarget] = useState('') 
   const [transferAmount, setTransferAmount] = useState('')
@@ -238,7 +239,7 @@ export default function CashRegistersPage() {
     const finalCompId = transferCompanyId === 'common' ? null : transferCompanyId
 
     try {
-      const outPayload = { cash_register_id: selectedCashId, company_id: finalCompId, tx_date: todayISO, description: 'Hesaplar Arası Transfer Çıkışı', tx_type: 'out', amount: amountOut, currency: currentCash.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId }
+      const outPayload = { cash_register_id: selectedCashId, company_id: finalCompId, tx_date: transferDate || todayISO, description: 'Hesaplar Arası Transfer Çıkışı', tx_type: 'out', amount: amountOut, currency: currentCash.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId }
       
       const { data: outTxData, error: txErr1 } = await supabase.from('cash_transactions').insert([outPayload]).select().single()
       if (txErr1) throw txErr1
@@ -252,7 +253,7 @@ export default function CashRegistersPage() {
         const targetBank = banks.find(b => b.id === tId); if (!targetBank) throw new Error('Hedef banka bulunamadı')
         targetName = targetBank.bank_name
         
-        const inPayload = { bank_account_id: tId, company_id: finalCompId, tx_date: todayISO, description: `${currentCash.name} Kasasından Yatan Nakit`, tx_type: 'in', amount: amountIn, currency: targetBank.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId, status: 'completed' }
+        const inPayload = { bank_account_id: tId, company_id: finalCompId, tx_date: transferDate || todayISO, description: `${currentCash.name} Kasasından Yatan Nakit`, tx_type: 'in', amount: amountIn, currency: targetBank.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId, status: 'completed' }
         const { data: inTxData, error: txErr2 } = await supabase.from('bank_transactions').insert([inPayload]).select().single()
         if (txErr2) throw txErr2
         
@@ -263,7 +264,7 @@ export default function CashRegistersPage() {
         const targetCash = cashes.find(c => c.id === tId); if (!targetCash) throw new Error('Hedef kasa bulunamadı')
         targetName = targetCash.name
         
-        const inPayload = { cash_register_id: tId, company_id: finalCompId, tx_date: todayISO, description: `${currentCash.name} Kasasından Transfer Geldi`, tx_type: 'in', amount: amountIn, currency: targetCash.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId }
+        const inPayload = { cash_register_id: tId, company_id: finalCompId, tx_date: transferDate || todayISO, description: `${currentCash.name} Kasasından Transfer Geldi`, tx_type: 'in', amount: amountIn, currency: targetCash.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId }
         const { data: inTxData, error: txErr3 } = await supabase.from('cash_transactions').insert([inPayload]).select().single()
         if (txErr3) throw txErr3
         
@@ -273,7 +274,7 @@ export default function CashRegistersPage() {
 
       await logActivity('cash_transfer', 'INSERT', `Transfer: ${currentCash.name} -> ${targetName}`, outTxData.id, amountOut, currentCash.currency, null, { source_tx: outTxData, target_tx: targetEntityData, rate }, finalCompId)
 
-      setIsTransferModalOpen(false); setTransferAmount(''); setTransferRate('1'); setTransferTarget(''); setTransferTargetAmount(''); setTransferCompanyId('common')
+      setIsTransferModalOpen(false); setTransferAmount(''); setTransferRate('1'); setTransferTarget(''); setTransferTargetAmount(''); setTransferCompanyId('common'); setTransferDate(todayISO)
       fetchTransactions(selectedCashId); fetchCashes(); fetchBanks()
       toast.success(`${targetName} hesabına başarıyla transfer yapıldı.`)
     } catch (err: any) { toast.error("Transfer Hatası: " + err.message) }
@@ -484,7 +485,7 @@ export default function CashRegistersPage() {
                     <div className="w-28"><label className="block text-[9px] text-slate-400 mb-0.5">Tutar ({selectedCash.currency})</label><input type="number" step="0.01" required placeholder="0.00" value={txAmount} onChange={(e) => setTxAmount(e.target.value)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-emerald-500 font-mono transition-colors" /></div>
                     <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded text-[11px] font-bold transition-all active:scale-95 h-[26px]">Ekle</button>
                   </form>
-                  <button onClick={() => { setIsTransferModalOpen(true); setTransferTarget(''); setTransferAmount(''); setTransferRate('1'); setTargetCurrency('TRY'); setTransferTargetAmount(''); setTransferCompanyId('common') }} className="shrink-0 bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-400 hover:text-white px-4 py-3 rounded-lg text-xs font-bold transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 min-w-[120px]"><ArrowRightLeft size={18} /> Virman / Bankaya</button>
+                  <button onClick={() => { setIsTransferModalOpen(true); setTransferDate(todayISO); setTransferTarget(''); setTransferAmount(''); setTransferRate('1'); setTargetCurrency('TRY'); setTransferTargetAmount(''); setTransferCompanyId('common') }} className="shrink-0 bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-400 hover:text-white px-4 py-3 rounded-lg text-xs font-bold transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 min-w-[120px]"><ArrowRightLeft size={18} /> Virman / Bankaya</button>
                 </div>
 
                 <div className="border border-slate-800/80 rounded-lg overflow-hidden flex-1 flex flex-col">
@@ -558,13 +559,26 @@ export default function CashRegistersPage() {
             <form onSubmit={handleSaveTransfer} className="space-y-4 text-[11px]">
               <div className="bg-[#070b14] p-3 rounded-lg border border-slate-800/80"><span className="block text-[9px] text-slate-500 uppercase font-bold mb-1">Çıkış Yapılacak Nakit Kasa</span><div className="flex items-center justify-between text-slate-300 font-medium"><span>{selectedCash.name}</span><span className="font-mono text-emerald-400">{selectedCash.currency}</span></div></div>
               
-              <div>
-                <label className="block text-slate-400 mb-1">Bu Transfer Hangi Merkeze Ait? *</label>
-                <select value={transferCompanyId} onChange={(e) => setTransferCompanyId(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors">
-                   <option value="common">🌍 Ortak / Bağımsız İşlem</option>
-                   <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                   <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Transfer Tarihi *</label>
+                  <input
+                    type="date"
+                    required
+                    value={transferDate}
+                    onChange={(e) => setTransferDate(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                    style={{ colorScheme: 'dark' }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Bu Transfer Hangi Merkeze Ait? *</label>
+                  <select value={transferCompanyId} onChange={(e) => setTransferCompanyId(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors">
+                     <option value="common">🌍 Ortak / Bağımsız İşlem</option>
+                     <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                     <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                  </select>
+                </div>
               </div>
 
               <div><label className="block text-slate-400 mb-1">Paranın Yatırılacağı Hedef Hesap *</label><select value={transferTarget} onChange={(e) => handleTransferTargetSelect(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors"><option value="">Seçiniz</option>{banks.length > 0 && <optgroup label="Banka Hesapları">{banks.map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name} - {b.account_name} ({b.currency})</option>)}</optgroup>}{cashes.filter(c => c.id !== selectedCash.id).length > 0 && <optgroup label="Diğer Nakit Kasalar">{cashes.filter(c => c.id !== selectedCash.id).map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name} ({c.currency})</option>)}</optgroup>}</select></div>

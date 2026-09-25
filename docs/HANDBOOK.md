@@ -437,11 +437,17 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Sol: kasa listesi (arama), Yeni Kasa. Sağ: seçili kasa başlığı, hareket formu, Virman/Bankaya butonu, hareket tablosu (yürüyen bakiye).
 - Kasa oluştur/düzenle: ad, para birimi (**oluşturulduktan sonra kilitli**), merkez, açılış bakiyesi (`Açılış Bakiyesi / Devir` hareketi olarak yönetilir; 0 girilirse silinir).
 - Hareket ekle: tarih, merkez, yön, açıklama, tutar (kasa para biriminde).
-- Virman: hedef banka veya başka kasa; farklı para biriminde kur ve hedef tutar alanları çift yönlü hesaplanır. İki bacak aynı `TRF-` id'siyle yazılır.
+- Virman: transfer tarihi (`tx_date`), hedef banka veya başka kasa seçimi; farklı para biriminde kur ve hedef tutar alanları çift yönlü hesaplanır. İki bacak aynı `TRF-` id'siyle yazılır.
 - Silme: `SUPP-/CUST-/EXP-/POS-` ön ekli hareketler engellenir; `TRF-` silinirse karşı bacak da silinir.
 
 ### 7.4 Banka Hesapları `/bank-accounts`
 - Kasa ile aynı düzen + IBAN alanı, "Bekleyen Provizyon" etiketi ve ✔ **Hesaba Geçir & Komisyon Kes** butonu (yalnız `pending` satırlarda).
+- **Virman / Transfer**: Transfer modalında transfer tarihi seçilebilir (`tx_date`), çıkış tutarı ve döviz kuru/hedef tutar otomatik senkronize edilir.
+- **Banka Hesap Hareketlerini Düzenleme (Edit)**:
+  - Tablodaki her işlem satırında yer alan düzenleme butonu (`Edit3`) ile modal açılır; işlem tarihi (`tx_date`), ilgili merkez (`company_id`), banka hesabı (`bank_account_id` - hareketi başka bir banka hesabına taşıma), işlem yönü (giriş/çıkış), açıklama, tutar ve işlem durumu (`completed` / `pending`) güncellenebilir.
+  - **Virman / Transfer Düzenleme**: Düzenlenen hareket bir transfer ise, karşı hesaptaki (diğer banka veya kasa) eşleşen hareketin tarihi, ilgili merkezi ve tutarı da otomatik güncellenir. Çapraz dövizli transferlerde her iki bacağın tutarı oransal/manuel düzenlenebilir.
+  - **Mutlak Bakiye Güncellemesi**: Düzenlenen işlem kaydedildiğinde etkilenen tüm hesapların (`recalculateAbsoluteBankBalance` / `recalculateAbsoluteCashBalance`) bakiyeleri anında yeniden hesaplanır.
+  - **Harici Modül Uyumluluğu**: Mağaza (POS), Cari veya Gider kaynaklı banka ekstre hareketleri için bilgilendirme şeridiyle birlikte tarih, açıklama ve tutar düzenleme imkanı sunulur.
 - Provizyon onayı: valör tarihi (varsayılan işlem tarihi + 1 gün), komisyon (0 ≤ k < tutar). Komisyon `POS-Z-CARD-COMM-<tarih>` id'siyle `out` yazılır; böylece o POS günü yeniden kaydedilince komisyon da temizlenir.
 
 ### 7.5 Kredi Kartları `/credit-cards`
