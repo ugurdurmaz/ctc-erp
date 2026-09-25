@@ -99,6 +99,9 @@ export default function Home() {
     bank: false, cash: false, card: false, customer: false, supplier: false, stock: false, comm: false, pers: false
   })
 
+  // Kâr / Zarar (P&L) ve Performans Analizi Periyodu
+  const [pnlPeriod, setPnlPeriod] = useState<'daily' | 'weekly' | 'monthly'>('monthly')
+
   // Cari Borç & Alacak Dağılımı ve Geçmiş Dönem Kıyaslama State'leri
   const [cariTab, setCariTab] = useState<'payables' | 'receivables'>('payables')
   const [cariPeriod, setCariPeriod] = useState<'month' | '30days'>('month')
@@ -343,110 +346,233 @@ export default function Home() {
 
   const netFinancialPosition = totalBankTry + totalCashTry + totalCustomerTry - totalSupplierTry - totalCreditTry
 
-  const monthsData: Record<string, { revenue: number, cost: number, expense: number, profit: number, monthLabel: string }> = {}
-  const now = new Date()
-  const monthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
-  const last6MonthKeys: string[] = []
+  const pnlData = useMemo(() => {
+    const now = new Date()
+    const shortMonthNames = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"]
+    const fullMonthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+    const dayNames = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"]
 
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const yyyy = d.getFullYear()
-    const mm = String(d.getMonth() + 1).padStart(2, '0')
-    const key = `${yyyy}-${mm}`
-    last6MonthKeys.push(key)
-    monthsData[key] = { revenue: 0, cost: 0, expense: 0, profit: 0, monthLabel: `${monthNames[d.getMonth()]} ${yyyy}` }
-  }
+    interface Point {
+      key: string
+      label: string
+      fullLabel: string
+      startDate: string
+      endDate: string
+      revenue: number
+      cost: number
+      expense: number
+      profit: number
+      marginPct: number
+      posRev: number
+      posCost: number
+      posProfit: number
+      isCurrent: boolean
+    }
 
-  // Cari ve Abonelik Gelirleri
-  customerTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'debt').forEach(tx => {
-    const mKey = tx.tx_date?.substring(0, 7)
-    if (mKey && monthsData[mKey]) monthsData[mKey].revenue += tx.amount * (tx.exchange_rate || 1)
-  })
-  subscriptions.filter(s => isMatch(s.company_id)).forEach(sub => {
-    const mKey = sub.start_date?.substring(0, 7)
-    if (mKey && monthsData[mKey]) monthsData[mKey].revenue += getTryEquivalent(sub.sale_price, sub.currency || 'TRY')
-  })
+    const points: Point[] = []
 
-  // Stok ve Abonelik Maliyetleri
-  stockTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'out').forEach(tx => {
-    const mKey = tx.tx_date?.substring(0, 7)
-    if (mKey && monthsData[mKey]) monthsData[mKey].cost += getTryEquivalent(tx.quantity * tx.unit_price, tx.currency || 'TRY')
-  })
-  subscriptions.filter(s => isMatch(s.company_id)).forEach(sub => {
-    const mKey = sub.start_date?.substring(0, 7)
-    if (mKey && monthsData[mKey]) monthsData[mKey].cost += getTryEquivalent(sub.cost_price, sub.currency || 'TRY')
-  })
+    const formatISO = (d: Date) => {
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      return `${y}-${m}-${day}`
+    }
 
-  // Ticari Giderler
-  commercialExpensesList.forEach(exp => {
-    const dStr = exp.tx_date || exp.date || exp.created_at?.substring(0, 10)
-    const mKey = dStr?.substring(0, 7)
-    if (mKey && monthsData[mKey]) monthsData[mKey].expense += exp.amount * (exp.exchange_rate || 1)
-  })
+    if (pnlPeriod === 'monthly') {
+      // Son 12 Ay
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+        const yyyy = d.getFullYear()
+        const mm = String(d.getMonth() + 1).padStart(2, '0')
+        const key = `${yyyy}-${mm}`
+        const lastDay = new Date(yyyy, d.getMonth() + 1, 0).getDate()
+        const startDate = `${yyyy}-${mm}-01`
+        const endDate = `${yyyy}-${mm}-${String(lastDay).padStart(2, '0')}`
+        const label = `${shortMonthNames[d.getMonth()]} ${String(yyyy).slice(2)}`
+        const fullLabel = `${fullMonthNames[d.getMonth()]} ${yyyy}`
 
-  // YENİ: Mağaza Satış (POS) P&L Entegrasyonu (Çifte Sayım Korumalı)
-  posTxs.filter(t => isMatch(t.company_id)).forEach(tx => {
-    const mKey = tx.date?.substring(0, 7)
-    if (mKey && monthsData[mKey]) {
-      if (tx.category_id === 'gider') {
-         monthsData[mKey].expense += (Number(tx.cash) + Number(tx.card))
-      } else {
-         monthsData[mKey].revenue += (Number(tx.cash) + Number(tx.card))
-         // ÇİFTE SAYIM KORUMASI: Eğer satır bir stoka bağlıysa, onun maliyeti zaten "stock_transactions" (out) olarak eklendi.
-         // Bu yüzden sadece stok dışı, serbest satılan ürün/hizmet maliyetlerini grafiğe dahil ediyoruz.
-          if (!tx.stock_id) {
-              monthsData[mKey].cost += Number(tx.cost)
-          }
+        points.push({
+          key,
+          label,
+          fullLabel,
+          startDate,
+          endDate,
+          revenue: 0,
+          cost: 0,
+          expense: 0,
+          profit: 0,
+          marginPct: 0,
+          posRev: 0,
+          posCost: 0,
+          posProfit: 0,
+          isCurrent: i === 0
+        })
+      }
+    } else if (pnlPeriod === 'weekly') {
+      // Son 8 Hafta (Pazartesi - Pazar)
+      const currentDayOfWeek = now.getDay()
+      const distToMonday = currentDayOfWeek === 0 ? 6 : currentDayOfWeek - 1
+      const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - distToMonday)
+
+      for (let i = 7; i >= 0; i--) {
+        const mon = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - i * 7)
+        const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6)
+        const startDate = formatISO(mon)
+        const endDate = formatISO(sun)
+        const key = `W_${startDate}`
+
+        const label = mon.getMonth() === sun.getMonth()
+          ? `${mon.getDate()}-${sun.getDate()} ${shortMonthNames[sun.getMonth()]}`
+          : `${mon.getDate()} ${shortMonthNames[mon.getMonth()]}-${sun.getDate()} ${shortMonthNames[sun.getMonth()]}`
+
+        const fullLabel = `${mon.getDate()} ${fullMonthNames[mon.getMonth()]} - ${sun.getDate()} ${fullMonthNames[sun.getMonth()]} ${sun.getFullYear()}`
+
+        points.push({
+          key,
+          label,
+          fullLabel,
+          startDate,
+          endDate,
+          revenue: 0,
+          cost: 0,
+          expense: 0,
+          profit: 0,
+          marginPct: 0,
+          posRev: 0,
+          posCost: 0,
+          posProfit: 0,
+          isCurrent: i === 0
+        })
+      }
+    } else {
+      // Son 14 Gün (Günlük)
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
+        const dateStr = formatISO(d)
+        const key = dateStr
+        const label = `${d.getDate()} ${shortMonthNames[d.getMonth()]}`
+        const fullLabel = `${d.getDate()} ${fullMonthNames[d.getMonth()]} ${d.getFullYear()} (${dayNames[d.getDay()]})`
+
+        points.push({
+          key,
+          label,
+          fullLabel,
+          startDate: dateStr,
+          endDate: dateStr,
+          revenue: 0,
+          cost: 0,
+          expense: 0,
+          profit: 0,
+          marginPct: 0,
+          posRev: 0,
+          posCost: 0,
+          posProfit: 0,
+          isCurrent: i === 0
+        })
       }
     }
-  })
 
-  // YENİ: Teknik Servis Teslimat Gelirleri P&L Entegrasyonu
-  techTickets.filter(t => isMatch(t.company_id) && t.status === 'delivered').forEach(ticket => {
-    const dStr = ticket.delivered_at || ticket.created_at
-    const mKey = dStr?.substring(0, 7)
-    if (mKey && monthsData[mKey]) {
-      monthsData[mKey].revenue += Number(ticket.total_cost || 0)
+    const findPoint = (dateStr: string | null | undefined): Point | undefined => {
+      if (!dateStr) return undefined
+      const cleanDate = dateStr.substring(0, 10)
+      if (pnlPeriod === 'monthly') {
+        const mKey = cleanDate.substring(0, 7)
+        return points.find(p => p.key === mKey)
+      } else if (pnlPeriod === 'weekly') {
+        return points.find(p => cleanDate >= p.startDate && cleanDate <= p.endDate)
+      } else {
+        return points.find(p => p.key === cleanDate)
+      }
     }
-  })
 
-  let maxChartValue = 100
-  last6MonthKeys.forEach(k => {
-    monthsData[k].profit = monthsData[k].revenue - monthsData[k].cost - monthsData[k].expense
-    const maxValInMonth = Math.max(monthsData[k].revenue, monthsData[k].cost + monthsData[k].expense)
-    if (maxValInMonth > maxChartValue) maxChartValue = maxValInMonth
-  })
+    // 1. Cari ve Abonelik Gelirleri
+    customerTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'debt').forEach(tx => {
+      const dStr = tx.tx_date || tx.created_at
+      const pt = findPoint(dStr)
+      if (pt) pt.revenue += tx.amount * (tx.exchange_rate || 1)
+    })
+    subscriptions.filter(s => isMatch(s.company_id)).forEach(sub => {
+      const pt = findPoint(sub.start_date)
+      if (pt) {
+        pt.revenue += getTryEquivalent(sub.sale_price, sub.currency || 'TRY')
+        pt.cost += getTryEquivalent(sub.cost_price, sub.currency || 'TRY')
+      }
+    })
 
-  const currentMonthKey = last6MonthKeys[5]
-  const prevMonthKey = last6MonthKeys[4]
-  const currData = monthsData[currentMonthKey] || { revenue: 0, cost: 0, expense: 0, profit: 0 }
-  const prevData = monthsData[prevMonthKey] || { revenue: 0, cost: 0, expense: 0, profit: 0 }
+    // 2. Stok ve Abonelik Maliyetleri
+    stockTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'out').forEach(tx => {
+      const pt = findPoint(tx.tx_date)
+      if (pt) pt.cost += getTryEquivalent(tx.quantity * tx.unit_price, tx.currency || 'TRY')
+    })
 
-  const calculateTrend = (curr: number, prev: number) => {
-    if (prev === 0 && curr > 0) return { percent: 100, isUp: true }
-    if (prev === 0 && curr === 0) return { percent: 0, isUp: true }
-    const diff = curr - prev
-    const percent = Math.abs((diff / prev) * 100)
-    return { percent: percent > 999 ? 999 : percent, isUp: diff >= 0 }
-  }
+    // 3. Ticari Giderler
+    commercialExpensesList.forEach(exp => {
+      const dStr = exp.tx_date || exp.date || exp.created_at
+      const pt = findPoint(dStr)
+      if (pt) pt.expense += exp.amount * (exp.exchange_rate || 1)
+    })
 
-  const revenueTrend = calculateTrend(currData.revenue, prevData.revenue)
-  const profitTrend = calculateTrend(currData.profit, prevData.profit)
+    // 4. Mağaza Satış (POS) P&L Entegrasyonu (Çifte Sayım Korumalı)
+    posTxs.filter(t => isMatch(t.company_id)).forEach(tx => {
+      const pt = findPoint(tx.date)
+      if (pt) {
+        const amount = Number(tx.cash || 0) + Number(tx.card || 0)
+        if (tx.category_id === 'gider') {
+          pt.expense += amount
+        } else {
+          pt.revenue += amount
+          pt.posRev += amount
+          const cost = Number(tx.cost || 0)
+          pt.posCost += cost
+          if (!tx.stock_id) {
+            pt.cost += cost
+          }
+        }
+      }
+    })
 
-  // Mağaza Net Kâr Gösterge Kartı İçin Hesaplama
-  let currPosRev = 0, currPosCost = 0, prevPosRev = 0, prevPosCost = 0;
-  posTxs.filter(t => isMatch(t.company_id) && t.category_id !== 'gider').forEach(t => {
-    const mKey = t.date?.substring(0, 7)
-    const rev = Number(t.cash) + Number(t.card)
-    const cost = Number(t.cost) // Gösterge panosunda mağazanın net kârını görmek için stok durumuna bakmaksızın tüm maliyet toplanır.
-    
-    if (mKey === currentMonthKey) { currPosRev += rev; currPosCost += cost; }
-    if (mKey === prevMonthKey) { prevPosRev += rev; prevPosCost += cost; }
-  })
-  
-  const currPosProfit = currPosRev - currPosCost;
-  const prevPosProfit = prevPosRev - prevPosCost;
-  const posProfitTrend = calculateTrend(currPosProfit, prevPosProfit)
+    // 5. Teknik Servis Teslimat Gelirleri
+    techTickets.filter(t => isMatch(t.company_id) && t.status === 'delivered').forEach(ticket => {
+      const dStr = ticket.delivered_at || ticket.created_at
+      const pt = findPoint(dStr)
+      if (pt) pt.revenue += Number(ticket.total_cost || 0)
+    })
+
+    let maxVal = 100
+    points.forEach(p => {
+      p.profit = p.revenue - p.cost - p.expense
+      p.posProfit = p.posRev - p.posCost
+      p.marginPct = p.revenue > 0 ? (p.profit / p.revenue) * 100 : 0
+      const totalOut = p.cost + p.expense
+      const barMax = Math.max(p.revenue, totalOut)
+      if (barMax > maxVal) maxVal = barMax
+    })
+
+    const currPoint = points[points.length - 1] || { revenue: 0, cost: 0, expense: 0, profit: 0, posRev: 0, posCost: 0, posProfit: 0, marginPct: 0 }
+    const prevPoint = points[points.length - 2] || { revenue: 0, cost: 0, expense: 0, profit: 0, posRev: 0, posCost: 0, posProfit: 0, marginPct: 0 }
+
+    const calculateTrend = (curr: number, prev: number) => {
+      if (prev === 0 && curr > 0) return { percent: 100, isUp: true }
+      if (prev === 0 && curr === 0) return { percent: 0, isUp: true }
+      const diff = curr - prev
+      const percent = Math.abs((diff / prev) * 100)
+      return { percent: percent > 999 ? 999 : percent, isUp: diff >= 0 }
+    }
+
+    const revenueTrend = calculateTrend(currPoint.revenue, prevPoint.revenue)
+    const profitTrend = calculateTrend(currPoint.profit, prevPoint.profit)
+    const posProfitTrend = calculateTrend(currPoint.posProfit, prevPoint.posProfit)
+
+    return {
+      points,
+      maxVal,
+      currPoint,
+      prevPoint,
+      revenueTrend,
+      profitTrend,
+      posProfitTrend
+    }
+  }, [pnlPeriod, customerTxs, subscriptions, stockTxs, commercialExpensesList, posTxs, techTickets, isMatch, rates])
 
   const allTimelineItems: TimelineItem[] = []
   
@@ -875,91 +1001,174 @@ export default function Home() {
             <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
             
             <div>
-              <div className="flex justify-between items-center mb-3 shrink-0">
+              <div className="flex flex-wrap justify-between items-center gap-2 mb-3 shrink-0">
                 <h3 className="text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2">
                   <BarChart4 size={15} className="text-indigo-400" /> Kâr / Zarar (P&L) ve Performans Analizi
                 </h3>
-                <span className="text-[10px] text-slate-500 font-mono">Son 6 Aylık Trend</span>
+
+                {/* Periyot Seçici: Günlük, Haftalık, Aylık */}
+                <div className="flex items-center bg-[#070b14] border border-slate-800 rounded p-0.5 text-[9px] font-bold">
+                  <button
+                    onClick={() => setPnlPeriod('daily')}
+                    className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                      pnlPeriod === 'daily' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Günlük (14 Gün)
+                  </button>
+                  <button
+                    onClick={() => setPnlPeriod('weekly')}
+                    className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                      pnlPeriod === 'weekly' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Haftalık (8 Hafta)
+                  </button>
+                  <button
+                    onClick={() => setPnlPeriod('monthly')}
+                    className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                      pnlPeriod === 'monthly' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Aylık (12 Ay)
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4 shrink-0">
                 <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Bu Ayki Ciro</p>
-                  <div className="text-sm font-black font-mono text-blue-400">{formatMoney(currData.revenue, 'TRY').formatted}</div>
-                  <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${revenueTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>{revenueTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {revenueTrend.percent.toFixed(1)} {revenueTrend.isUp ? 'Artış' : 'Düşüş'}</div>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
+                    {pnlPeriod === 'daily' ? 'Bugünkü Ciro' : pnlPeriod === 'weekly' ? 'Bu Haftaki Ciro' : 'Bu Ayki Ciro'}
+                  </p>
+                  <div className="text-sm font-black font-mono text-blue-400">{formatMoney(pnlData.currPoint.revenue, 'TRY').formatted}</div>
+                  <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${pnlData.revenueTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {pnlData.revenueTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {pnlData.revenueTrend.percent.toFixed(1)} {pnlData.revenueTrend.isUp ? 'Artış' : 'Düşüş'}
+                  </div>
                 </div>
                 <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">SMM & Direkt Mlyt.</p>
-                    <div className="text-sm font-black font-mono text-orange-400">{formatMoney(currData.cost, 'TRY').formatted}</div>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
+                      {pnlPeriod === 'daily' ? 'Günlük SMM & Mlyt.' : pnlPeriod === 'weekly' ? 'Haftalık SMM & Mlyt.' : 'SMM & Direkt Mlyt.'}
+                    </p>
+                    <div className="text-sm font-black font-mono text-orange-400">{formatMoney(pnlData.currPoint.cost, 'TRY').formatted}</div>
                 </div>
                 <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">İşletme Giderleri</p>
-                    <div className="text-sm font-black font-mono text-purple-400">{formatMoney(currData.expense, 'TRY').formatted}</div>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
+                      {pnlPeriod === 'daily' ? 'Günlük İşletme Gid.' : pnlPeriod === 'weekly' ? 'Haftalık İşletme Gid.' : 'İşletme Giderleri'}
+                    </p>
+                    <div className="text-sm font-black font-mono text-purple-400">{formatMoney(pnlData.currPoint.expense, 'TRY').formatted}</div>
                 </div>
                 
-                {/* YENİ: MAĞAZA POS KARI KARTI */}
+                {/* MAĞAZA POS KARI KARTI */}
                 <div className="bg-cyan-950/20 border border-cyan-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                    <p className="text-[9px] text-cyan-400/90 font-bold uppercase tracking-wider mb-0.5">Mağaza Kârı</p>
-                    <div className="text-sm font-black font-mono text-cyan-400">{formatMoney(currPosProfit, 'TRY').formatted}</div>
-                    <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${posProfitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>{posProfitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {posProfitTrend.percent.toFixed(1)} {posProfitTrend.isUp ? 'Artış' : 'Düşüş'}</div>
+                    <p className="text-[9px] text-cyan-400/90 font-bold uppercase tracking-wider mb-0.5">
+                      {pnlPeriod === 'daily' ? 'Bugünkü Mağaza Kârı' : pnlPeriod === 'weekly' ? 'Bu Haftaki Mağaza Kârı' : 'Mağaza Kârı'}
+                    </p>
+                    <div className="text-sm font-black font-mono text-cyan-400">{formatMoney(pnlData.currPoint.posProfit, 'TRY').formatted}</div>
+                    <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${pnlData.posProfitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {pnlData.posProfitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {pnlData.posProfitTrend.percent.toFixed(1)} {pnlData.posProfitTrend.isUp ? 'Artış' : 'Düşüş'}
+                    </div>
                 </div>
 
                 <div className="bg-emerald-950/20 border border-emerald-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                    <p className="text-[9px] text-emerald-400/90 font-bold uppercase tracking-wider mb-0.5">Net Ticari Kâr</p>
-                    <div className={`text-sm font-black font-mono ${currData.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatMoney(currData.profit, 'TRY').formatted}</div>
-                    <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${profitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>{profitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {profitTrend.percent.toFixed(1)} {profitTrend.isUp ? 'Artış' : 'Düşüş'}</div>
+                    <p className="text-[9px] text-emerald-400/90 font-bold uppercase tracking-wider mb-0.5">
+                      {pnlPeriod === 'daily' ? 'Bugünkü Net Kâr' : pnlPeriod === 'weekly' ? 'Bu Haftaki Net Kâr' : 'Net Ticari Kâr'}
+                    </p>
+                    <div className={`text-sm font-black font-mono ${pnlData.currPoint.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {formatMoney(pnlData.currPoint.profit, 'TRY').formatted}
+                    </div>
+                    <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${pnlData.profitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {pnlData.profitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {pnlData.profitTrend.percent.toFixed(1)} {pnlData.profitTrend.isUp ? 'Artış' : 'Düşüş'}
+                    </div>
                 </div>
               </div>
             </div>
 
-            {/* ORTA: 6 AYLIK ÇUBUK GRAFİĞİ */}
+            {/* ORTA: DİNAMİK ÇUBUK GRAFİĞİ */}
             <div className="pt-3 border-t border-slate-800/60 flex-1 flex items-end min-h-[160px] pb-2">
-              <div className="flex items-end gap-2 h-full w-full">
-                {last6MonthKeys.map((key) => {
-                  const m = monthsData[key]
-                  const totalOut = m.cost + m.expense
-                  const revHeight = Math.max((m.revenue / maxChartValue) * 100, 2)
-                  const outHeight = Math.max((totalOut / maxChartValue) * 100, 2)
+              <div className="flex items-end gap-1 sm:gap-1.5 md:gap-2 h-full w-full">
+                {pnlData.points.map((pt) => {
+                  const totalOut = pt.cost + pt.expense
+                  const revHeight = Math.max((pt.revenue / pnlData.maxVal) * 100, 2)
+                  const outHeight = Math.max((totalOut / pnlData.maxVal) * 100, 2)
                   return (
-                    <div key={key} className="flex-1 flex flex-col justify-end items-center gap-1 group relative h-full">
-                        <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#070b14] border border-slate-700 rounded-lg p-2 text-[10px] font-mono shadow-2xl z-20 w-36 pointer-events-none">
-                          <div className="text-blue-400">Ciro: {formatMoney(m.revenue, 'TRY').formatted}</div>
-                          <div className="text-orange-400 border-b border-slate-700/50 pb-1 mb-1">Maliyet/Gider: {formatMoney(totalOut, 'TRY').formatted}</div>
-                          <div className={m.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>Net: {formatMoney(m.profit, 'TRY').formatted}</div>
+                    <div key={pt.key} className="flex-1 flex flex-col justify-end items-center gap-1 group relative h-full">
+                        <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#070b14] border border-slate-700 rounded-lg p-2 text-[10px] font-mono shadow-2xl z-20 w-44 pointer-events-none">
+                          <div className="text-white font-bold pb-1 mb-1 border-b border-slate-800 text-[10px]">{pt.fullLabel}</div>
+                          <div className="text-blue-400">Ciro: {formatMoney(pt.revenue, 'TRY').formatted}</div>
+                          <div className="text-orange-400">Maliyet: {formatMoney(pt.cost, 'TRY').formatted}</div>
+                          <div className="text-purple-400 border-b border-slate-700/50 pb-1 mb-1">Gider: {formatMoney(pt.expense, 'TRY').formatted}</div>
+                          {pt.posRev > 0 && (
+                            <div className="text-cyan-400 text-[9px] mb-1">Mağaza Kârı: {formatMoney(pt.posProfit, 'TRY').formatted}</div>
+                          )}
+                          <div className={pt.profit >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                            Net: {formatMoney(pt.profit, 'TRY').formatted}
+                          </div>
+                          {pt.revenue > 0 && (
+                            <div className="text-slate-400 text-[9px] mt-0.5">Marj: %{pt.marginPct.toFixed(1)}</div>
+                          )}
                         </div>
-                        <div className="w-full flex justify-center gap-1.5 items-end h-full relative">
-                          <div className="w-1/3 max-w-[24px] bg-blue-500 rounded-t transition-all duration-1000 ease-out shadow-sm" style={{ height: `${revHeight}%` }} />
-                          <div className="w-1/3 max-w-[24px] bg-orange-500 rounded-t transition-all duration-1000 ease-out delay-100 shadow-sm" style={{ height: `${outHeight}%` }} />
+                        <div className="w-full flex justify-center gap-1 sm:gap-1.5 items-end h-full relative">
+                          <div
+                            className={`w-1/2 max-w-[22px] rounded-t transition-all duration-700 ease-out shadow-sm ${
+                              pt.isCurrent ? 'bg-blue-400 ring-1 ring-blue-300/40' : 'bg-blue-500'
+                            }`}
+                            style={{ height: `${revHeight}%` }}
+                          />
+                          <div
+                            className={`w-1/2 max-w-[22px] rounded-t transition-all duration-700 ease-out delay-75 shadow-sm ${
+                              pt.isCurrent ? 'bg-orange-400 ring-1 ring-orange-300/40' : 'bg-orange-500'
+                            }`}
+                            style={{ height: `${outHeight}%` }}
+                          />
                         </div>
-                        <div className="text-[9px] text-slate-500 font-bold mt-1.5 text-center truncate w-full shrink-0 group-hover:text-slate-300 transition-colors">{m.monthLabel}</div>
+                        <div className={`text-[8px] sm:text-[9px] font-bold mt-1.5 text-center truncate w-full shrink-0 transition-colors ${
+                          pt.isCurrent ? 'text-indigo-400 font-black' : 'text-slate-500 group-hover:text-slate-300'
+                        }`}>
+                          {pt.label}
+                        </div>
                     </div>
                   )
                 })}
               </div>
             </div>
 
-            {/* ALT: SON 6 AYIN PERFORMANS DAĞILIM TABLOSU */}
+            {/* ALT: FİNANSAL ÖZET TABLOSU */}
             <div className="pt-2.5 border-t border-slate-800/80 shrink-0">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <FileText size={12} className="text-indigo-400" /> 6 Aylık Finansal Özet Tablosu
+                  <FileText size={12} className="text-indigo-400" />
+                  {pnlPeriod === 'daily'
+                    ? 'Günlük Finansal Özet Tablosu (Son 14 Gün)'
+                    : pnlPeriod === 'weekly'
+                    ? 'Haftalık Finansal Özet Tablosu (Son 8 Hafta)'
+                    : '12 Aylık Finansal Özet Tablosu (Son 1 Yıl)'}
                 </span>
                 <span className="text-[9px] text-slate-500 font-mono">Ciro • Net Kâr • Kâr Marjı</span>
               </div>
-              <div className="grid grid-cols-6 gap-1.5 text-center font-mono">
-                {last6MonthKeys.map((key) => {
-                  const m = monthsData[key]
-                  const marginPct = m.revenue > 0 ? ((m.profit / m.revenue) * 100) : 0
-                  const isCurrent = key === currentMonthKey
+              <div className="overflow-x-auto custom-scrollbar flex gap-1.5 pb-1">
+                {pnlData.points.map((pt) => {
+                  const isCurrent = pt.isCurrent
                   return (
-                    <div key={key} className={`p-1.5 rounded-lg border transition-colors ${isCurrent ? 'bg-indigo-950/20 border-indigo-500/40' : 'bg-[#070b14]/70 border-slate-800/70'}`}>
-                      <span className={`text-[8px] font-sans font-bold block truncate ${isCurrent ? 'text-indigo-300' : 'text-slate-400'}`}>{m.monthLabel}</span>
-                      <span className="text-[9px] font-bold text-blue-400 block mt-0.5 truncate">{formatMoney(m.revenue, 'TRY').formatted}</span>
-                      <span className={`text-[9px] font-bold block mt-0.5 truncate ${m.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {m.profit >= 0 ? '+' : ''}{formatMoney(m.profit, 'TRY').formatted}
+                    <div
+                      key={pt.key}
+                      className={`flex-1 min-w-[70px] p-1.5 rounded-lg border text-center font-mono transition-colors shrink-0 ${
+                        isCurrent ? 'bg-indigo-950/30 border-indigo-500/50' : 'bg-[#070b14]/70 border-slate-800/70 hover:border-slate-700'
+                      }`}
+                    >
+                      <span className={`text-[8px] font-sans font-bold block truncate ${isCurrent ? 'text-indigo-300 font-black' : 'text-slate-400'}`}>
+                        {pt.label}
                       </span>
-                      <span className={`text-[8px] block mt-0.5 font-sans ${marginPct >= 0 ? 'text-emerald-400/90' : 'text-rose-400/90'}`}>
-                        %{marginPct.toFixed(0)} Marj
+                      <span className="text-[9px] font-bold text-blue-400 block mt-0.5 truncate" title={`Ciro: ${formatMoney(pt.revenue, 'TRY').formatted}`}>
+                        {formatMoney(pt.revenue, 'TRY').formatted}
+                      </span>
+                      <span
+                        className={`text-[9px] font-bold block mt-0.5 truncate ${pt.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}
+                        title={`Net Kâr: ${formatMoney(pt.profit, 'TRY').formatted}`}
+                      >
+                        {pt.profit >= 0 ? '+' : ''}{formatMoney(pt.profit, 'TRY').formatted}
+                      </span>
+                      <span className={`text-[8px] block mt-0.5 font-sans ${pt.marginPct >= 0 ? 'text-emerald-400/90' : 'text-rose-400/90'}`}>
+                        %{pt.marginPct.toFixed(0)} Marj
                       </span>
                     </div>
                   )
