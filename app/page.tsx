@@ -100,7 +100,7 @@ export default function Home() {
   })
 
   // Cari Borç & Alacak Dağılımı ve Geçmiş Dönem Kıyaslama State'leri
-  const [cariTab, setCariTab] = useState<'receivables' | 'payables'>('receivables')
+  const [cariTab, setCariTab] = useState<'payables' | 'receivables'>('payables')
   const [cariPeriod, setCariPeriod] = useState<'month' | '30days'>('month')
   const [cariSearch, setCariSearch] = useState<string>('')
 
@@ -138,13 +138,13 @@ export default function Home() {
       const { data: custData } = await supabase.from('customers').select('id, name, balance, currency')
       setCustomers(custData || [])
 
-      const { data: custTxData } = await supabase.from('customer_transactions').select('id, tx_date, description, customer_id, tx_type, amount, exchange_rate, company_id, invoice_lines, created_at')
+      const { data: custTxData } = await supabase.from('customer_transactions').select('id, tx_date, description, customer_id, tx_type, amount, currency, exchange_rate, company_id, invoice_lines, created_at')
       setCustomerTxs(custTxData || [])
 
       const { data: suppData } = await supabase.from('suppliers').select('id, company_name, balance, currency')
       setSuppliers(suppData || [])
 
-      const { data: suppTxData } = await supabase.from('supplier_transactions').select('id, tx_date, description, supplier_id, tx_type, amount, exchange_rate, company_id, created_at')
+      const { data: suppTxData } = await supabase.from('supplier_transactions').select('id, tx_date, description, supplier_id, tx_type, amount, currency, exchange_rate, company_id, created_at')
       setSupplierTxs(suppTxData || [])
 
       const { data: bankData } = await supabase.from('bank_accounts').select('id, bank_name, account_name, balance, currency, company_id')
@@ -530,37 +530,54 @@ export default function Home() {
             return t.tx_type === 'debt' ? acc + val : acc - val
           }, 0)
 
-      const currentBal = getTryEquivalent(currentBalNative, custCurr)
+      const currentBalTry = getTryEquivalent(currentBalNative, custCurr)
 
-      let periodSales = 0
-      let periodPayments = 0
+      let periodSalesNative = 0
+      let periodPaymentsNative = 0
 
       relevantTxs.forEach(t => {
         const txDate = t.tx_date || t.created_at?.substring(0, 10)
         if (txDate >= cariCutoffDate) {
-          const val = Number(t.amount || 0) * (t.exchange_rate || 1)
-          if (t.tx_type === 'debt') periodSales += val
-          if (t.tx_type === 'payment') periodPayments += val
+          let val = Number(t.amount || 0)
+          const txRate = Number(t.exchange_rate) || 1
+          const txCurr = t.currency || 'TRY'
+          if (custCurr === 'USD') {
+            if (txCurr === 'TRY') val = val / (txRate || custRate)
+            else if (txCurr === 'EUR') val = (val * (txRate || rates.EUR || 37.80)) / custRate
+          } else if (custCurr === 'EUR') {
+            if (txCurr === 'TRY') val = val / (txRate || custRate)
+            else if (txCurr === 'USD') val = (val * (txRate || rates.USD || 34.25)) / custRate
+          } else {
+            if (txCurr !== 'TRY') val = val * txRate
+          }
+          if (t.tx_type === 'debt') periodSalesNative += val
+          if (t.tx_type === 'payment') periodPaymentsNative += val
         }
       })
 
-      const previousBal = currentBal - periodSales + periodPayments
-      const diff = currentBal - previousBal
-      const pct = previousBal !== 0 ? ((diff / Math.abs(previousBal)) * 100) : (currentBal !== 0 ? 100 : 0)
+      const previousBalNative = currentBalNative - periodSalesNative + periodPaymentsNative
+      const diffNative = currentBalNative - previousBalNative
+      const pct = previousBalNative !== 0 ? ((diffNative / Math.abs(previousBalNative)) * 100) : (currentBalNative !== 0 ? 100 : 0)
+
+      const previousBalTry = getTryEquivalent(previousBalNative, custCurr)
+      const diffTry = currentBalTry - previousBalTry
 
       return {
         id: c.id,
         name: c.name,
-        currency: c.currency || 'TRY',
-        currentBal,
-        previousBal,
-        diff,
+        currency: custCurr,
+        currentBal: currentBalNative,
+        currentBalTry,
+        previousBal: previousBalNative,
+        previousBalTry,
+        diff: diffNative,
+        diffTry,
         pct,
-        periodSales,
-        periodPayments
+        periodSales: periodSalesNative,
+        periodPayments: periodPaymentsNative
       }
     }).filter(c => Math.abs(c.currentBal) > 0.01 || Math.abs(c.previousBal) > 0.01)
-      .sort((a, b) => b.currentBal - a.currentBal)
+      .sort((a, b) => b.currentBalTry - a.currentBalTry)
   }, [customers, customerTxs, isRestricted, effectiveCompanyId, cariCutoffDate, isMatch, rates])
 
   const supplierComparisonList = useMemo(() => {
@@ -587,47 +604,64 @@ export default function Home() {
             return t.tx_type === 'debt' ? acc + val : acc - val
           }, 0)
 
-      const currentBal = getTryEquivalent(currentBalNative, suppCurr)
+      const currentBalTry = getTryEquivalent(currentBalNative, suppCurr)
 
-      let periodPurchases = 0
-      let periodPayments = 0
+      let periodPurchasesNative = 0
+      let periodPaymentsNative = 0
 
       relevantTxs.forEach(t => {
         const txDate = t.tx_date || t.created_at?.substring(0, 10)
         if (txDate >= cariCutoffDate) {
-          const val = Number(t.amount || 0) * (t.exchange_rate || 1)
-          if (t.tx_type === 'debt') periodPurchases += val
-          if (t.tx_type === 'payment') periodPayments += val
+          let val = Number(t.amount || 0)
+          const txRate = Number(t.exchange_rate) || 1
+          const txCurr = t.currency || 'TRY'
+          if (suppCurr === 'USD') {
+            if (txCurr === 'TRY') val = val / (txRate || suppRate)
+            else if (txCurr === 'EUR') val = (val * (txRate || rates.EUR || 37.80)) / suppRate
+          } else if (suppCurr === 'EUR') {
+            if (txCurr === 'TRY') val = val / (txRate || suppRate)
+            else if (txCurr === 'USD') val = (val * (txRate || rates.USD || 34.25)) / suppRate
+          } else {
+            if (txCurr !== 'TRY') val = val * txRate
+          }
+          if (t.tx_type === 'debt') periodPurchasesNative += val
+          if (t.tx_type === 'payment') periodPaymentsNative += val
         }
       })
 
-      const previousBal = currentBal - periodPurchases + periodPayments
-      const diff = currentBal - previousBal
-      const pct = previousBal !== 0 ? ((diff / Math.abs(previousBal)) * 100) : (currentBal !== 0 ? 100 : 0)
+      const previousBalNative = currentBalNative - periodPurchasesNative + periodPaymentsNative
+      const diffNative = currentBalNative - previousBalNative
+      const pct = previousBalNative !== 0 ? ((diffNative / Math.abs(previousBalNative)) * 100) : (currentBalNative !== 0 ? 100 : 0)
+
+      const previousBalTry = getTryEquivalent(previousBalNative, suppCurr)
+      const diffTry = currentBalTry - previousBalTry
 
       return {
         id: s.id,
         name: s.company_name,
-        currency: s.currency || 'TRY',
-        currentBal,
-        previousBal,
-        diff,
+        currency: suppCurr,
+        currentBal: currentBalNative,
+        currentBalTry,
+        previousBal: previousBalNative,
+        previousBalTry,
+        diff: diffNative,
+        diffTry,
         pct,
-        periodPurchases,
-        periodPayments
+        periodPurchases: periodPurchasesNative,
+        periodPayments: periodPaymentsNative
       }
     }).filter(s => Math.abs(s.currentBal) > 0.01 || Math.abs(s.previousBal) > 0.01)
-      .sort((a, b) => b.currentBal - a.currentBal)
+      .sort((a, b) => b.currentBalTry - a.currentBalTry)
   }, [suppliers, supplierTxs, isRestricted, effectiveCompanyId, cariCutoffDate, isMatch, rates])
 
   const comparisonSummary = useMemo(() => {
-    const totalCustCurr = customerComparisonList.reduce((acc, c) => acc + c.currentBal, 0)
-    const totalCustPrev = customerComparisonList.reduce((acc, c) => acc + c.previousBal, 0)
+    const totalCustCurr = customerComparisonList.reduce((acc, c) => acc + c.currentBalTry, 0)
+    const totalCustPrev = customerComparisonList.reduce((acc, c) => acc + c.previousBalTry, 0)
     const custDiff = totalCustCurr - totalCustPrev
     const custPct = totalCustPrev !== 0 ? (custDiff / Math.abs(totalCustPrev)) * 100 : 0
 
-    const totalSuppCurr = supplierComparisonList.reduce((acc, s) => acc + s.currentBal, 0)
-    const totalSuppPrev = supplierComparisonList.reduce((acc, s) => acc + s.previousBal, 0)
+    const totalSuppCurr = supplierComparisonList.reduce((acc, s) => acc + s.currentBalTry, 0)
+    const totalSuppPrev = supplierComparisonList.reduce((acc, s) => acc + s.previousBalTry, 0)
     const suppDiff = totalSuppCurr - totalSuppPrev
     const suppPct = totalSuppPrev !== 0 ? (suppDiff / Math.abs(totalSuppPrev)) * 100 : 0
 
@@ -640,7 +674,7 @@ export default function Home() {
   }, [customerComparisonList, supplierComparisonList])
 
   const filteredCariList = useMemo(() => {
-    const list = cariTab === 'receivables' ? customerComparisonList : supplierComparisonList
+    const list = cariTab === 'payables' ? supplierComparisonList : customerComparisonList
     if (!cariSearch) return list
     const q = cariSearch.toLowerCase()
     return list.filter(item => item.name.toLowerCase().includes(q))
@@ -1137,20 +1171,8 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Sekmeler: Alacaklar vs. Borçlar */}
+                  {/* Sekmeler: Borçlar vs. Alacaklar */}
                   <div className="grid grid-cols-2 gap-1.5 text-[10px] font-bold">
-                    <button
-                      onClick={() => setCariTab('receivables')}
-                      className={`py-1 px-2 rounded-lg border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                        cariTab === 'receivables'
-                          ? 'bg-blue-500/15 border-blue-500/40 text-blue-400 shadow-xs'
-                          : 'bg-[#070b14] border-slate-800/80 text-slate-400 hover:text-white hover:border-slate-700'
-                      }`}
-                    >
-                      <Users size={11} />
-                      <span>Alacaklar ({customerComparisonList.length})</span>
-                    </button>
-
                     <button
                       onClick={() => setCariTab('payables')}
                       className={`py-1 px-2 rounded-lg border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
@@ -1162,6 +1184,18 @@ export default function Home() {
                       <Building2 size={11} />
                       <span>Borçlar ({supplierComparisonList.length})</span>
                     </button>
+
+                    <button
+                      onClick={() => setCariTab('receivables')}
+                      className={`py-1 px-2 rounded-lg border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        cariTab === 'receivables'
+                          ? 'bg-blue-500/15 border-blue-500/40 text-blue-400 shadow-xs'
+                          : 'bg-[#070b14] border-slate-800/80 text-slate-400 hover:text-white hover:border-slate-700'
+                      }`}
+                    >
+                      <Users size={11} />
+                      <span>Alacaklar ({customerComparisonList.length})</span>
+                    </button>
                   </div>
                 </div>
 
@@ -1169,10 +1203,10 @@ export default function Home() {
                 <div className="px-3 py-1.5 bg-[#070b14]/70 border-b border-slate-800/60 flex items-center justify-between text-[9px] shrink-0 font-mono">
                   <div>
                     <span className="text-slate-400 block font-sans text-[8px] uppercase tracking-wider">
-                      {cariTab === 'receivables' ? 'Toplam Açık Alacak' : 'Toplam Açık Borç'}
+                      {cariTab === 'payables' ? 'Toplam Açık Borç' : 'Toplam Açık Alacak'}
                     </span>
-                    <span className={`text-xs font-black ${cariTab === 'receivables' ? 'text-blue-400' : 'text-amber-400'}`}>
-                      {formatMoney(cariTab === 'receivables' ? comparisonSummary.cust.current : comparisonSummary.supp.current, 'TRY').formatted}
+                    <span className={`text-xs font-black ${cariTab === 'payables' ? 'text-amber-400' : 'text-blue-400'}`}>
+                      {formatMoney(cariTab === 'payables' ? comparisonSummary.supp.current : comparisonSummary.cust.current, 'TRY').formatted}
                     </span>
                   </div>
 
@@ -1180,19 +1214,19 @@ export default function Home() {
                     <span className="text-slate-400 block font-sans text-[8px] uppercase tracking-wider">
                       {cariPeriod === 'month' ? 'Geçen Aya Göre' : 'Son 30 Güne Göre'}
                     </span>
-                    {cariTab === 'receivables' ? (
-                      <span className={`font-bold flex items-center justify-end gap-0.5 ${
-                        comparisonSummary.cust.diff >= 0 ? 'text-blue-400' : 'text-emerald-400'
-                      }`}>
-                        {comparisonSummary.cust.diff >= 0 ? '+' : ''}{formatMoney(comparisonSummary.cust.diff, 'TRY').formatted}
-                        <span className="text-[8px] opacity-80">({comparisonSummary.cust.diff >= 0 ? '▲' : '▼'} %{Math.abs(comparisonSummary.cust.pct).toFixed(1)})</span>
-                      </span>
-                    ) : (
+                    {cariTab === 'payables' ? (
                       <span className={`font-bold flex items-center justify-end gap-0.5 ${
                         comparisonSummary.supp.diff <= 0 ? 'text-emerald-400' : 'text-rose-400'
                       }`}>
                         {comparisonSummary.supp.diff >= 0 ? '+' : ''}{formatMoney(comparisonSummary.supp.diff, 'TRY').formatted}
                         <span className="text-[8px] opacity-80">({comparisonSummary.supp.diff <= 0 ? '▼ Ödendi' : '▲ Artış'})</span>
+                      </span>
+                    ) : (
+                      <span className={`font-bold flex items-center justify-end gap-0.5 ${
+                        comparisonSummary.cust.diff >= 0 ? 'text-blue-400' : 'text-emerald-400'
+                      }`}>
+                        {comparisonSummary.cust.diff >= 0 ? '+' : ''}{formatMoney(comparisonSummary.cust.diff, 'TRY').formatted}
+                        <span className="text-[8px] opacity-80">({comparisonSummary.cust.diff >= 0 ? '▲' : '▼'} %{Math.abs(comparisonSummary.cust.pct).toFixed(1)})</span>
                       </span>
                     )}
                   </div>
@@ -1226,8 +1260,8 @@ export default function Home() {
                     </div>
                   ) : (
                     filteredCariList.map((item, idx) => {
-                      const maxBal = Math.max(...filteredCariList.map(i => Math.abs(i.currentBal)), 1)
-                      const barPct = Math.min(100, Math.max(8, (Math.abs(item.currentBal) / maxBal) * 100))
+                      const maxBal = Math.max(...filteredCariList.map(i => Math.abs(i.currentBalTry)), 1)
+                      const barPct = Math.min(100, Math.max(8, (Math.abs(item.currentBalTry) / maxBal) * 100))
 
                       return (
                         <div
@@ -1237,42 +1271,52 @@ export default function Home() {
                         >
                           <div className="flex justify-between items-start gap-2">
                             <div className="min-w-0 flex-1">
-                              <div className="text-[10px] font-bold text-slate-200 truncate" title={item.name}>
-                                {item.name}
+                              <div className="text-[10px] font-bold text-slate-200 truncate flex items-center gap-1.5" title={item.name}>
+                                <span className="truncate">{item.name}</span>
+                                {item.currency && item.currency !== 'TRY' && (
+                                  <span className="text-[8px] font-mono px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">
+                                    {item.currency}
+                                  </span>
+                                )}
                               </div>
                               <div className="text-[8px] text-slate-400 font-mono mt-0.5">
-                                Önceki: <span className="text-slate-300 font-bold">{formatMoney(item.previousBal, 'TRY').formatted}</span>
+                                Önceki: <span className="text-slate-300 font-bold">{formatMoney(item.previousBal, item.currency).formatted}</span>
                               </div>
                             </div>
 
                             <div className="text-right shrink-0">
                               <div className={`text-[11px] font-mono font-bold ${
-                                cariTab === 'receivables' ? 'text-blue-400' : 'text-amber-400'
+                                cariTab === 'payables' ? 'text-amber-400' : 'text-blue-400'
                               }`}>
-                                {formatMoney(item.currentBal, 'TRY').formatted}
+                                {formatMoney(item.currentBal, item.currency).formatted}
                               </div>
+                              {item.currency && item.currency !== 'TRY' && (
+                                <div className="text-[8px] font-mono text-slate-500">
+                                  ≈ {formatMoney(item.currentBalTry, 'TRY').formatted}
+                                </div>
+                              )}
 
                               <div className="text-[8px] font-mono mt-0.5 flex items-center justify-end gap-1">
                                 {item.diff === 0 ? (
                                   <span className="text-slate-400 font-medium">Değişmedi</span>
-                                ) : cariTab === 'receivables' ? (
-                                  item.diff > 0 ? (
-                                    <span className="text-blue-400 font-bold">
-                                      +{formatMoney(item.diff, 'TRY').formatted} (▲ %{Math.abs(item.pct).toFixed(0)})
-                                    </span>
-                                  ) : (
-                                    <span className="text-emerald-400 font-bold">
-                                      {formatMoney(item.diff, 'TRY').formatted} (▼ Tahsilat)
-                                    </span>
-                                  )
-                                ) : (
+                                ) : cariTab === 'payables' ? (
                                   item.diff < 0 ? (
                                     <span className="text-emerald-400 font-bold">
-                                      {formatMoney(item.diff, 'TRY').formatted} (▼ Ödendi)
+                                      {formatMoney(item.diff, item.currency).formatted} (▼ Ödendi)
                                     </span>
                                   ) : (
                                     <span className="text-rose-400 font-bold">
-                                      +{formatMoney(item.diff, 'TRY').formatted} (▲ Artış)
+                                      +{formatMoney(item.diff, item.currency).formatted} (▲ Artış)
+                                    </span>
+                                  )
+                                ) : (
+                                  item.diff > 0 ? (
+                                    <span className="text-blue-400 font-bold">
+                                      +{formatMoney(item.diff, item.currency).formatted} (▲ %{Math.abs(item.pct).toFixed(0)})
+                                    </span>
+                                  ) : (
+                                    <span className="text-emerald-400 font-bold">
+                                      {formatMoney(item.diff, item.currency).formatted} (▼ Tahsilat)
                                     </span>
                                   )
                                 )}
@@ -1285,7 +1329,7 @@ export default function Home() {
                             <div
                               style={{ width: `${barPct}%` }}
                               className={`h-full rounded-full ${
-                                cariTab === 'receivables' ? 'bg-blue-500' : 'bg-amber-500'
+                                cariTab === 'payables' ? 'bg-amber-500' : 'bg-blue-500'
                               }`}
                             />
                           </div>
