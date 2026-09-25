@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock } from 'lucide-react'
+import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, Calculator, Sparkles } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
-type BankAccount = { id: string; bank_name: string; account_name: string; iban: string; balance: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; company?: { name: string; is_personal: boolean } }
+type BankAccount = { id: string; bank_name: string; account_name: string; iban: string; balance: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; account_color?: string; is_investment?: boolean; company?: { name: string; is_personal: boolean } }
 type BankTransaction = { id: string; bank_account_id: string; company_id?: string | null; tx_date: string; description: string; tx_type: 'in' | 'out'; amount: number; currency: string; exchange_rate: number; is_transfer: boolean; running_balance?: number; transfer_id?: string; status?: string; company?: { name: string; is_personal: boolean } }
 type CashRegister = { id: string; name: string; balance: number; currency: string }
 
@@ -31,9 +31,19 @@ export default function BankAccountsPage() {
   const [iban, setIban] = useState('')
   const [currency, setCurrency] = useState<'TRY' | 'USD' | 'EUR'>('TRY')
   const [bankCompanyId, setBankCompanyId] = useState('common')
-  const [openingBalance, setOpeningBalance] = useState('')
-
   const todayISO = getLocalTodayISO()
+  const [openingBalance, setOpeningBalance] = useState('')
+  const [isInvestment, setIsInvestment] = useState(false)
+
+  // Günlük Faiz / Getiri Modalı State'leri
+  const [isInterestModalOpen, setIsInterestModalOpen] = useState(false)
+  const [interestDate, setInterestDate] = useState(todayISO)
+  const [interestAmount, setInterestAmount] = useState('')
+  const [interestDesc, setInterestDesc] = useState('')
+  const [interestAnnualRate, setInterestAnnualRate] = useState('')
+  const [interestDays, setInterestDays] = useState('1')
+  const [withholdingTaxRate, setWithholdingTaxRate] = useState('10')
+
   const [txDate, setTxDate] = useState(todayISO)
   const [txCompanyId, setTxCompanyId] = useState('common')
   const [txDesc, setTxDesc] = useState('')
@@ -76,13 +86,21 @@ export default function BankAccountsPage() {
   useEffect(() => { if (selectedBankId) fetchTransactions(selectedBankId); else setTransactions([]) }, [selectedBankId])
 
   async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name', { ascending: true }); setCompanies(data || []) }
-  async function fetchBanks() { const { data } = await supabase.from('bank_accounts').select('*, company:companies(name, is_personal)').order('bank_name', { ascending: true }); setBanks(data || []); if (data && data.length > 0 && !selectedBankId) setSelectedBankId(data[0].id) }
+  async function fetchBanks() { 
+    const { data } = await supabase.from('bank_accounts').select('*, company:companies(name, is_personal)').order('bank_name', { ascending: true }); 
+    const mapped = (data || []).map(b => ({
+      ...b,
+      is_investment: b.account_color === 'investment' || b.account_color?.includes('investment')
+    }));
+    setBanks(mapped); 
+    if (mapped.length > 0 && !selectedBankId) setSelectedBankId(mapped[0].id) 
+  }
   async function fetchCashes() { const { data } = await supabase.from('cash_registers').select('*'); setCashes(data || []) }
   async function fetchTransactions(bankId: string) { const { data } = await supabase.from('bank_transactions').select('*, company:companies(name, is_personal)').eq('bank_account_id', bankId).order('tx_date', { ascending: false }).order('created_at', { ascending: false }); setTransactions(data || []) }
 
   function openAddModal() { 
     setEditingId(null); setBankName(''); setAccountName(''); setIban('TR'); setCurrency('TRY'); 
-    setBankCompanyId('common'); setOpeningBalance(''); setIsModalOpen(true) 
+    setBankCompanyId('common'); setOpeningBalance(''); setIsInvestment(false); setIsModalOpen(true) 
   }
 
   async function openEditModal(bank: BankAccount, e: React.MouseEvent) { 
@@ -93,6 +111,7 @@ export default function BankAccountsPage() {
     setIban(bank.iban || 'TR'); 
     setCurrency(bank.currency as any); 
     setBankCompanyId(bank.company_id || 'common'); 
+    setIsInvestment(Boolean(bank.account_color === 'investment' || bank.is_investment));
     setOpeningBalance(''); 
     setIsModalOpen(true);
 
@@ -103,6 +122,78 @@ export default function BankAccountsPage() {
       setOpeningBalance(txs[0].amount.toString());
     } else {
       setOpeningBalance('0');
+    }
+  }
+
+  function openInterestModal() {
+    if (!selectedBank) return
+    setInterestDate(todayISO)
+    setInterestAmount('')
+    setInterestAnnualRate('')
+    setInterestDays('1')
+    setWithholdingTaxRate('10')
+    setInterestDesc(`Günlük Faiz Geliri (${formatDateTR(todayISO)})`)
+    setIsInterestModalOpen(true)
+  }
+
+  function calculateEstimatedInterest(bal: number, rateStr: string, daysStr: string, taxStr: string) {
+    const rate = parseFloat(rateStr) || 0
+    const days = parseInt(daysStr, 10) || 1
+    const tax = parseFloat(taxStr) || 0
+    if (bal <= 0 || rate <= 0) return { gross: 0, taxAmount: 0, net: 0 }
+    const gross = bal * (rate / 100) * (days / 365)
+    const taxAmount = gross * (tax / 100)
+    const net = gross - taxAmount
+    return { gross, taxAmount, net }
+  }
+
+  async function handleSaveInterest(e: React.FormEvent) {
+    e.preventDefault()
+    const amt = parseFloat(interestAmount)
+    if (!amt || amt <= 0 || !selectedBankId || !selectedBank) {
+      toast.error('Lütfen geçerli bir faiz tutarı giriniz.')
+      return
+    }
+    const finalCompId = selectedBank.company_id || null
+    const desc = interestDesc || `Günlük Faiz Geliri (${formatDateTR(interestDate)})`
+
+    try {
+      const payload = {
+        bank_account_id: selectedBankId,
+        company_id: finalCompId,
+        tx_date: interestDate || todayISO,
+        description: desc,
+        tx_type: 'in',
+        amount: amt,
+        currency: selectedBank.currency,
+        exchange_rate: 1,
+        is_transfer: false,
+        status: 'completed'
+      }
+
+      const { data, error } = await supabase.from('bank_transactions').insert([payload]).select().single()
+      if (error) throw error
+
+      await recalculateAbsoluteBankBalance(selectedBankId)
+
+      await logActivity(
+        'bank_tx',
+        'INSERT',
+        `Günlük Faiz Geliri Eklendi: ${desc} (+${amt} ${selectedBank.currency})`,
+        data.id,
+        amt,
+        selectedBank.currency,
+        { previous_balance: selectedBank.balance },
+        data,
+        finalCompId
+      )
+
+      toast.success(`${formatMoney(amt, selectedBank.currency).formatted} faiz geliri hesaba eklendi!`)
+      setIsInterestModalOpen(false)
+      fetchTransactions(selectedBankId)
+      fetchBanks()
+    } catch (err: any) {
+      toast.error('Faiz kaydedilemedi: ' + err.message)
     }
   }
 
@@ -149,7 +240,7 @@ export default function BankAccountsPage() {
            await supabase.from('bank_transactions').insert([txPayload]);
         }
 
-        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId }
+        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, account_color: isInvestment ? 'investment' : 'from-[#1b253b] to-[#121a2a]' }
         await supabase.from('bank_accounts').update(payload).eq('id', editingId); 
         await recalculateAbsoluteBankBalance(editingId); 
         
@@ -159,7 +250,7 @@ export default function BankAccountsPage() {
         if (selectedBankId === editingId) fetchTransactions(editingId);
       } 
       else { 
-        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, balance: 0 } 
+        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, balance: 0, account_color: isInvestment ? 'investment' : 'from-[#1b253b] to-[#121a2a]' } 
         const { data, error } = await supabase.from('bank_accounts').insert([payload]).select().single(); 
         if (error) throw error;
         await logActivity('bank', 'INSERT', `Yeni banka hesabı açıldı: ${bankName}`, data.id, 0, currency, null, data, finalCompId)
@@ -738,7 +829,14 @@ export default function BankAccountsPage() {
                className={`flex items-center justify-between py-2.5 px-3 rounded-lg cursor-pointer transition-all border hover:-translate-y-0.5 group ${item.id === selectedBankId ? 'bg-indigo-900/10 border-indigo-500/30 shadow-inner' : 'bg-[#070b14] border-slate-800/50 hover:border-slate-600'}`}
              >
                 <div className="flex-1 min-w-0 pr-2 flex flex-col gap-0.5">
-                   <h4 className="text-[11px] font-bold text-slate-200 truncate">{item.bank_name}</h4>
+                   <div className="flex items-center gap-1.5">
+                     <h4 className="text-[11px] font-bold text-slate-200 truncate">{item.bank_name}</h4>
+                     {item.is_investment && (
+                       <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                         Vadeli
+                       </span>
+                     )}
+                   </div>
                    <p className="text-[9px] text-slate-500 truncate">{item.account_name}</p>
                    <span className="text-[9px] text-slate-500 flex items-center gap-1 mt-1">
                       {item.company ? (item.company.is_personal ? <Home size={10} className="text-slate-400"/> : <Building size={10} className="text-indigo-400"/>) : <Globe size={10} className="text-indigo-500/70"/>}
@@ -759,7 +857,14 @@ export default function BankAccountsPage() {
               <div className="p-4 border-b border-slate-800/80 bg-gradient-to-r from-[#0a0f1d] to-[#0d1322] rounded-t-xl shrink-0 flex flex-col md:flex-row justify-between gap-4 relative z-10">
                 <div className="flex-1 w-full">
                    <div className="flex items-center justify-between mb-2">
-                     <h2 className="text-lg font-bold text-white flex items-center gap-2">{selectedBank.bank_name} <span className="text-sm font-normal text-slate-400">- {selectedBank.account_name}</span></h2>
+                     <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                       {selectedBank.bank_name} <span className="text-sm font-normal text-slate-400">- {selectedBank.account_name}</span>
+                       {selectedBank.is_investment && (
+                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                           <TrendingUp size={11} /> Vadeli Yatırım Hesabı
+                         </span>
+                       )}
+                     </h2>
                      <div className="flex items-center gap-1 bg-black/40 p-1 rounded border border-slate-800">
                        <button onClick={(e) => openEditModal(selectedBank, e)} className="text-slate-400 hover:text-indigo-400 p-1 transition"><Edit3 size={14} /></button>
                        <button onClick={(e) => handleDeleteBank(selectedBank.id, e)} className="text-slate-400 hover:text-rose-400 p-1 transition"><Trash2 size={14} /></button>
@@ -797,7 +902,20 @@ export default function BankAccountsPage() {
                     <div className="w-28"><label className="block text-[9px] text-slate-400 mb-0.5">Tutar ({selectedBank.currency})</label><input type="number" step="0.01" required placeholder="0.00" value={txAmount} onChange={(e) => setTxAmount(e.target.value)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none font-mono transition-colors" /></div>
                     <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded text-[11px] font-bold transition-all active:scale-95 h-[26px]">Ekle</button>
                   </form>
-                  <button onClick={() => { setIsTransferModalOpen(true); setTransferDate(todayISO); setTransferTarget(''); setTransferAmount(''); setTransferRate('1'); setTargetCurrency('TRY'); setTransferTargetAmount(''); setTransferCompanyId('common') }} className="shrink-0 bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/50 text-indigo-300 hover:text-white px-4 py-3 rounded-lg text-xs font-bold transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 min-w-[120px]"><ArrowRightLeft size={18} /> Virman / Transfer</button>
+                  <div className="flex gap-2 shrink-0">
+                    {selectedBank.is_investment && (
+                      <button 
+                        type="button"
+                        onClick={openInterestModal} 
+                        className="bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-300 hover:text-white px-4 py-3 rounded-lg text-xs font-bold transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 min-w-[120px] shadow-sm shadow-emerald-950/40 cursor-pointer"
+                        title="Hesapta duran bakiye için günlük faiz geliri ekle"
+                      >
+                        <TrendingUp size={18} />
+                        <span>Günlük Faiz Ekle</span>
+                      </button>
+                    )}
+                    <button onClick={() => { setIsTransferModalOpen(true); setTransferDate(todayISO); setTransferTarget(''); setTransferAmount(''); setTransferRate('1'); setTargetCurrency('TRY'); setTransferTargetAmount(''); setTransferCompanyId('common') }} className="bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/50 text-indigo-300 hover:text-white px-4 py-3 rounded-lg text-xs font-bold transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 min-w-[120px]"><ArrowRightLeft size={18} /> Virman / Transfer</button>
+                  </div>
                 </div>
 
                 {/* BEKLEYEN PROVİZYON BİLGİLENDİRME & HIZLI İŞLEM BARI */}
@@ -863,6 +981,7 @@ export default function BankAccountsPage() {
                                  : t.transfer_id?.startsWith('CUST') ? <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-1">Müşteri Tahsilatı</span> 
                                  : t.transfer_id?.startsWith('EXP') ? <span className="text-[9px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded border border-rose-500/30 flex items-center gap-1">Gider Ödemesi</span> 
                                  : t.is_transfer ? <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/30 flex items-center gap-1"><ArrowRightLeft size={10}/> Kasa/Banka Transferi</span> 
+                                 : t.description?.toLowerCase().includes('faiz') ? <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1"><TrendingUp size={10}/> Faiz Geliri</span>
                                  : ''} 
                                  
                                  {t.status === 'pending' && (
@@ -1250,6 +1369,32 @@ export default function BankAccountsPage() {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-slate-400 mb-1 font-bold">Hesap Türü / Amacı</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsInvestment(false)}
+                    className={`py-2 px-3 rounded-lg border text-left transition-all flex flex-col gap-0.5 cursor-pointer ${!isInvestment ? 'bg-indigo-600/20 border-indigo-500/60 text-white shadow-sm shadow-indigo-900/40' : 'bg-[#070b14] border-slate-700 text-slate-400 hover:border-slate-600'}`}
+                  >
+                    <span className="font-bold text-[11px] flex items-center gap-1.5">
+                      <Landmark size={12} className={!isInvestment ? 'text-indigo-400' : 'text-slate-500'} /> Vadesiz / Ticari
+                    </span>
+                    <span className="text-[9px] text-slate-500">Standart nakit & POS</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsInvestment(true)}
+                    className={`py-2 px-3 rounded-lg border text-left transition-all flex flex-col gap-0.5 cursor-pointer ${isInvestment ? 'bg-emerald-600/20 border-emerald-500/60 text-white shadow-sm shadow-emerald-950/40' : 'bg-[#070b14] border-slate-700 text-slate-400 hover:border-slate-600'}`}
+                  >
+                    <span className="font-bold text-[11px] flex items-center gap-1.5">
+                      <TrendingUp size={12} className={isInvestment ? 'text-emerald-400' : 'text-slate-500'} /> Vadeli / Yatırım
+                    </span>
+                    <span className="text-[9px] text-slate-500">Günlük faiz & getiri</span>
+                  </button>
+                </div>
+              </div>
+
               <div><label className="block text-slate-400 mb-1">Banka Adı *</label><input type="text" required placeholder="Örn: Garanti BBVA" value={bankName} onChange={(e) => setBankName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors" /></div>
               <div><label className="block text-slate-400 mb-1">Hesap Adı / Türü *</label><input type="text" required placeholder="Örn: Şirket Vadesiz, Döviz Hesabı" value={accountName} onChange={(e) => setAccountName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none transition-colors" /></div>
               
@@ -1266,6 +1411,191 @@ export default function BankAccountsPage() {
 
               <div><label className="block text-slate-400 mb-1">IBAN No</label><input type="text" value={iban} onChange={(e) => setIban(e.target.value.toUpperCase())} placeholder="TR..." className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none font-mono tracking-wider uppercase transition-colors" /></div>
               <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-800"><button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button><button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded font-medium transition-all active:scale-95 shadow-lg shadow-indigo-900/20">Kaydet</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- GÜNLÜK FAİZ / GETİRİ EKLEME MODALI --- */}
+      {isInterestModalOpen && selectedBank && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
+          <div className="bg-[#0f172a] border border-emerald-900/60 rounded-2xl w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden">
+            {/* Modal Başlığı */}
+            <div className="p-4 bg-gradient-to-r from-emerald-950/50 via-slate-900 to-[#0a0f1d] border-b border-emerald-900/40 flex justify-between items-center">
+              <div>
+                <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
+                  <TrendingUp size={18} /> Günlük Faiz / Getiri Ekle
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {selectedBank.bank_name} - {selectedBank.account_name}
+                </p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setIsInterestModalOpen(false)} 
+                className="text-slate-400 hover:text-white transition p-1 hover:bg-slate-800 rounded"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveInterest} className="p-5 space-y-4 text-[11px]">
+              {/* Hesap Bakiye Bilgi Kartı */}
+              <div className="bg-[#070b14] border border-slate-800 p-3 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider">Faiz İşletilecek Bakiye</span>
+                  <span className="text-[11px] text-slate-300 font-medium">Hesap Mevcudu</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-lg font-black font-mono text-emerald-400">
+                    {formatMoney(selectedBank.balance, selectedBank.currency).formatted}
+                  </span>
+                </div>
+              </div>
+
+              {/* Hızlı Getiri Hesaplayıcı (Opsiyonel / Akıllı) */}
+              <div className="bg-gradient-to-br from-emerald-950/20 to-slate-900 border border-emerald-500/20 rounded-xl p-3 space-y-2.5">
+                <div className="flex items-center justify-between text-emerald-400 font-bold text-[10px]">
+                  <span className="flex items-center gap-1.5"><Calculator size={13} /> Otomatik Getiri Hesaplayıcı</span>
+                  <span className="text-[9px] text-slate-500 font-normal">Opsiyonel</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-slate-400 text-[9px] mb-1">Yıllık Oran (%)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Örn: 48"
+                      value={interestAnnualRate}
+                      onChange={(e) => setInterestAnnualRate(e.target.value)}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[9px] mb-1">Gün Sayısı</label>
+                    <div className="flex gap-1">
+                      {[
+                        { label: '1G', val: '1' },
+                        { label: '2G', val: '2' },
+                        { label: '3G (Hft)', val: '3' }
+                      ].map(d => (
+                        <button
+                          key={d.val}
+                          type="button"
+                          onClick={() => setInterestDays(d.val)}
+                          className={`flex-1 py-1 rounded text-[9px] font-bold border transition ${interestDays === d.val ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-[#070b14] text-slate-400 border-slate-700 hover:border-slate-500'}`}
+                        >
+                          {d.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[9px] mb-1">Stopaj (%)</label>
+                    <div className="flex gap-1">
+                      {['0', '5', '7.5', '10'].map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setWithholdingTaxRate(t)}
+                          className={`flex-1 py-1 rounded text-[8px] font-bold border transition ${withholdingTaxRate === t ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-[#070b14] text-slate-400 border-slate-700 hover:border-slate-500'}`}
+                        >
+                          %{t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Canlı Hesap Özeti */}
+                {(() => {
+                  const calc = calculateEstimatedInterest(selectedBank.balance, interestAnnualRate, interestDays, withholdingTaxRate)
+                  if (calc.gross <= 0) return null
+                  return (
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                      <div className="text-[9px] text-slate-400">
+                        <span>Brüt: {formatMoney(calc.gross, selectedBank.currency).formatted}</span>
+                        {calc.taxAmount > 0 && <span className="ml-2 text-rose-400">Stopaj: -{formatMoney(calc.taxAmount, selectedBank.currency).formatted}</span>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInterestAmount(calc.net.toFixed(2))
+                          toast.success('Hesaplanan net faiz tutara aktarıldı')
+                        }}
+                        className="bg-emerald-600/30 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-200 hover:text-white px-2.5 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
+                      >
+                        <Sparkles size={11} /> Net {formatMoney(calc.net, selectedBank.currency).formatted} Aktar
+                      </button>
+                    </div>
+                  )
+                })()}
+              </div>
+
+              {/* Form Alanları */}
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">İşlem / Valör Tarihi *</label>
+                    <input
+                      type="date"
+                      required
+                      value={interestDate}
+                      onChange={(e) => {
+                        setInterestDate(e.target.value)
+                        setInterestDesc(`Günlük Faiz Geliri (${formatDateTR(e.target.value)})`)
+                      }}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                      style={{ colorScheme: 'dark' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-emerald-400 font-bold mb-1">
+                      Net Faiz Tutarı ({selectedBank.currency}) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="0.00"
+                      value={interestAmount}
+                      onChange={(e) => setInterestAmount(e.target.value)}
+                      className="w-full bg-[#070b14] border border-emerald-500/50 rounded px-3 py-2 text-emerald-400 font-mono text-base font-bold focus:outline-none focus:border-emerald-400 transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Açıklama *</label>
+                  <input
+                    type="text"
+                    required
+                    value={interestDesc}
+                    onChange={(e) => setInterestDesc(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                    placeholder="Örn: Günlük Faiz Geliri (26.09.2026)"
+                  />
+                </div>
+              </div>
+
+              {/* Alt Butonlar */}
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsInterestModalOpen(false)}
+                  className="px-4 py-2 rounded text-slate-400 hover:bg-slate-800 transition-colors text-xs"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg font-bold transition-all active:scale-95 shadow-lg shadow-emerald-900/30 text-xs flex items-center gap-1.5"
+                >
+                  <TrendingUp size={15} /> Faizi Hesaba Ekle (+)
+                </button>
+              </div>
             </form>
           </div>
         </div>

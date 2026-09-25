@@ -441,7 +441,13 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Silme: `SUPP-/CUST-/EXP-/POS-` ön ekli hareketler engellenir; `TRF-` silinirse karşı bacak da silinir.
 
 ### 7.4 Banka Hesapları `/bank-accounts`
-- Kasa ile aynı düzen + IBAN alanı, "Bekleyen Provizyon" etiketi ve ✔ **Hesaba Geçir & Komisyon Kes** butonu (yalnız `pending` satırlarda).
+- **Vadeli / Yatırım Hesabı Desteği**:
+  - Hesap açarken veya düzenlerken **Vadesiz / Ticari** veya **Vadeli / Yatırım** hesabı türü seçilebilir.
+  - Vadeli yatırım hesapları sol listede ve hesap başlığında özel `📈 Vadeli Yatırım Hesabı` rozetiyle gösterilir.
+- **Günlük Faiz / Getiri Ekleme**:
+  - Vadeli yatırım hesaplarında hızlı işlem barında `[ 📈 Günlük Faiz Ekle ]` butonu yer alır.
+  - Hesapta duran mevcut bakiyeye göre yıllık faiz oranı (%), gün sayısı (1G / 2G / 3G Hafta Sonu) ve stopaj kesintisi oranıyla canlı net getiri hesaplayan akıllı hesaplayıcı içerir.
+  - İstenen net getiri tutarı doğrudan manuel de girilebilir; işlem tarihi, açıklama ve ilgili merkez ile `tx_type = 'in'` (Giriş/Gelir) olarak hesaba işlenir, bakiye mutlak olarak güncellenir ve ekstrede `📈 Faiz Geliri` rozetiyle listelenir.
 - **Virman / Transfer**: Transfer modalında transfer tarihi seçilebilir (`tx_date`), çıkış tutarı ve döviz kuru/hedef tutar otomatik senkronize edilir.
 - **Banka Hesap Hareketlerini Düzenleme (Edit)**:
   - Tablodaki her işlem satırında yer alan düzenleme butonu (`Edit3`) ile modal açılır; işlem tarihi (`tx_date`), ilgili merkez (`company_id`), banka hesabı (`bank_account_id` - hareketi başka bir banka hesabına taşıma), işlem yönü (giriş/çıkış), açıklama, tutar ve işlem durumu (`completed` / `pending`) güncellenebilir.
