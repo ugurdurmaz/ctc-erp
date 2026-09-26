@@ -76,7 +76,7 @@ interface Supplier { id: string; company_name: string; balance: number; currency
 interface StockItem { id: string; name: string; sku?: string; category?: string; quantity: number; unit_price: number; currency: string; warehouse_id: string }
 interface ServiceItem { id: string; name: string; unit_price: number; currency: string }
 interface CashRegister { id: string; name: string; balance: number; currency: string; company_id: string | null }
-interface BankAccount { id: string; bank_name: string; balance: number; currency: string; company_id: string | null }
+interface BankAccount { id: string; bank_name: string; account_name?: string; balance: number; currency: string; company_id: string | null }
 
 // ==============================================================================
 // DURUM YAPILANDIRMASI
@@ -263,6 +263,36 @@ export default function TechnicalServicePage() {
     if (effectiveCompanyId === 'all') return true
     return compId === effectiveCompanyId
   }
+
+  // Bilgisayar Hastanesi Şirketi (Teknik servisin bağlı olduğu ticari şirket)
+  const bilgisayarHastanesiCompany = useMemo(() => {
+    return companies.find(c => c.name.toLocaleLowerCase('tr-TR').includes('hastane')) || 
+           companies.find(c => c.id === '0f0ae5db-0e73-4241-bf84-5f16e7da9a08') ||
+           companies.find(c => !c.is_personal)
+  }, [companies])
+
+  // Servis fişinde tahsilat için seçilebilecek nakit kasalar (SADECE Bilgisayar Hastanesi kasaları)
+  const availableCashes = useMemo(() => {
+    const targetCompId = selectedTicket?.company_id || bilgisayarHastanesiCompany?.id
+    if (targetCompId) {
+      const filtered = cashes.filter(c => c.company_id === targetCompId)
+      if (filtered.length > 0) return filtered
+    }
+    // İkincil güvenlik: Şahsi merkezlerin (ör. Karaburun) kasaları kesinlikle hariç tutulur
+    const personalCompanyIds = new Set(companies.filter(c => c.is_personal).map(c => c.id))
+    return cashes.filter(c => c.company_id && !personalCompanyIds.has(c.company_id))
+  }, [cashes, selectedTicket?.company_id, bilgisayarHastanesiCompany, companies])
+
+  // Servis fişinde tahsilat için seçilebilecek banka / POS hesapları (Bilgisayar Hastanesi hesapları öncelikli)
+  const availableBanks = useMemo(() => {
+    const targetCompId = selectedTicket?.company_id || bilgisayarHastanesiCompany?.id
+    if (targetCompId) {
+      const filtered = banks.filter(b => b.company_id === targetCompId)
+      if (filtered.length > 0) return filtered
+    }
+    const personalCompanyIds = new Set(companies.filter(c => c.is_personal).map(c => c.id))
+    return banks.filter(b => !b.company_id || !personalCompanyIds.has(b.company_id))
+  }, [banks, selectedTicket?.company_id, bilgisayarHastanesiCompany, companies])
 
   // Verileri Yükle
   const loadData = async () => {
@@ -765,7 +795,22 @@ export default function TechnicalServicePage() {
     setIsPartDropdownOpen(false)
 
     setPaymentMethod((t.payment_method as any) || 'cash')
-    setPaymentTargetId(t.payment_target_id || '')
+
+    // Kasa ve banka seçimi (şahsi merkezlerin kasalarını engelle ve Bilgisayar Hastanesi kasasını varsayılan yap)
+    const targetCompId = t.company_id || companies.find(c => c.name.toLocaleLowerCase('tr-TR').includes('hastane'))?.id
+    const targetCashes = targetCompId ? cashes.filter(c => c.company_id === targetCompId) : cashes.filter(c => !companies.find(comp => comp.id === c.company_id)?.is_personal)
+    const fallbackCashId = targetCashes[0]?.id || ''
+    const isTargetCashValid = targetCashes.some(c => c.id === t.payment_target_id)
+
+    const targetBanks = targetCompId ? banks.filter(b => b.company_id === targetCompId) : banks
+    const fallbackBankId = targetBanks[0]?.id || ''
+    const isTargetBankValid = targetBanks.some(b => b.id === t.payment_target_id)
+
+    if ((t.payment_method as any) === 'card') {
+      setPaymentTargetId(isTargetBankValid ? (t.payment_target_id || '') : fallbackBankId)
+    } else {
+      setPaymentTargetId(isTargetCashValid ? (t.payment_target_id || '') : fallbackCashId)
+    }
     setSelectedServiceId('')
     setSelectedServicePrice('')
     setSelectedStockId('')
@@ -1049,61 +1094,79 @@ export default function TechnicalServicePage() {
       }
 
       // Cihaz şimdi teslim ediliyorsa veya teslim edilmişse tahsilat işlemlerini gerçekleştir (mükerrer kayıt engeliyle)
+      const payDescPrefix = `Teknik Servis Tahsilatı: ${selectedTicket.ticket_no}`
+      const debtDescPrefix = `Teknik Servis Borcu: ${selectedTicket.ticket_no}`
+      const cardDescPrefix = `Teknik Servis Kart Tahsilatı: ${selectedTicket.ticket_no}`
+
+      const { data: existingCashTx } = await supabase
+        .from('cash_transactions')
+        .select('id, amount, cash_register_id')
+        .like('description', `${payDescPrefix}%`)
+        .maybeSingle()
+
+      const { data: existingBankTx } = await supabase
+        .from('bank_transactions')
+        .select('id, amount, bank_account_id')
+        .like('description', `${cardDescPrefix}%`)
+        .maybeSingle()
+
+      const { data: existingCustTx } = await supabase
+        .from('customer_transactions')
+        .select('id, amount, customer_id')
+        .like('description', `${debtDescPrefix}%`)
+        .maybeSingle()
+
       if (detailStatus === 'delivered') {
-        const payDescPrefix = `Teknik Servis Tahsilatı: ${selectedTicket.ticket_no}`
-        const debtDescPrefix = `Teknik Servis Borcu: ${selectedTicket.ticket_no}`
-        const cardDescPrefix = `Teknik Servis Kart Tahsilatı: ${selectedTicket.ticket_no}`
-
-        const { data: existingCashTx } = await supabase
-          .from('cash_transactions')
-          .select('id, amount, cash_register_id')
-          .like('description', `${payDescPrefix}%`)
-          .maybeSingle()
-
-        const { data: existingBankTx } = await supabase
-          .from('bank_transactions')
-          .select('id, amount, bank_account_id')
-          .like('description', `${cardDescPrefix}%`)
-          .maybeSingle()
-
-        const { data: existingCustTx } = await supabase
-          .from('customer_transactions')
-          .select('id, amount, customer_id')
-          .like('description', `${debtDescPrefix}%`)
-          .maybeSingle()
-
-        const hasAnyExistingPayment = Boolean(existingCashTx || existingBankTx || existingCustTx)
-
         if (paymentMethod === 'free') {
           updates.payment_status = 'paid'
           updates.payment_method = 'free'
+          updates.payment_target_id = null
+
           if (existingCashTx) {
             await supabase.from('cash_transactions').delete().eq('id', existingCashTx.id)
-            const c = cashes.find(x => x.id === existingCashTx.cash_register_id)
-            if (c) await supabase.from('cash_registers').update({ balance: Number(c.balance || 0) - Number(existingCashTx.amount) }).eq('id', c.id)
+            await recalculateAbsoluteCashBalance(existingCashTx.cash_register_id)
+          }
+          if (existingBankTx) {
+            await supabase.from('bank_transactions').delete().eq('id', existingBankTx.id)
+            await recalculateAbsoluteBankBalance(existingBankTx.bank_account_id)
+          }
+          if (existingCustTx) {
+            await supabase.from('customer_transactions').delete().eq('id', existingCustTx.id)
+            await recalculateAbsoluteCustomerBalance(existingCustTx.customer_id)
           }
         } else if (calcTotalCost > 0) {
           if (paymentMethod === 'cash') {
-            const cash = cashes.find(c => c.id === paymentTargetId) || cashes[0]
-            if (cash) {
+            // YALNIZCA Bilgisayar Hastanesi kasaları
+            const targetCash = availableCashes.find(c => c.id === paymentTargetId) || availableCashes[0]
+            if (targetCash) {
+              // Önceki farklı ödeme türünden kalan hareketleri temizle
+              if (existingBankTx) {
+                await supabase.from('bank_transactions').delete().eq('id', existingBankTx.id)
+                await recalculateAbsoluteBankBalance(existingBankTx.bank_account_id)
+              }
+              if (existingCustTx) {
+                await supabase.from('customer_transactions').delete().eq('id', existingCustTx.id)
+                await recalculateAbsoluteCustomerBalance(existingCustTx.customer_id)
+              }
+
               if (existingCashTx) {
-                // Önceden bu bilet için nakit tahsilat varsa ve tutar/tarih değiştiyse güncelle, ASLA mükerrer satır ekleme
-                const diff = calcTotalCost - Number(existingCashTx.amount)
+                const oldCashId = existingCashTx.cash_register_id
                 await supabase.from('cash_transactions').update({
+                  cash_register_id: targetCash.id,
+                  company_id: selectedTicket.company_id || targetCash.company_id,
                   amount: calcTotalCost,
                   tx_date: finalDeliveryDate,
                   description: `${payDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`
                 }).eq('id', existingCashTx.id)
 
-                if (diff !== 0) {
-                  await supabase.from('cash_registers').update({
-                    balance: Number(cash.balance || 0) + diff
-                  }).eq('id', cash.id)
+                if (oldCashId && oldCashId !== targetCash.id) {
+                  await recalculateAbsoluteCashBalance(oldCashId)
                 }
-              } else if (!hasAnyExistingPayment) {
+                await recalculateAbsoluteCashBalance(targetCash.id)
+              } else {
                 await supabase.from('cash_transactions').insert([{
-                  cash_register_id: cash.id,
-                  company_id: selectedTicket.company_id,
+                  cash_register_id: targetCash.id,
+                  company_id: selectedTicket.company_id || targetCash.company_id,
                   tx_date: finalDeliveryDate,
                   description: `${payDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`,
                   tx_type: 'in',
@@ -1111,34 +1174,43 @@ export default function TechnicalServicePage() {
                   currency: 'TRY',
                   exchange_rate: 1
                 }])
-                await supabase.from('cash_registers').update({
-                  balance: Number(cash.balance || 0) + calcTotalCost
-                }).eq('id', cash.id)
+                await recalculateAbsoluteCashBalance(targetCash.id)
               }
+
               updates.payment_status = 'paid'
               updates.payment_method = 'cash'
-              updates.payment_target_id = cash.id
+              updates.payment_target_id = targetCash.id
             }
           } else if (paymentMethod === 'card') {
-            const bank = banks.find(b => b.id === paymentTargetId) || banks[0]
-            if (bank) {
+            const targetBank = availableBanks.find(b => b.id === paymentTargetId) || availableBanks[0]
+            if (targetBank) {
+              if (existingCashTx) {
+                await supabase.from('cash_transactions').delete().eq('id', existingCashTx.id)
+                await recalculateAbsoluteCashBalance(existingCashTx.cash_register_id)
+              }
+              if (existingCustTx) {
+                await supabase.from('customer_transactions').delete().eq('id', existingCustTx.id)
+                await recalculateAbsoluteCustomerBalance(existingCustTx.customer_id)
+              }
+
               if (existingBankTx) {
-                const diff = calcTotalCost - Number(existingBankTx.amount)
+                const oldBankId = existingBankTx.bank_account_id
                 await supabase.from('bank_transactions').update({
+                  bank_account_id: targetBank.id,
+                  company_id: selectedTicket.company_id || targetBank.company_id,
                   amount: calcTotalCost,
                   tx_date: finalDeliveryDate,
                   description: `${cardDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`
                 }).eq('id', existingBankTx.id)
 
-                if (diff !== 0) {
-                  await supabase.from('bank_accounts').update({
-                    balance: Number(bank.balance || 0) + diff
-                  }).eq('id', bank.id)
+                if (oldBankId && oldBankId !== targetBank.id) {
+                  await recalculateAbsoluteBankBalance(oldBankId)
                 }
-              } else if (!hasAnyExistingPayment) {
+                await recalculateAbsoluteBankBalance(targetBank.id)
+              } else {
                 await supabase.from('bank_transactions').insert([{
-                  bank_account_id: bank.id,
-                  company_id: selectedTicket.company_id,
+                  bank_account_id: targetBank.id,
+                  company_id: selectedTicket.company_id || targetBank.company_id,
                   tx_date: finalDeliveryDate,
                   description: `${cardDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`,
                   tx_type: 'in',
@@ -1147,32 +1219,38 @@ export default function TechnicalServicePage() {
                   currency: 'TRY',
                   exchange_rate: 1
                 }])
-                await supabase.from('bank_accounts').update({
-                  balance: Number(bank.balance || 0) + calcTotalCost
-                }).eq('id', bank.id)
+                await recalculateAbsoluteBankBalance(targetBank.id)
               }
+
               updates.payment_status = 'paid'
               updates.payment_method = 'card'
-              updates.payment_target_id = bank.id
+              updates.payment_target_id = targetBank.id
             }
           } else if (paymentMethod === 'customer_debt' && selectedTicket.customer_id) {
+            if (existingCashTx) {
+              await supabase.from('cash_transactions').delete().eq('id', existingCashTx.id)
+              await recalculateAbsoluteCashBalance(existingCashTx.cash_register_id)
+            }
+            if (existingBankTx) {
+              await supabase.from('bank_transactions').delete().eq('id', existingBankTx.id)
+              await recalculateAbsoluteBankBalance(existingBankTx.bank_account_id)
+            }
+
             if (existingCustTx) {
-              const diff = calcTotalCost - Number(existingCustTx.amount)
+              const oldCustId = existingCustTx.customer_id
               await supabase.from('customer_transactions').update({
+                customer_id: selectedTicket.customer_id,
+                company_id: selectedTicket.company_id,
                 amount: calcTotalCost,
                 tx_date: finalDeliveryDate,
                 description: `${debtDescPrefix} - ${updates.brand_model || selectedTicket.brand_model}`
               }).eq('id', existingCustTx.id)
 
-              if (diff !== 0) {
-                const cust = customers.find(c => c.id === selectedTicket.customer_id)
-                if (cust) {
-                  await supabase.from('customers').update({
-                    balance: Number(cust.balance || 0) + diff
-                  }).eq('id', cust.id)
-                }
+              if (oldCustId && oldCustId !== selectedTicket.customer_id) {
+                await recalculateAbsoluteCustomerBalance(oldCustId)
               }
-            } else if (!hasAnyExistingPayment) {
+              await recalculateAbsoluteCustomerBalance(selectedTicket.customer_id)
+            } else {
               await supabase.from('customer_transactions').insert([{
                 customer_id: selectedTicket.customer_id,
                 company_id: selectedTicket.company_id,
@@ -1183,17 +1261,31 @@ export default function TechnicalServicePage() {
                 currency: 'TRY',
                 exchange_rate: 1
               }])
-              const cust = customers.find(c => c.id === selectedTicket.customer_id)
-              if (cust) {
-                await supabase.from('customers').update({
-                  balance: Number(cust.balance || 0) + calcTotalCost
-                }).eq('id', cust.id)
-              }
+              await recalculateAbsoluteCustomerBalance(selectedTicket.customer_id)
             }
+
             updates.payment_status = 'debt_added'
             updates.payment_method = 'customer_debt'
+            updates.payment_target_id = null
           }
         }
+      } else if (selectedTicket.status === 'delivered') {
+        // Cihaz teslim edilme aşamasından geri alındıysa tahsilat işlemlerini temizle
+        if (existingCashTx) {
+          await supabase.from('cash_transactions').delete().eq('id', existingCashTx.id)
+          await recalculateAbsoluteCashBalance(existingCashTx.cash_register_id)
+        }
+        if (existingBankTx) {
+          await supabase.from('bank_transactions').delete().eq('id', existingBankTx.id)
+          await recalculateAbsoluteBankBalance(existingBankTx.bank_account_id)
+        }
+        if (existingCustTx) {
+          await supabase.from('customer_transactions').delete().eq('id', existingCustTx.id)
+          await recalculateAbsoluteCustomerBalance(existingCustTx.customer_id)
+        }
+        updates.payment_status = 'unpaid'
+        updates.payment_method = null
+        updates.payment_target_id = null
       }
 
       // =========================================================================
@@ -2951,7 +3043,17 @@ export default function TechnicalServicePage() {
                       <label className="block text-slate-300 font-bold mb-1">Tahsilat Yöntemi</label>
                       <select
                         value={paymentMethod}
-                        onChange={(e) => setPaymentMethod(e.target.value as any)}
+                        onChange={(e) => {
+                          const newMethod = e.target.value as any
+                          setPaymentMethod(newMethod)
+                          if (newMethod === 'cash') {
+                            setPaymentTargetId(availableCashes[0]?.id || '')
+                          } else if (newMethod === 'card') {
+                            setPaymentTargetId(availableBanks[0]?.id || '')
+                          } else {
+                            setPaymentTargetId('')
+                          }
+                        }}
                         className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-xl text-white font-bold"
                       >
                         <option value="cash">Nakit Kasa ile Tahsil Et</option>
@@ -2963,28 +3065,38 @@ export default function TechnicalServicePage() {
 
                     {paymentMethod === 'cash' && (
                       <div>
-                        <label className="block text-slate-300 font-bold mb-1">Giriş Yapılacak Kasa</label>
+                        <label className="block text-slate-300 font-bold mb-1">
+                          Giriş Yapılacak Kasa <span className="text-emerald-400 font-normal">({bilgisayarHastanesiCompany?.name || 'Bilgisayar Hastanesi'})</span>
+                        </label>
                         <select
                           value={paymentTargetId}
                           onChange={(e) => setPaymentTargetId(e.target.value)}
-                          className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-xl text-white font-medium"
+                          className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-xl text-white font-medium focus:border-emerald-500"
                         >
-                          <option value="">-- Varsayılan Kasa --</option>
-                          {cashes.map(c => <option key={c.id} value={c.id}>{c.name} ({formatMoney(c.balance, (c.currency as any) || 'TRY').formatted})</option>)}
+                          {availableCashes.map(c => (
+                            <option key={c.id} value={c.id}>
+                              {c.name} ({formatMoney(c.balance, (c.currency as any) || 'TRY').formatted})
+                            </option>
+                          ))}
                         </select>
                       </div>
                     )}
 
                     {paymentMethod === 'card' && (
                       <div>
-                        <label className="block text-slate-300 font-bold mb-1">POS / Banka Hesabı</label>
+                        <label className="block text-slate-300 font-bold mb-1">
+                          POS / Banka Hesabı <span className="text-emerald-400 font-normal">({bilgisayarHastanesiCompany?.name || 'Bilgisayar Hastanesi'})</span>
+                        </label>
                         <select
                           value={paymentTargetId}
                           onChange={(e) => setPaymentTargetId(e.target.value)}
-                          className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-xl text-white font-medium"
+                          className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-xl text-white font-medium focus:border-emerald-500"
                         >
-                          <option value="">-- Varsayılan Hesap --</option>
-                          {banks.map(b => <option key={b.id} value={b.id}>{b.bank_name}</option>)}
+                          {availableBanks.map(b => (
+                            <option key={b.id} value={b.id}>
+                              {b.bank_name} {b.account_name ? `- ${b.account_name}` : ''} ({formatMoney(b.balance, (b.currency as any) || 'TRY').formatted})
+                            </option>
+                          ))}
                         </select>
                       </div>
                     )}

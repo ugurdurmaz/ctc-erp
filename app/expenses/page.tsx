@@ -288,6 +288,34 @@ export default function ExpensesPage() {
   }
 
   // =========================================================================================
+  // --- MERKEZE GÖRE ÖDEME KAYNAĞI FİLTRELEME YARDIMCILARI ---
+  // =========================================================================================
+  const getFilteredPaymentSources = (targetCompId?: string | null) => {
+    if (!targetCompId) {
+      return { filteredCards: cards, filteredBanks: banks, filteredCashes: cashes }
+    }
+    const filteredCards = cards.filter(c => !c.company_id || c.company_id === targetCompId)
+    const filteredBanks = banks.filter(b => !b.company_id || b.company_id === targetCompId)
+    const filteredCashes = cashes.filter(c => !c.company_id || c.company_id === targetCompId)
+    return { filteredCards, filteredBanks, filteredCashes }
+  }
+
+  // Normal Form İçin Filtrelenmiş Kaynaklar
+  const { filteredCards: formCards, filteredBanks: formBanks, filteredCashes: formCashes } = useMemo(() => {
+    return getFilteredPaymentSources(txCompanyId)
+  }, [txCompanyId, cards, banks, cashes])
+
+  // Hızlı Öde İçin Filtrelenmiş Kaynaklar
+  const { filteredCards: qpCards, filteredBanks: qpBanks, filteredCashes: qpCashes } = useMemo(() => {
+    return getFilteredPaymentSources(quickPayCompanyId)
+  }, [quickPayCompanyId, cards, banks, cashes])
+
+  // Şablon Modalı İçin Filtrelenmiş Kaynaklar
+  const { filteredCards: tmplCards, filteredBanks: tmplBanks, filteredCashes: tmplCashes } = useMemo(() => {
+    return getFilteredPaymentSources(tmplCompanyId)
+  }, [tmplCompanyId, cards, banks, cashes])
+
+  // =========================================================================================
   // --- MUTLAK HESAPLAMA MOTORLARI (ABSOLUTE LEDGER RECALCULATORS) ---
   // =========================================================================================
   async function recalculateAbsoluteBankBalance(bankId: string) {
@@ -472,13 +500,15 @@ export default function ExpensesPage() {
   function openAddTemplateModal() {
     setEditingTemplateId(null)
     setTmplTitle('')
-    setTmplCompanyId(companies[0]?.id || '')
+    const initCompId = companies[0]?.id || ''
+    setTmplCompanyId(initCompId)
     setTmplCategoryId(categories[0]?.id || '')
     setTmplAmount('')
     setTmplCurrency('TRY')
     setTmplDueDay('1')
     setTmplSourceType('card')
-    setTmplSourceId(cards[0]?.id || '')
+    const { filteredCards: initCards } = getFilteredPaymentSources(initCompId)
+    setTmplSourceId(initCards[0]?.id || '')
     setTmplNote('')
     setTmplStartMonth('')
     setIsTemplateModalOpen(true)
@@ -600,12 +630,13 @@ export default function ExpensesPage() {
     const prefType = tmpl.default_source_type || 'card'
     setQuickPaySourceType(prefType)
 
+    const { filteredCards: targetCards, filteredBanks: targetBanks, filteredCashes: targetCashes } = getFilteredPaymentSources(tmpl.company_id)
     if (tmpl.default_source_id) {
       setQuickPaySourceId(tmpl.default_source_id)
     } else {
-      if (prefType === 'card' && cards.length > 0) setQuickPaySourceId(cards[0].id)
-      else if (prefType === 'bank' && banks.length > 0) setQuickPaySourceId(banks[0].id)
-      else if (prefType === 'cash' && cashes.length > 0) setQuickPaySourceId(cashes[0].id)
+      if (prefType === 'card' && targetCards.length > 0) setQuickPaySourceId(targetCards[0].id)
+      else if (prefType === 'bank' && targetBanks.length > 0) setQuickPaySourceId(targetBanks[0].id)
+      else if (prefType === 'cash' && targetCashes.length > 0) setQuickPaySourceId(targetCashes[0].id)
       else setQuickPaySourceId('')
     }
 
@@ -1690,7 +1721,28 @@ export default function ExpensesPage() {
                 
                 <div className="w-36">
                   <label className="block text-[9px] text-slate-400 mb-0.5">İlgili Merkez *</label>
-                  <select value={txCompanyId} onChange={(e) => setTxCompanyId(e.target.value)} required className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors">
+                  <select 
+                    value={txCompanyId} 
+                    onChange={(e) => {
+                      const newCompId = e.target.value
+                      setTxCompanyId(newCompId)
+                      if (paymentSource) {
+                        const parts = paymentSource.split('|')
+                        const pType = parts[0]
+                        const pId = parts[1]
+                        const { filteredCards: newCards, filteredBanks: newBanks, filteredCashes: newCashes } = getFilteredPaymentSources(newCompId)
+                        const isValid = 
+                          (pType === 'card' && newCards.some(c => c.id === pId)) ||
+                          (pType === 'bank' && newBanks.some(b => b.id === pId)) ||
+                          (pType === 'cash' && newCashes.some(c => c.id === pId))
+                        if (!isValid) {
+                          setPaymentSource('')
+                        }
+                      }
+                    }} 
+                    required 
+                    className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors"
+                  >
                     <option value="" className="bg-[#0d1322]">Merkez Seç...</option>
                     <optgroup label="Ticari Şirketler" className="bg-[#0d1322] text-slate-400 font-bold">
                       {companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id} className="text-slate-200 font-normal">{c.name}</option>)}
@@ -1714,23 +1766,23 @@ export default function ExpensesPage() {
                   </select>
                 </div>
 
-                <div className="w-40">
+                <div className="w-44">
                   <label className="block text-[9px] text-slate-400 mb-0.5">Ödeme Kaynağı *</label>
                   <select value={paymentSource} onChange={(e) => setPaymentSource(e.target.value)} required className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors">
-                    <option value="">Seçiniz...</option>
-                    {cards.length > 0 && (
+                    <option value="">{txCompanyId ? 'Seçiniz...' : 'Önce Merkez Seçiniz...'}</option>
+                    {formCards.length > 0 && (
                       <optgroup label="💳 Kredi Kartları">
-                        {cards.map(c => <option key={`card|${c.id}`} value={`card|${c.id}`}>{c.name} (Borç: {formatMoney(c.current_debt, 'TRY').formatted})</option>)}
+                        {formCards.map(c => <option key={`card|${c.id}`} value={`card|${c.id}`}>{c.name} (Borç: {formatMoney(c.current_debt, 'TRY').formatted})</option>)}
                       </optgroup>
                     )}
-                    {banks.length > 0 && (
+                    {formBanks.length > 0 && (
                       <optgroup label="🏦 Bankalar">
-                        {banks.map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name} - {b.account_name}</option>)}
+                        {formBanks.map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name} - {b.account_name}</option>)}
                       </optgroup>
                     )}
-                    {cashes.length > 0 && (
+                    {formCashes.length > 0 && (
                       <optgroup label="💵 Nakit Kasalar">
-                        {cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name}</option>)}
+                        {formCashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name}</option>)}
                       </optgroup>
                     )}
                   </select>
@@ -2032,9 +2084,9 @@ export default function ExpensesPage() {
                   {quickPaySourceType === 'card' && (
                     <div>
                       <label className="block text-[10px] text-slate-400 mb-1">Ödemenin Çekileceği Kredi Kartı *</label>
-                      {cards.length === 0 ? (
+                      {qpCards.length === 0 ? (
                         <div className="p-3 bg-rose-950/20 border border-rose-500/30 rounded-lg text-rose-300 text-[11px]">
-                          Kayıtlı kredi kartı bulunamadı. Lütfen önce Kredi Kartları menüsünden kart ekleyin.
+                          Bu merkeze bağlı kayıtlı kredi kartı bulunamadı.
                         </div>
                       ) : (
                         <select
@@ -2043,7 +2095,7 @@ export default function ExpensesPage() {
                           onChange={(e) => setQuickPaySourceId(e.target.value)}
                           className="w-full bg-[#070b14] border border-amber-500/40 rounded-lg px-3 py-2 text-white font-medium focus:outline-none focus:border-amber-400 transition-colors"
                         >
-                          {cards.map(c => (
+                          {qpCards.map(c => (
                             <option key={c.id} value={c.id}>
                               💳 {c.name} — Güncel Borç: {formatMoney(c.current_debt, 'TRY').formatted}
                             </option>
@@ -2059,9 +2111,9 @@ export default function ExpensesPage() {
                   {quickPaySourceType === 'bank' && (
                     <div>
                       <label className="block text-[10px] text-slate-400 mb-1">Ödemenin Yapılacağı Banka Hesabı *</label>
-                      {banks.length === 0 ? (
+                      {qpBanks.length === 0 ? (
                         <div className="p-3 bg-rose-950/20 border border-rose-500/30 rounded-lg text-rose-300 text-[11px]">
-                          Kayıtlı banka hesabı bulunamadı.
+                          Bu merkeze bağlı kayıtlı banka hesabı bulunamadı.
                         </div>
                       ) : (
                         <select
@@ -2070,7 +2122,7 @@ export default function ExpensesPage() {
                           onChange={(e) => setQuickPaySourceId(e.target.value)}
                           className="w-full bg-[#070b14] border border-blue-500/40 rounded-lg px-3 py-2 text-white font-medium focus:outline-none focus:border-blue-400 transition-colors"
                         >
-                          {banks.map(b => (
+                          {qpBanks.map(b => (
                             <option key={b.id} value={b.id}>
                               🏦 {b.bank_name} ({b.account_name}) — Bakiye: {formatMoney(b.balance, b.currency).formatted}
                             </option>
@@ -2086,9 +2138,9 @@ export default function ExpensesPage() {
                   {quickPaySourceType === 'cash' && (
                     <div>
                       <label className="block text-[10px] text-slate-400 mb-1">Ödemenin Yapılacağı Kasa *</label>
-                      {cashes.length === 0 ? (
+                      {qpCashes.length === 0 ? (
                         <div className="p-3 bg-rose-950/20 border border-rose-500/30 rounded-lg text-rose-300 text-[11px]">
-                          Kayıtlı nakit kasa bulunamadı.
+                          Bu merkeze bağlı kayıtlı nakit kasa bulunamadı.
                         </div>
                       ) : (
                         <select
@@ -2097,7 +2149,7 @@ export default function ExpensesPage() {
                           onChange={(e) => setQuickPaySourceId(e.target.value)}
                           className="w-full bg-[#070b14] border border-emerald-500/40 rounded-lg px-3 py-2 text-white font-medium focus:outline-none focus:border-emerald-400 transition-colors"
                         >
-                          {cashes.map(c => (
+                          {qpCashes.map(c => (
                             <option key={c.id} value={c.id}>
                               💵 {c.name} — Bakiye: {formatMoney(c.balance, c.currency).formatted}
                             </option>
@@ -2160,7 +2212,18 @@ export default function ExpensesPage() {
                 <label className="block text-[10px] text-slate-400 mb-1">Ait Olduğu Merkez / Şirket *</label>
                 <select 
                   value={tmplCompanyId} 
-                  onChange={(e) => setTmplCompanyId(e.target.value)} 
+                  onChange={(e) => {
+                    const newCompId = e.target.value
+                    setTmplCompanyId(newCompId)
+                    const { filteredCards: newCards, filteredBanks: newBanks, filteredCashes: newCashes } = getFilteredPaymentSources(newCompId)
+                    if (tmplSourceType === 'card' && !newCards.some(c => c.id === tmplSourceId)) {
+                      setTmplSourceId(newCards[0]?.id || '')
+                    } else if (tmplSourceType === 'bank' && !newBanks.some(b => b.id === tmplSourceId)) {
+                      setTmplSourceId(newBanks[0]?.id || '')
+                    } else if (tmplSourceType === 'cash' && !newCashes.some(c => c.id === tmplSourceId)) {
+                      setTmplSourceId(newCashes[0]?.id || '')
+                    }
+                  }} 
                   required 
                   className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
                 >
@@ -2259,21 +2322,21 @@ export default function ExpensesPage() {
                 <div className="grid grid-cols-3 gap-2 mb-2">
                   <button
                     type="button"
-                    onClick={() => { setTmplSourceType('card'); setTmplSourceId(cards[0]?.id || '') }}
+                    onClick={() => { setTmplSourceType('card'); setTmplSourceId(tmplCards[0]?.id || '') }}
                     className={`py-1.5 px-2 rounded-lg border text-center transition-all ${tmplSourceType === 'card' ? 'bg-amber-950/40 border-amber-500 text-amber-300 font-bold' : 'bg-[#070b14] border-slate-800 text-slate-400'}`}
                   >
                     💳 Kredi Kartı
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setTmplSourceType('bank'); setTmplSourceId(banks[0]?.id || '') }}
+                    onClick={() => { setTmplSourceType('bank'); setTmplSourceId(tmplBanks[0]?.id || '') }}
                     className={`py-1.5 px-2 rounded-lg border text-center transition-all ${tmplSourceType === 'bank' ? 'bg-blue-950/40 border-blue-500 text-blue-300 font-bold' : 'bg-[#070b14] border-slate-800 text-slate-400'}`}
                   >
                     🏦 Banka
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setTmplSourceType('cash'); setTmplSourceId(cashes[0]?.id || '') }}
+                    onClick={() => { setTmplSourceType('cash'); setTmplSourceId(tmplCashes[0]?.id || '') }}
                     className={`py-1.5 px-2 rounded-lg border text-center transition-all ${tmplSourceType === 'cash' ? 'bg-emerald-950/40 border-emerald-500 text-emerald-300 font-bold' : 'bg-[#070b14] border-slate-800 text-slate-400'}`}
                   >
                     💵 Kasa
@@ -2287,7 +2350,7 @@ export default function ExpensesPage() {
                     className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs"
                   >
                     <option value="">Kart Seçiniz...</option>
-                    {cards.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {tmplCards.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 )}
 
@@ -2298,7 +2361,7 @@ export default function ExpensesPage() {
                     className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs"
                   >
                     <option value="">Banka Seçiniz...</option>
-                    {banks.map(b => <option key={b.id} value={b.id}>{b.bank_name} - {b.account_name}</option>)}
+                    {tmplBanks.map(b => <option key={b.id} value={b.id}>{b.bank_name} - {b.account_name}</option>)}
                   </select>
                 )}
 
@@ -2309,7 +2372,7 @@ export default function ExpensesPage() {
                     className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs"
                   >
                     <option value="">Kasa Seçiniz...</option>
-                    {cashes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {tmplCashes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 )}
               </div>
