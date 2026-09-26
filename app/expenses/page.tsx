@@ -19,6 +19,7 @@ export type Category = {
   id: string
   name: string
   type: CategoryType 
+  company_id?: string | null
 }
 
 export type RecurringTemplate = {
@@ -56,6 +57,8 @@ type ExpenseTransaction = {
   category?: { name: string }
   company?: { name: string; is_personal: boolean }
 }
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function getLocalTodayISO() { 
   const now = new Date()
@@ -98,15 +101,28 @@ function parseCategoryRow(id: string, rawName: string): { category: Category | n
 
   let type: CategoryType = 'variable'
   let cleanName = rawName
+  let companyId: string | null = null
+
   if (rawName.startsWith('fixed::')) {
     type = 'fixed'
     cleanName = rawName.slice('fixed::'.length)
   } else if (rawName.startsWith('variable::')) {
     type = 'variable'
     cleanName = rawName.slice('variable::'.length)
-  } else {
+  }
+
+  // Eğer cleanName içinde company_id varsa: örn. [company_id]::KategoriAdı veya UUID::KategoriAdı
+  if (cleanName.includes('::')) {
+    const parts = cleanName.split('::')
+    if (UUID_REGEX.test(parts[0])) {
+      companyId = parts[0]
+      cleanName = parts.slice(1).join('::')
+    }
+  }
+
+  if (type === 'variable' && !rawName.startsWith('variable::')) {
     // Akıllı varsayılan
-    const lower = rawName.toLowerCase()
+    const lower = cleanName.toLowerCase()
     if (lower.includes('kira') || lower.includes('fatura') || lower.includes('elektrik') || lower.includes('su') || lower.includes('doğalgaz') || lower.includes('maaş') || lower.includes('vergi') || lower.includes('aidat') || lower.includes('sgk') || lower.includes('muhasebe') || lower.includes('abonelik') || lower.includes('internet')) {
       type = 'fixed'
     } else {
@@ -115,7 +131,7 @@ function parseCategoryRow(id: string, rawName: string): { category: Category | n
   }
 
   return {
-    category: { id, name: cleanName, type },
+    category: { id, name: cleanName, type, company_id: companyId },
     template: null
   }
 }
@@ -145,6 +161,7 @@ export default function ExpensesPage() {
   const [editingCatId, setEditingCatId] = useState<string | null>(null)
   const [newCatName, setNewCatName] = useState('')
   const [newCatType, setNewCatType] = useState<CategoryType>('fixed')
+  const [newCatCompanyId, setNewCatCompanyId] = useState<string>('')
 
   // Sabit Gider Şablon Modalı State
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
@@ -229,8 +246,8 @@ export default function ExpensesPage() {
       return
     }
 
-    const parsedCats: Category[] = []
-    const parsedTmpls: RecurringTemplate[] = []
+    let parsedCats: Category[] = []
+    let parsedTmpls: RecurringTemplate[] = []
 
     for (const item of data) {
       const res = parseCategoryRow(item.id, item.name)
@@ -241,6 +258,19 @@ export default function ExpensesPage() {
       }
     }
 
+    if (isRestricted) {
+      // 1. Sabit Gider Şablonları / Masraflar: Sadece izinli ticari şirkete ait şablonlar
+      parsedTmpls = parsedTmpls.filter(t => t.company_id && profile?.allowed_companies?.includes(t.company_id))
+
+      // 2. Kategori İzolasyonu: Sadece izinli şirkete ait veya ortak kategoriler
+      parsedCats = parsedCats.filter(cat => {
+        if (cat.company_id) {
+          return profile?.allowed_companies?.includes(cat.company_id)
+        }
+        return true
+      })
+    }
+
     setCategories(parsedCats)
     setRecurringTemplates(parsedTmpls)
   }
@@ -249,9 +279,19 @@ export default function ExpensesPage() {
     const { data } = await supabase.from('companies').select('*').order('name', { ascending: true })
     let comps = data || []
     if (isRestricted) {
-      comps = comps.filter(c => profile?.allowed_companies?.includes(c.id))
+      // Kısıtlı kullanıcılar sadece kendilerine tanımlı ticari şirketleri görebilir, şahsi ev merkezlerini göremez
+      comps = comps.filter(c => !c.is_personal && profile?.allowed_companies?.includes(c.id))
     }
     setCompanies(comps)
+
+    // Kısıtlı kullanıcıda varsayılan şirketi hemen kilitle
+    if (isRestricted && profile?.allowed_companies && profile.allowed_companies.length > 0) {
+      const defaultCompId = profile.allowed_companies[0]
+      setSelectedCompanyFilter(defaultCompId)
+      setTxCompanyId(defaultCompId)
+      setQuickPayCompanyId(defaultCompId)
+      setTmplCompanyId(defaultCompId)
+    }
   }
 
   async function fetchPaymentSources() {
@@ -264,9 +304,10 @@ export default function ExpensesPage() {
     let cdList = cdData || []
 
     if (isRestricted) {
-      bList = bList.filter(b => !b.company_id || profile?.allowed_companies?.includes(b.company_id))
-      cList = cList.filter(c => !c.company_id || profile?.allowed_companies?.includes(c.company_id))
-      cdList = cdList.filter(cd => !cd.company_id || profile?.allowed_companies?.includes(cd.company_id))
+      // Sadece izinli şirkete ait hesaplar, kasalar ve kartlar
+      bList = bList.filter(b => b.company_id && profile?.allowed_companies?.includes(b.company_id))
+      cList = cList.filter(c => c.company_id && profile?.allowed_companies?.includes(c.company_id))
+      cdList = cdList.filter(cd => cd.company_id && profile?.allowed_companies?.includes(cd.company_id))
     }
 
     setBanks(bList)
@@ -282,7 +323,8 @@ export default function ExpensesPage() {
     
     let exps = data || []
     if (isRestricted) {
-      exps = exps.filter(e => !e.company_id || profile?.allowed_companies?.includes(e.company_id))
+      // Sadece izinli şirkete ait genel giderler
+      exps = exps.filter(e => e.company_id && profile?.allowed_companies?.includes(e.company_id))
     }
     setExpenses(exps)
   }
@@ -429,6 +471,7 @@ export default function ExpensesPage() {
     setEditingCatId(null)
     setNewCatName('')
     setNewCatType('fixed')
+    setNewCatCompanyId(isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : '')
     setIsCatModalOpen(true)
   }
 
@@ -436,6 +479,7 @@ export default function ExpensesPage() {
     setEditingCatId(cat.id)
     setNewCatName(cat.name)
     setNewCatType(cat.type)
+    setNewCatCompanyId(cat.company_id || (isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : ''))
     setIsCatModalOpen(true)
   }
 
@@ -443,25 +487,28 @@ export default function ExpensesPage() {
     e.preventDefault()
     if (!newCatName.trim()) return
 
-    const rawName = `${newCatType}::${newCatName.trim()}`
+    const compIdToUse = isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : (newCatCompanyId || '')
+    const compPrefix = compIdToUse ? `${compIdToUse}::` : ''
+    const rawName = `${newCatType}::${compPrefix}${newCatName.trim()}`
     try {
       if (editingCatId) {
         const oldCat = categories.find(c => c.id === editingCatId)
         const payload = { name: rawName }
         await supabase.from('expense_categories').update(payload).eq('id', editingCatId)
         
-        await logActivity('expense_category', 'UPDATE', `Gider kategorisi güncellendi: ${newCatName.trim()} (${newCatType === 'fixed' ? 'Sabit' : 'Değişken'})`, editingCatId, 0, '', oldCat, payload, null)
+        await logActivity('expense_category', 'UPDATE', `Gider kategorisi güncellendi: ${newCatName.trim()} (${newCatType === 'fixed' ? 'Sabit' : 'Değişken'})`, editingCatId, 0, '', oldCat, payload, compIdToUse || null)
         toast.success('Kategori başarıyla güncellendi.')
       } else {
         const payload = { name: rawName }
         const { data, error } = await supabase.from('expense_categories').insert([payload]).select().single()
         if (error) throw error
         
-        await logActivity('expense_category', 'INSERT', `Yeni gider kategorisi oluşturuldu: ${newCatName.trim()} (${newCatType === 'fixed' ? 'Sabit' : 'Değişken'})`, data.id, 0, '', null, data, null)
+        await logActivity('expense_category', 'INSERT', `Yeni gider kategorisi oluşturuldu: ${newCatName.trim()} (${newCatType === 'fixed' ? 'Sabit' : 'Değişken'})`, data.id, 0, '', null, data, compIdToUse || null)
         toast.success('Yeni kategori oluşturuldu.')
       }
       setIsCatModalOpen(false)
       setNewCatName('')
+      setNewCatCompanyId('')
       setEditingCatId(null)
       fetchCategories()
     } catch (err: any) { 
@@ -947,15 +994,22 @@ export default function ExpensesPage() {
       e.category?.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
       e.company?.name?.toLowerCase().includes(searchTerm.toLowerCase())
     
+    if (isRestricted && (!e.company_id || !profile?.allowed_companies?.includes(e.company_id))) {
+      return false
+    }
+
     const matchesCompany = selectedCompanyFilter === 'all' || e.company_id === selectedCompanyFilter
     return matchesSearch && matchesCompany
   })
 
   const totalCommercialTry = expenses
-    .filter(e => e.company && !e.company.is_personal && (selectedCompanyFilter === 'all' || e.company_id === selectedCompanyFilter))
+    .filter(e => {
+      if (isRestricted && (!e.company_id || !profile?.allowed_companies?.includes(e.company_id))) return false
+      return e.company && !e.company.is_personal && (selectedCompanyFilter === 'all' || e.company_id === selectedCompanyFilter)
+    })
     .reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0)
 
-  const totalPersonalTry = expenses
+  const totalPersonalTry = isRestricted ? 0 : expenses
     .filter(e => e.company && e.company.is_personal && (selectedCompanyFilter === 'all' || e.company_id === selectedCompanyFilter))
     .reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0)
 
@@ -963,9 +1017,10 @@ export default function ExpensesPage() {
   // --- BU AYIN SABİT GİDERLERİ TAKİP ŞERİDİ VERİLERİ ---
   // =========================================================================================
   const recurringStatusList = useMemo(() => {
-    const targetTemplates = recurringTemplates.filter(t => 
-      selectedCompanyFilter === 'all' || t.company_id === selectedCompanyFilter
-    )
+    const targetTemplates = recurringTemplates.filter(t => {
+      if (isRestricted && (!t.company_id || !profile?.allowed_companies?.includes(t.company_id))) return false
+      return selectedCompanyFilter === 'all' || t.company_id === selectedCompanyFilter
+    })
 
     return targetTemplates.map(tmpl => {
       // Bu ay için eşleşen bir gider var mı?
@@ -989,7 +1044,7 @@ export default function ExpensesPage() {
         effectiveDueDay
       }
     })
-  }, [recurringTemplates, expenses, currentYearMonth, currentDay, selectedCompanyFilter, currentMonthDate])
+  }, [recurringTemplates, expenses, currentYearMonth, currentDay, selectedCompanyFilter, currentMonthDate, isRestricted, profile?.allowed_companies])
 
   // Geçmiş aylardan ödenmemiş kalan sabit giderler (Backlog)
   const pastUnpaidList = useMemo(() => {
@@ -1003,9 +1058,10 @@ export default function ExpensesPage() {
       effectiveDueDay: number
     }> = []
 
-    const targetTemplates = recurringTemplates.filter(t => 
-      selectedCompanyFilter === 'all' || t.company_id === selectedCompanyFilter
-    )
+    const targetTemplates = recurringTemplates.filter(t => {
+      if (isRestricted && (!t.company_id || !profile?.allowed_companies?.includes(t.company_id))) return false
+      return selectedCompanyFilter === 'all' || t.company_id === selectedCompanyFilter
+    })
 
     const now = new Date()
     // Son 3 geçmiş ayı kontrol et (Ağustos, Temmuz, Haziran vb.)
@@ -1057,7 +1113,7 @@ export default function ExpensesPage() {
     }
 
     return list
-  }, [recurringTemplates, expenses, selectedCompanyFilter, currentYearMonth])
+  }, [recurringTemplates, expenses, selectedCompanyFilter, currentYearMonth, isRestricted, profile?.allowed_companies])
 
   const totalRecurringCount = recurringStatusList.length
   const paidRecurringCount = recurringStatusList.filter(r => r.isPaid).length
@@ -1119,7 +1175,9 @@ export default function ExpensesPage() {
             <div className="flex items-center gap-2">
               <h2 className="font-bold text-lg leading-none">Genel Giderler & Masraflar</h2>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 border border-slate-700 text-slate-300">
-                {selectedCompanyFilter === 'all' ? 'Tüm Merkezler' : getCompanyName(selectedCompanyFilter)}
+                {selectedCompanyFilter === 'all' 
+                  ? (isRestricted && companies.length === 1 ? companies[0].name : 'Tüm Merkezler') 
+                  : getCompanyName(selectedCompanyFilter)}
               </span>
             </div>
             <p className="text-[10px] text-slate-400 mt-1">Sabit (kira, fatura, maaş) ve operasyonel değişken masraf yönetimi</p>
@@ -1132,13 +1190,17 @@ export default function ExpensesPage() {
               <span className="text-rose-400 text-xl">{formatMoney(totalCommercialTry, 'TRY').formatted}</span>
             </div>
           </div>
-          <div className="w-px h-8 bg-slate-800"></div>
-          <div className="flex flex-col items-end">
-            <span className="text-[9px] text-slate-500 font-sans tracking-wide">ŞAHSİ / EV GİDERLERİ</span>
-            <div className="flex gap-3 mt-0.5 font-bold">
-              <span className="text-slate-300 text-lg">{formatMoney(totalPersonalTry, 'TRY').formatted}</span>
-            </div>
-          </div>
+          {!isRestricted && (
+            <>
+              <div className="w-px h-8 bg-slate-800"></div>
+              <div className="flex flex-col items-end">
+                <span className="text-[9px] text-slate-500 font-sans tracking-wide">ŞAHSİ / EV GİDERLERİ</span>
+                <div className="flex gap-3 mt-0.5 font-bold">
+                  <span className="text-slate-300 text-lg">{formatMoney(totalPersonalTry, 'TRY').formatted}</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -1156,7 +1218,7 @@ export default function ExpensesPage() {
               <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                 <Building size={14} className="text-indigo-400" /> Merkez Bazlı Dağılım
               </span>
-              {selectedCompanyFilter !== 'all' && (
+              {selectedCompanyFilter !== 'all' && !isRestricted && (
                 <button 
                   onClick={() => setSelectedCompanyFilter('all')} 
                   className="text-[10px] text-indigo-400 hover:text-indigo-300 underline font-medium"
@@ -1176,7 +1238,10 @@ export default function ExpensesPage() {
                     return (
                       <div 
                         key={c.id} 
-                        onClick={() => setSelectedCompanyFilter(isSelected ? 'all' : c.id)}
+                        onClick={() => {
+                          if (isRestricted) return
+                          setSelectedCompanyFilter(isSelected ? 'all' : c.id)
+                        }}
                         className={`flex items-center justify-between py-1.5 px-2.5 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-indigo-950/60 border-indigo-500 text-white' : 'bg-[#070b14] border-slate-800/50 hover:border-slate-700'}`}
                       >
                         <div className="flex-1 min-w-0 pr-2 flex items-center gap-2">
@@ -1192,30 +1257,32 @@ export default function ExpensesPage() {
                 </div>
               </div>
 
-              <div>
-                <div className="text-[9px] font-bold text-slate-500 uppercase px-2 mb-1">Şahsi / Ev Merkezleri</div>
-                <div className="space-y-1">
-                  {companies.filter(c => c.is_personal).map((c) => {
-                    const compTotal = expenses.filter(e => e.company_id === c.id).reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0)
-                    const isSelected = selectedCompanyFilter === c.id
-                    return (
-                      <div 
-                        key={c.id} 
-                        onClick={() => setSelectedCompanyFilter(isSelected ? 'all' : c.id)}
-                        className={`flex items-center justify-between py-1.5 px-2.5 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-slate-800 border-indigo-400 text-white' : 'bg-[#0f172a] border-slate-700/50 hover:border-slate-600'}`}
-                      >
-                        <div className="flex-1 min-w-0 pr-2 flex items-center gap-2">
-                          <Home size={12} className="text-slate-400 shrink-0" />
-                          <h4 className="text-[11px] font-bold truncate">{c.name}</h4>
+              {!isRestricted && (
+                <div>
+                  <div className="text-[9px] font-bold text-slate-500 uppercase px-2 mb-1">Şahsi / Ev Merkezleri</div>
+                  <div className="space-y-1">
+                    {companies.filter(c => c.is_personal).map((c) => {
+                      const compTotal = expenses.filter(e => e.company_id === c.id).reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0)
+                      const isSelected = selectedCompanyFilter === c.id
+                      return (
+                        <div 
+                          key={c.id} 
+                          onClick={() => setSelectedCompanyFilter(isSelected ? 'all' : c.id)}
+                          className={`flex items-center justify-between py-1.5 px-2.5 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-slate-800 border-indigo-400 text-white' : 'bg-[#0f172a] border-slate-700/50 hover:border-slate-600'}`}
+                        >
+                          <div className="flex-1 min-w-0 pr-2 flex items-center gap-2">
+                            <Home size={12} className="text-slate-400 shrink-0" />
+                            <h4 className="text-[11px] font-bold truncate">{c.name}</h4>
+                          </div>
+                          <div className="text-right shrink-0">
+                            {compTotal > 0 ? <div className="text-[11px] font-mono font-bold text-slate-300">{formatMoney(compTotal, 'TRY').formatted}</div> : <span className="text-[10px] text-slate-600">-</span>}
+                          </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          {compTotal > 0 ? <div className="text-[11px] font-mono font-bold text-slate-300">{formatMoney(compTotal, 'TRY').formatted}</div> : <span className="text-[10px] text-slate-600">-</span>}
-                        </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -1365,8 +1432,10 @@ export default function ExpensesPage() {
                   ) : (
                     categories
                       .filter(c => categoryTypeFilter === 'all' || c.type === categoryTypeFilter)
+                      .filter(c => !isRestricted || !c.company_id || profile?.allowed_companies?.includes(c.company_id))
                       .map((c) => {
                         const catTotal = expenses.filter(e => e.category_id === c.id).reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0)
+                        const comp = c.company_id ? companies.find(comp => comp.id === c.company_id) : null
                         return (
                           <div 
                             key={c.id} 
@@ -1379,6 +1448,11 @@ export default function ExpensesPage() {
                               <h4 className={`text-[11px] truncate ${catTotal > 0 ? 'font-bold text-slate-200' : 'font-medium text-slate-400'}`}>
                                 {c.name}
                               </h4>
+                              {comp && (
+                                <span className="text-[8px] px-1 py-0.2 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/40 shrink-0">
+                                  {comp.name}
+                                </span>
+                              )}
                             </div>
 
                             <div className="text-right shrink-0 flex items-center gap-2">
@@ -1841,15 +1915,18 @@ export default function ExpensesPage() {
                       }
                     }} 
                     required 
-                    className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors"
+                    disabled={isRestricted && companies.length === 1}
+                    className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors disabled:opacity-90 disabled:bg-[#070b14]"
                   >
-                    <option value="" className="bg-[#0d1322]">Merkez Seç...</option>
+                    {!isRestricted && <option value="" className="bg-[#0d1322]">Merkez Seç...</option>}
                     <optgroup label="Ticari Şirketler" className="bg-[#0d1322] text-slate-400 font-bold">
                       {companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id} className="text-slate-200 font-normal">{c.name}</option>)}
                     </optgroup>
-                    <optgroup label="Şahsi / Ev Merkezleri" className="bg-[#0d1322] text-slate-400 font-bold">
-                      {companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id} className="text-slate-200 font-normal">{c.name}</option>)}
-                    </optgroup>
+                    {!isRestricted && (
+                      <optgroup label="Şahsi / Ev Merkezleri" className="bg-[#0d1322] text-slate-400 font-bold">
+                        {companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id} className="text-slate-200 font-normal">{c.name}</option>)}
+                      </optgroup>
+                    )}
                   </select>
                 </div>
 
@@ -1858,10 +1935,10 @@ export default function ExpensesPage() {
                   <select value={txCategoryId} onChange={(e) => setTxCategoryId(e.target.value)} required className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors">
                     <option value="">Kategori Seç...</option>
                     <optgroup label="🔄 Sabit Giderler">
-                      {categories.filter(c => c.type === 'fixed').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      {categories.filter(c => c.type === 'fixed' && (!isRestricted || !c.company_id || profile?.allowed_companies?.includes(c.company_id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </optgroup>
                     <optgroup label="⚡ Değişken Giderler">
-                      {categories.filter(c => c.type === 'variable').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      {categories.filter(c => c.type === 'variable' && (!isRestricted || !c.company_id || profile?.allowed_companies?.includes(c.company_id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </optgroup>
                   </select>
                 </div>
@@ -2061,16 +2138,23 @@ export default function ExpensesPage() {
 
                 <div>
                   <label className="block text-[10px] text-slate-400 mb-1">İlgili Merkez *</label>
-                  <select 
-                    value={quickPayCompanyId} 
-                    onChange={(e) => setQuickPayCompanyId(e.target.value)} 
-                    required 
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                  >
-                    {companies.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  {isRestricted ? (
+                    <div className="w-full bg-[#070b14] border border-slate-700/80 rounded-lg px-3 py-2 text-indigo-300 font-bold flex items-center gap-1.5 h-[38px]">
+                      <Building size={13} className="text-indigo-400 shrink-0" />
+                      <span className="truncate">{companies.find(c => c.id === quickPayCompanyId)?.name || 'Yetkili Şirket'}</span>
+                    </div>
+                  ) : (
+                    <select 
+                      value={quickPayCompanyId} 
+                      onChange={(e) => setQuickPayCompanyId(e.target.value)} 
+                      required 
+                      className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    >
+                      {companies.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               </div>
 
@@ -2376,31 +2460,38 @@ export default function ExpensesPage() {
 
               <div>
                 <label className="block text-[10px] text-slate-400 mb-1">Ait Olduğu Merkez / Şirket *</label>
-                <select 
-                  value={tmplCompanyId} 
-                  onChange={(e) => {
-                    const newCompId = e.target.value
-                    setTmplCompanyId(newCompId)
-                    const { filteredCards: newCards, filteredBanks: newBanks, filteredCashes: newCashes } = getFilteredPaymentSources(newCompId)
-                    if (tmplSourceType === 'card' && !newCards.some(c => c.id === tmplSourceId)) {
-                      setTmplSourceId(newCards[0]?.id || '')
-                    } else if (tmplSourceType === 'bank' && !newBanks.some(b => b.id === tmplSourceId)) {
-                      setTmplSourceId(newBanks[0]?.id || '')
-                    } else if (tmplSourceType === 'cash' && !newCashes.some(c => c.id === tmplSourceId)) {
-                      setTmplSourceId(newCashes[0]?.id || '')
-                    }
-                  }} 
-                  required 
-                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                >
-                  <option value="">Merkez Seçin...</option>
-                  <optgroup label="Ticari Şirketler">
-                    {companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </optgroup>
-                  <optgroup label="Şahsi / Ev Merkezleri">
-                    {companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </optgroup>
-                </select>
+                {isRestricted ? (
+                  <div className="w-full bg-[#070b14] border border-slate-700/80 rounded-lg px-3 py-2 text-indigo-300 font-bold flex items-center gap-1.5 h-[38px]">
+                    <Building size={13} className="text-indigo-400 shrink-0" />
+                    <span className="truncate">{companies.find(c => c.id === tmplCompanyId)?.name || 'Yetkili Şirket'}</span>
+                  </div>
+                ) : (
+                  <select 
+                    value={tmplCompanyId} 
+                    onChange={(e) => {
+                      const newCompId = e.target.value
+                      setTmplCompanyId(newCompId)
+                      const { filteredCards: newCards, filteredBanks: newBanks, filteredCashes: newCashes } = getFilteredPaymentSources(newCompId)
+                      if (tmplSourceType === 'card' && !newCards.some(c => c.id === tmplSourceId)) {
+                        setTmplSourceId(newCards[0]?.id || '')
+                      } else if (tmplSourceType === 'bank' && !newBanks.some(b => b.id === tmplSourceId)) {
+                        setTmplSourceId(newBanks[0]?.id || '')
+                      } else if (tmplSourceType === 'cash' && !newCashes.some(c => c.id === tmplSourceId)) {
+                        setTmplSourceId(newCashes[0]?.id || '')
+                      }
+                    }} 
+                    required 
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  >
+                    <option value="">Merkez Seçin...</option>
+                    <optgroup label="Ticari Şirketler">
+                      {companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </optgroup>
+                    <optgroup label="Şahsi / Ev Merkezleri">
+                      {companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </optgroup>
+                  </select>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -2608,6 +2699,27 @@ export default function ExpensesPage() {
                     <span className="text-[9px] text-slate-500">Yemek, kargo, sarf vb.</span>
                   </button>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Ait Olduğu Merkez *</label>
+                {isRestricted ? (
+                  <div className="w-full bg-[#070b14] border border-slate-700/80 rounded-lg px-3 py-2 text-indigo-300 font-bold flex items-center gap-1.5 h-[34px]">
+                    <Building size={13} className="text-indigo-400 shrink-0" />
+                    <span className="truncate">{companies.find(c => c.id === profile?.allowed_companies?.[0])?.name || 'Yetkili Şirket'}</span>
+                  </div>
+                ) : (
+                  <select 
+                    value={newCatCompanyId} 
+                    onChange={(e) => setNewCatCompanyId(e.target.value)} 
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-rose-500 transition-colors"
+                  >
+                    <option value="">Tüm Merkezler (Ortak Kategori)</option>
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div>
