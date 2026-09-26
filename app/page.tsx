@@ -100,7 +100,7 @@ export default function Home() {
   })
 
   // Kâr / Zarar (P&L) ve Performans Analizi Periyodu
-  const [pnlPeriod, setPnlPeriod] = useState<'daily' | 'weekly' | 'monthly'>('monthly')
+  const [pnlPeriod, setPnlPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
 
   // Cari Borç & Alacak Dağılımı ve Geçmiş Dönem Kıyaslama State'leri
   const [cariTab, setCariTab] = useState<'payables' | 'receivables'>('payables')
@@ -413,12 +413,12 @@ export default function Home() {
         })
       }
     } else if (pnlPeriod === 'weekly') {
-      // Son 8 Hafta (Pazartesi - Pazar)
+      // Son 16 Hafta (Pazartesi - Pazar)
       const currentDayOfWeek = now.getDay()
       const distToMonday = currentDayOfWeek === 0 ? 6 : currentDayOfWeek - 1
       const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - distToMonday)
 
-      for (let i = 7; i >= 0; i--) {
+      for (let i = 15; i >= 0; i--) {
         const mon = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - i * 7)
         const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6)
         const startDate = formatISO(mon)
@@ -1043,7 +1043,7 @@ export default function Home() {
                       pnlPeriod === 'weekly' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    Haftalık (8 Hafta)
+                    Haftalık (16 Hafta)
                   </button>
                   <button
                     onClick={() => setPnlPeriod('monthly')}
@@ -1150,7 +1150,7 @@ export default function Home() {
                             style={{ height: `${outHeight}%` }}
                           />
                         </div>
-                        <div className={`${pnlPeriod === 'daily' ? 'text-[7px] sm:text-[8px] md:text-[9px]' : 'text-[8px] sm:text-[9px]'} font-bold mt-1 text-center truncate w-full shrink-0 transition-colors ${
+                        <div className={`${pnlPeriod === 'daily' ? 'text-[7px] sm:text-[8px] md:text-[9px]' : pnlPeriod === 'weekly' ? 'text-[7px] sm:text-[8px]' : 'text-[8px] sm:text-[9px]'} font-bold mt-1 text-center truncate w-full shrink-0 transition-colors ${
                           pt.isCurrent ? 'text-indigo-400 font-black' : pt.isFuture ? 'text-slate-600' : 'text-slate-500 group-hover:text-slate-300'
                         }`}>
                           {pt.label}
@@ -1169,7 +1169,7 @@ export default function Home() {
                   {pnlPeriod === 'daily'
                     ? `Günlük Finansal Özet Tablosu (Bu Ay - ${pnlData.points.length} Gün)`
                     : pnlPeriod === 'weekly'
-                    ? 'Haftalık Finansal Özet Tablosu (Son 8 Hafta)'
+                    ? 'Haftalık Finansal Özet Tablosu (Son 16 Hafta)'
                     : '12 Aylık Finansal Özet Tablosu (Son 1 Yıl)'}
                 </span>
                 <span className="text-[9px] text-slate-500 font-mono">Ciro • Net Kâr • Kâr Marjı</span>
