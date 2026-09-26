@@ -16,7 +16,7 @@ type CustomerDetail = { id: string; name: string; balance: number; currency: str
 type SupplierDetail = { id: string; company_name: string; balance: number; currency: string }
 type RawStock = { quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
 type Warehouse = { id: string; name: string; company_id: string | null }
-type ExpenseTransaction = { id: string; amount: number; exchange_rate: number; company_id: string | null; date?: string; tx_date?: string; description?: string; created_at: string; category?: any }
+type ExpenseTransaction = { id: string; amount: number; exchange_rate: number; company_id: string | null; tx_date: string; description?: string; created_at: string; transfer_id?: string | null; category_id?: string | null; category?: any }
 type Company = { id: string; name: string; is_personal: boolean }
 
 type CustTx = { id: string; tx_date: string; description: string; customer_id: string; tx_type: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; invoice_lines?: any[]; created_at: string }
@@ -165,7 +165,7 @@ export default function Home() {
       const { data: stockData } = await supabase.from('stocks').select('quantity, unit_price, vat_rate, currency, warehouse_id')
       setRawStocks(stockData || [])
 
-      const { data: expData } = await supabase.from('expense_transactions').select('id, amount, exchange_rate, company_id, tx_date, date, description, created_at, category:expense_categories(name)')
+      const { data: expData } = await supabase.from('expense_transactions').select('id, amount, exchange_rate, company_id, tx_date, description, created_at, transfer_id, category_id, category:expense_categories(name)')
       setExpenses(expData || [])
 
       const { data: compData } = await supabase.from('companies').select('id, name, is_personal')
@@ -507,7 +507,7 @@ export default function Home() {
 
     // 3. Ticari Giderler
     commercialExpensesList.forEach(exp => {
-      const dStr = exp.tx_date || exp.date || exp.created_at
+      const dStr = exp.tx_date || exp.created_at
       const pt = findPoint(dStr)
       if (pt) pt.expense += exp.amount * (exp.exchange_rate || 1)
     })
@@ -594,7 +594,7 @@ export default function Home() {
 
   filteredExpenses.forEach(t => {
       allTimelineItems.push({
-          id: `e_${t.id}`, date: t.tx_date || t.date || t.created_at?.substring(0, 10), sortDate: new Date(t.created_at || t.tx_date || t.date || ''),
+          id: `e_${t.id}`, date: t.tx_date || t.created_at?.substring(0, 10), sortDate: new Date(t.created_at || t.tx_date || ''),
           module: 'expense', description: t.description || 'Gider / Masraf', amountTry: t.amount * (t.exchange_rate || 1),
           type: 'expense', companyId: t.company_id
       })
@@ -828,9 +828,11 @@ export default function Home() {
 
     return matchedTemplates.map(tmpl => {
       const matchedExpense = expenses.find(e => {
-        const txD = e.tx_date || e.date || e.created_at?.substring(0, 10)
+        const txD = e.tx_date || e.created_at?.substring(0, 10)
         if (!txD || !txD.startsWith(currentYearMonth)) return false
+        if (e.transfer_id && e.transfer_id.includes(tmpl.id)) return true
         if (e.description?.toLowerCase().includes(tmpl.title.toLowerCase())) return true
+        if (e.company_id === tmpl.company_id && e.category_id === tmpl.category_id && Math.abs(e.amount - tmpl.amount) < 0.01) return true
         if (e.company_id === tmpl.company_id && Math.abs(e.amount - tmpl.amount) < 0.01) return true
         return false
       })
@@ -887,9 +889,11 @@ export default function Home() {
         if (!tmpl.start_month && mKey < createdMonth) return
 
         const isPaidInPastMonth = expenses.some(e => {
-          const txD = e.tx_date || e.date || e.created_at?.substring(0, 10)
+          const txD = e.tx_date || e.created_at?.substring(0, 10)
           if (!txD || !txD.startsWith(mKey)) return false
+          if (e.transfer_id && e.transfer_id.includes(tmpl.id)) return true
           if (e.description?.toLowerCase().includes(tmpl.title.toLowerCase())) return true
+          if (e.company_id === tmpl.company_id && e.category_id === tmpl.category_id && Math.abs(e.amount - tmpl.amount) < 0.01) return true
           if (e.company_id === tmpl.company_id && Math.abs(e.amount - tmpl.amount) < 0.01) return true
           return false
         })

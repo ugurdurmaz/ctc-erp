@@ -113,7 +113,7 @@ export default function AdvancedReportsPage() {
       setSupplierTxs(sTxs || [])
 
       const { data: exps } = await supabase.from('expense_transactions')
-        .select('id, tx_date, date, amount, exchange_rate, company_id, payment_source_type, payment_source_id, created_at, category_id, description, category:expense_categories(name)')
+        .select('id, tx_date, amount, exchange_rate, company_id, payment_source_type, payment_source_id, created_at, category_id, description, category:expense_categories(name)')
       setExpenseTxs(exps || [])
 
       const { data: stTxs } = await supabase.from('stock_transactions')
