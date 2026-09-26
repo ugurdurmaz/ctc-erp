@@ -31,6 +31,8 @@ type RetailRow = {
   cost: string;
   cash: string;
   card: string;
+  transferId?: string | null;
+  isExternalExpense?: boolean;
 }
 
 type Supplier = {
@@ -672,7 +674,30 @@ export default function RetailPOSPage() {
       // Bağlı kasanın açılış bakiyesi hareketini ('Açılış Bakiyesi / Devir') kontrol et
       const savedSettings = localStorage.getItem('ctc_pos_config');
       const parsedSettings = savedSettings ? JSON.parse(savedSettings) : {};
-      const activeCashId = parsedSettings?.targetCashId || posSettings.targetCashId;
+      let activeCashId = parsedSettings?.targetCashId || posSettings.targetCashId;
+      if (!activeCashId) {
+        const { data: cashes } = await supabase.from('cash_registers').select('id, name');
+        const found = cashes?.find(c => c.name.toLocaleLowerCase('tr-TR').includes('mağaza')) || cashes?.[0];
+        if (found) activeCashId = found.id;
+      }
+
+      // Günün bağlı kasadan yapılan harici giderlerini (Sabit/Genel Giderler) çek
+      let externalCashTxs: any[] = [];
+      if (activeCashId) {
+        const { data: extTxs } = await supabase
+          .from('cash_transactions')
+          .select('*')
+          .eq('cash_register_id', activeCashId)
+          .eq('tx_date', dateStr)
+          .eq('tx_type', 'out');
+
+        if (extTxs) {
+          externalCashTxs = extTxs.filter(t => {
+            const trf = t.transfer_id || '';
+            return trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !t.is_transfer);
+          });
+        }
+      }
 
       let cashInitAmount = 0;
       let cashInitDate = '';
@@ -757,11 +782,41 @@ export default function RetailPOSPage() {
         const hasTrans = draft.transfers?.length > 0
 
         if (hasFilledRows || hasNotes || hasPhotos || hasTrans) {
+          let restoredRows: RetailRow[] = draft.rows || []
+          if (externalCashTxs.length > 0) {
+            const missingExtTxs = externalCashTxs.filter(ext => {
+              return !restoredRows.some(r => 
+                r.categoryId === EXPENSE_CATEGORY_ID && (
+                  (r.transferId && r.transferId === ext.transfer_id) ||
+                  (ext.transfer_id && r.description?.includes(ext.transfer_id)) ||
+                  (r.description === ext.description && parseValue(r.cash) === Number(ext.amount))
+                )
+              )
+            })
+
+            if (missingExtTxs.length > 0) {
+              const newExtRows: RetailRow[] = missingExtTxs.map(ext => ({
+                id: `gider-exp-${ext.id}`,
+                categoryId: EXPENSE_CATEGORY_ID,
+                description: ext.description || 'Gider Ödemesi',
+                stockId: null,
+                supplierId: null,
+                quantity: '1',
+                cost: formatValue(Number(ext.amount)),
+                cash: formatValue(Number(ext.amount)),
+                card: '',
+                transferId: ext.transfer_id || `EXP-${ext.id}`,
+                isExternalExpense: true
+              }))
+              restoredRows = [...restoredRows, ...newExtRows]
+            }
+          }
+
           setPhotoCash(draft.photoCash || '')
           setPhotoCard(draft.photoCard || '')
           setDailyNotes(draft.dailyNotes || '')
           setTransfers(draft.transfers || [])
-          setRows(draft.rows || [])
+          setRows(restoredRows)
           
           setIsDraftRestored(true)
           setHasUnsavedChanges(true)
@@ -804,6 +859,63 @@ export default function RetailPOSPage() {
         if (catId === 'fotokopi') return;
 
         const catDbRows = (dbRows || []).filter(r => r.category_id === catId)
+
+        if (catId === EXPENSE_CATEGORY_ID) {
+          const processedExternalIds = new Set<string>();
+
+          catDbRows.forEach(r => {
+            const matchedExt = externalCashTxs.find(ext => 
+              (ext.transfer_id && r.description?.includes(ext.transfer_id)) ||
+              (r.description === ext.description && parseValue(r.cash) === Number(ext.amount))
+            );
+            if (matchedExt) {
+              processedExternalIds.add(matchedExt.id);
+            }
+
+            newRows.push({
+              id: r.id, 
+              categoryId: r.category_id, 
+              description: r.description || '', 
+              stockId: null, 
+              supplierId: null, 
+              quantity: r.quantity ? String(r.quantity) : '1', 
+              cost: (r.cost !== null && r.cost !== undefined && r.cost !== '') ? ((Number(r.cost) === 0 && (parseValue(r.cash) > 0 || parseValue(r.card) > 0)) ? '0,00' : formatValue(r.cost)) : (r.cash ? formatValue(r.cash) : ''),
+              cash: formatValue(r.cash), 
+              card: formatValue(r.card),
+              transferId: matchedExt?.transfer_id || null,
+              isExternalExpense: !!matchedExt
+            });
+          });
+
+          // pos_transactions tablosunda henüz yer almayan harici giderleri ekle
+          externalCashTxs.forEach(ext => {
+            if (!processedExternalIds.has(ext.id)) {
+              newRows.push({
+                id: `gider-exp-${ext.id}`,
+                categoryId: EXPENSE_CATEGORY_ID,
+                description: ext.description || 'Gider Ödemesi',
+                stockId: null,
+                supplierId: null,
+                quantity: '1',
+                cost: formatValue(Number(ext.amount)),
+                cash: formatValue(Number(ext.amount)),
+                card: '',
+                transferId: ext.transfer_id || `EXP-${ext.id}`,
+                isExternalExpense: true
+              });
+            }
+          });
+
+          const currentExpRowsCount = newRows.filter(r => r.categoryId === EXPENSE_CATEGORY_ID).length;
+          const rowsToAdd = Math.max(0, INITIAL_ROWS_PER_CATEGORY - currentExpRowsCount);
+          for (let i = 0; i < rowsToAdd; i++) {
+            newRows.push({ 
+              id: `${catId}-init-${Date.now()}-${i}-${Math.random()}`, categoryId: catId, description: '', stockId: null, supplierId: null, quantity: '', cost: '', cash: '', card: '' 
+            });
+          }
+          return;
+        }
+
         catDbRows.forEach(r => {
           let matchedSupplierId: string | null = null
           if (remainingSuppTxs.length > 0) {
@@ -896,8 +1008,15 @@ export default function RetailPOSPage() {
       if (grandTotalCash > 0) {
         cashInserts.push({ cash_register_id: posSettings.targetCashId, company_id: finalCompId, tx_date: currentDateStr, description: `Mağaza Z-Raporu: Nakit Satışlar (Ciro)`, tx_type: 'in', amount: grandTotalCash, currency: targetCurrency, exchange_rate: 1, is_transfer: false, transfer_id: `POS-Z-CASH-IN-${currentDateStr}` });
       }
-      if (expenseCash > 0) {
-        cashInserts.push({ cash_register_id: posSettings.targetCashId, company_id: finalCompId, tx_date: currentDateStr, description: `Mağaza Z-Raporu: Nakit Giderler`, tx_type: 'out', amount: expenseCash, currency: targetCurrency, exchange_rate: 1, is_transfer: false, transfer_id: `POS-Z-CASH-OUT-${currentDateStr}` });
+      // Harici giderlerin (Giderler modülü / Sabit giderler) toplam nakit tutarını bul:
+      const externalExpenseCash = filledRows
+        .filter(r => r.categoryId === EXPENSE_CATEGORY_ID && (r.isExternalExpense || r.transferId?.startsWith('EXP-') || r.description?.includes('[EXP-') || r.description?.startsWith('Gider Ödemesi')))
+        .reduce((acc, row) => acc + parseValue(row.cash), 0);
+      
+      const netPosExpenseCash = Math.max(0, expenseCash - externalExpenseCash);
+
+      if (netPosExpenseCash > 0) {
+        cashInserts.push({ cash_register_id: posSettings.targetCashId, company_id: finalCompId, tx_date: currentDateStr, description: `Mağaza Z-Raporu: Nakit Giderler`, tx_type: 'out', amount: netPosExpenseCash, currency: targetCurrency, exchange_rate: 1, is_transfer: false, transfer_id: `POS-Z-CASH-OUT-${currentDateStr}` });
       }
 
       transfers.forEach((trf, idx) => {
@@ -1165,17 +1284,23 @@ export default function RetailPOSPage() {
       let transactionsToInsert: any[] = [];
       
       if (filledRows.length > 0) {
-        transactionsToInsert = filledRows.map(r => ({
-          date: currentDate, 
-          category_id: r.categoryId, 
-          description: r.description, 
-          cost: parseValue(r.cost), 
-          cash: parseValue(r.cash), 
-          card: parseValue(r.card),
-          stock_id: r.stockId || null, 
-          quantity: parseValue(r.quantity) || 1,
-          company_id: finalCompId 
-        }))
+        transactionsToInsert = filledRows.map(r => {
+          let desc = r.description;
+          if (r.transferId && !desc.includes(r.transferId)) {
+            desc = `${desc} [${r.transferId}]`;
+          }
+          return {
+            date: currentDate, 
+            category_id: r.categoryId, 
+            description: desc, 
+            cost: parseValue(r.cost), 
+            cash: parseValue(r.cash), 
+            card: parseValue(r.card),
+            stock_id: r.stockId || null, 
+            quantity: parseValue(r.quantity) || 1,
+            company_id: finalCompId 
+          };
+        });
       }
 
       const fCash = parseValue(photoCash);

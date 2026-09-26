@@ -428,6 +428,10 @@ export default function AdvancedReportsPage() {
     // 7. Mağaza Masrafları (Çıkış)
     posTxs.forEach(t => {
       if (t.category_id === 'gider' && isMatchCompany(t.company_id)) {
+        // Harici genel gider ödemeleri (expenses tablosundan gelenler) çifte sayılmamalı
+        if (t.description?.includes('[EXP-') || t.description?.startsWith('Gider Ödemesi')) {
+          return;
+        }
         const d = t.date
         const day = ensureDay(d)
         if (day) {
