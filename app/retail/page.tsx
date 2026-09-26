@@ -1392,6 +1392,11 @@ export default function RetailPOSPage() {
     setCurrentDate(d.toISOString().split('T')[0])
   }
 
+  const hasActiveDropdown = (catIds: string[]) => {
+    if (!activeDropdownId) return false;
+    return rows.some(r => catIds.includes(r.categoryId) && r.id === activeDropdownId);
+  };
+
   const renderCategoryBox = (category: typeof CATEGORIES[0], index: number = 0) => {
     if (!category) return null;
     const catRows = rows.filter(r => r.categoryId === category.id)
@@ -1405,7 +1410,7 @@ export default function RetailPOSPage() {
       <div 
         key={category.id} 
         style={{ animation: 'fadeInUp 0.4s both', animationDelay: `${0.1 + (index * 0.08)}s` }}
-        className={`bg-[#070b14] border border-slate-700 rounded-lg flex flex-col shadow-lg w-full break-inside-avoid hover:border-slate-500/50 transition-colors ${catRows.some(r => r.id === activeDropdownId) ? 'z-30 relative' : 'relative'}`}
+        className={`bg-[#070b14] border border-slate-700 rounded-lg flex flex-col shadow-lg w-full break-inside-avoid hover:border-slate-500/50 transition-colors ${catRows.some(r => r.id === activeDropdownId) ? 'z-50 relative' : 'relative z-10'}`}
       >
         <div className={`${category.color} rounded-t-[7px] px-2.5 py-1.5 flex justify-between items-center text-white text-[11px] font-normal`}>
           <div className="flex items-center gap-1.5 overflow-hidden pr-2 flex-1 min-w-0">
@@ -1448,7 +1453,7 @@ export default function RetailPOSPage() {
           {catRows.map((row, index) => {
             const isFirst = index === 0;
             const searchQ = (row.description || '').trim().toLocaleLowerCase('tr-TR');
-            const isUpward = index >= 3;
+            const isUpward = index >= Math.max(catRows.length - 2, 5);
             const isDropdownOpen = activeDropdownId === row.id && !isExpenseCat;
             const hasMissingDesc = !row.description.trim() && (parseValue(row.cost) > 0 || parseValue(row.cash) > 0 || parseValue(row.card) > 0);
             
@@ -1517,7 +1522,7 @@ export default function RetailPOSPage() {
                 {isDropdownOpen && (
                    <div 
                      onMouseDown={(e) => e.stopPropagation()}
-                     className={`absolute ${isUpward ? 'bottom-full mb-1 origin-bottom' : 'top-full mt-0.5 origin-top'} left-0 z-50 bg-[#0f172a] border border-indigo-500/50 rounded-xl shadow-2xl shadow-black/80 overflow-hidden max-h-56 w-full min-w-[260px] sm:min-w-[320px] flex flex-col animate-in fade-in zoom-in-95 duration-150`}
+                     className={`absolute ${isUpward ? 'bottom-full mb-1 origin-bottom max-h-[180px]' : 'top-full mt-0.5 origin-top max-h-60'} left-0 z-50 bg-[#0f172a] border border-indigo-500/50 rounded-xl shadow-2xl shadow-black/80 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150 ${isCostVisible ? 'w-[calc(100%+199px)]' : 'w-[calc(100%+144px)]'} min-w-[280px] max-w-[calc(100vw-32px)]`}
                    >
                       <div className="px-2.5 py-1.5 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between text-[10px] text-indigo-300 font-normal shrink-0">
                          <div className="flex items-center gap-1.5">
@@ -1529,7 +1534,7 @@ export default function RetailPOSPage() {
                          </span>
                       </div>
 
-                      <div className="overflow-y-auto custom-scrollbar divide-y divide-slate-800/60">
+                      <div className="overflow-y-auto custom-scrollbar divide-y divide-slate-800/60 flex-1 min-h-0">
                          {rowFilteredStocks.length === 0 ? (
                             <div className="p-3 text-center text-slate-400 text-[10px]">
                                {searchQ ? `"${row.description}" ile eşleşen ürün bulunamadı.` : 'Seçili depoda henüz kayıtlı ürün bulunmuyor.'}
@@ -1889,33 +1894,33 @@ export default function RetailPOSPage() {
       </div>
 
       {/* GRID ALANI */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar px-1.5 py-2.5">
+      <div className="flex-1 overflow-y-auto custom-scrollbar px-1.5 pt-2.5 pb-28">
         <div className="flex flex-col xl:flex-row gap-3 items-start h-full">
           
           {/* SOL BÖLÜM */}
           <div className="flex-1 min-w-0 w-full">
             <div className="hidden xl:grid grid-cols-3 gap-3 items-start">
-              <div className="flex flex-col gap-3">
+              <div className={`flex flex-col gap-3 ${hasActiveDropdown([CATEGORIES[0].id, CATEGORIES[3].id]) ? 'z-40 relative' : 'relative z-10'}`}>
                 {renderCategoryBox(CATEGORIES[0], 0)}
                 {renderCategoryBox(CATEGORIES[3], 3)}
               </div>
-              <div className="flex flex-col gap-3">
+              <div className={`flex flex-col gap-3 ${hasActiveDropdown([CATEGORIES[1].id, CATEGORIES[4].id]) ? 'z-40 relative' : 'relative z-10'}`}>
                 {renderCategoryBox(CATEGORIES[1], 1)}
                 {renderCategoryBox(CATEGORIES[4], 4)}
               </div>
-              <div className="flex flex-col gap-3">
+              <div className={`flex flex-col gap-3 ${hasActiveDropdown([CATEGORIES[2].id, CATEGORIES[5].id]) ? 'z-40 relative' : 'relative z-10'}`}>
                 {renderCategoryBox(CATEGORIES[2], 2)}
                 {renderCategoryBox(CATEGORIES[5], 5)}
               </div>
             </div>
             
             <div className="hidden md:grid xl:hidden grid-cols-2 gap-3 items-start">
-              <div className="flex flex-col gap-3">
+              <div className={`flex flex-col gap-3 ${hasActiveDropdown([CATEGORIES[0].id, CATEGORIES[2].id, CATEGORIES[4].id]) ? 'z-40 relative' : 'relative z-10'}`}>
                 {renderCategoryBox(CATEGORIES[0], 0)}
                 {renderCategoryBox(CATEGORIES[2], 2)}
                 {renderCategoryBox(CATEGORIES[4], 4)}
               </div>
-              <div className="flex flex-col gap-3">
+              <div className={`flex flex-col gap-3 ${hasActiveDropdown([CATEGORIES[1].id, CATEGORIES[3].id, CATEGORIES[5].id]) ? 'z-40 relative' : 'relative z-10'}`}>
                 {renderCategoryBox(CATEGORIES[1], 1)}
                 {renderCategoryBox(CATEGORIES[3], 3)}
                 {renderCategoryBox(CATEGORIES[5], 5)}
@@ -1928,7 +1933,7 @@ export default function RetailPOSPage() {
           </div>
 
           {/* SAĞ BÖLÜM */}
-          <div className="w-full xl:w-[340px] 2xl:w-[380px] shrink-0 xl:pl-1 sticky top-0 flex flex-col gap-3 pb-4">
+          <div className="w-full xl:w-[340px] 2xl:w-[380px] shrink-0 xl:pl-1 sticky top-0 flex flex-col gap-3 pb-4 z-20">
             
             {/* GİDER & MASRAF */}
             <div style={{ animation: 'fadeInUp 0.4s both 0.6s' }} className="bg-[#070b14] border border-slate-700 rounded-lg flex flex-col overflow-hidden h-fit shadow-lg w-full hover:border-slate-500/50 transition-colors shrink-0">
