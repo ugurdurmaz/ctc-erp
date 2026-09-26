@@ -1594,14 +1594,18 @@ export default function RetailPOSPage() {
                 })
               : [];
 
+            const rowTooltip = hasMissingDesc 
+              ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı temizleyin.' 
+              : (row.description?.trim() || undefined);
+
             return (
             <div 
               key={row.id} 
               className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${isDropdownOpen ? 'z-40 relative' : ''} ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''}`}
-              title={hasMissingDesc ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı temizleyin.' : undefined}
+              title={rowTooltip}
             >
               
-              <div className="flex-1 min-w-[50px] relative flex">
+              <div className="flex-1 min-w-[50px] relative flex" title={rowTooltip}>
                 <div className={`flex items-center w-full bg-transparent border-r border-slate-700 focus-within:bg-indigo-900/20 transition-colors ${row.stockId ? 'bg-emerald-900/10' : ''}`}>
                    {!isExpenseCat && (
                      <button
@@ -1612,7 +1616,7 @@ export default function RetailPOSPage() {
                          setActiveDropdownId(activeDropdownId === row.id ? null : row.id);
                        }}
                        className="ml-1.5 shrink-0 text-slate-500 hover:text-indigo-400 cursor-pointer"
-                       title={row.stockId ? "Stoktan düşülecek ürün seçili" : "Depodaki ürünleri listele"}
+                       title={row.stockId ? (row.description ? `Stok: ${row.description}` : "Stoktan düşülecek ürün seçili") : "Depodaki ürünleri listele"}
                      >
                        {row.stockId ? <Package size={12} className="text-emerald-400" /> : <Search size={10} className="text-slate-500" />}
                      </button>
@@ -1621,13 +1625,14 @@ export default function RetailPOSPage() {
                      type="text" 
                      placeholder={hasMissingDesc ? "⚠️ Açıklama giriniz..." : (isFirst ? "Açıklama veya Ürün Seç..." : "")} 
                      value={row.description} 
+                     title={rowTooltip}
                      onChange={(e) => {
                         handleInputChange(row.id, 'description', e.target.value);
                         if(row.stockId) handleInputChange(row.id, 'stockId', '');
                         if(!isExpenseCat) setActiveDropdownId(row.id);
                      }} 
                      onFocus={() => !isExpenseCat && setActiveDropdownId(row.id)}
-                     className={`w-full bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none placeholder:text-slate-600 font-sans font-normal transition-colors ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
+                     className={`w-full bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none placeholder:text-slate-600 font-sans font-normal transition-colors truncate ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
                    />
                    {row.stockId && (
                      <button
@@ -2084,18 +2089,22 @@ export default function RetailPOSPage() {
                 )}
                 {expenseRows.map((row, index) => {
                   const hasMissingDesc = !row.description.trim() && (parseValue(row.cash) > 0 || parseValue(row.card) > 0);
+                  const expTooltip = hasMissingDesc 
+                    ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı silin.' 
+                    : (row.description?.trim() || undefined);
                   return (
                   <div 
                     key={row.id} 
                     className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''}`}
-                    title={hasMissingDesc ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı silin.' : undefined}
+                    title={expTooltip}
                   >
                     <input 
                       type="text" 
                       placeholder={hasMissingDesc ? "⚠️ Açıklama yazınız..." : (index === 0 ? "Açıklama / Masraf Kalemi..." : "")} 
                       value={row.description} 
+                      title={expTooltip}
                       onChange={(e) => handleInputChange(row.id, 'description', e.target.value)} 
-                      className={`flex-1 min-w-[50px] bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 placeholder:text-slate-600 font-sans font-normal transition-colors ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
+                      className={`flex-1 min-w-[50px] bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 placeholder:text-slate-600 font-sans font-normal transition-colors truncate ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
                     />
                     <input 
                       type="text" 
