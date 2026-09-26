@@ -280,10 +280,40 @@ export default function CashRegistersPage() {
     } catch (err: any) { toast.error("Transfer Hatası: " + err.message) }
   }
 
-  function handleDeleteTransaction(txId: string, amount: number, type: 'in' | 'out', isTransfer: boolean, transferId?: string) {
-    if (transferId && (transferId.startsWith('SUPP-') || transferId.startsWith('CUST-') || transferId.startsWith('EXP-') || transferId.startsWith('POS-'))) {
-      toast.error('Bu işlem harici bir modülden (Mağaza, Cari veya Gider) otomatik yansımıştır. Lütfen işlemi ait olduğu modülden iptal edin.');
-      return;
+  async function handleDeleteTransaction(txId: string, amount: number, type: 'in' | 'out', isTransfer: boolean, transferId?: string) {
+    let isOrphan = false
+    if (transferId) {
+      if (transferId.startsWith('SUPP-')) {
+        const suppTxId = transferId.replace('SUPP-', '')
+        const { data: srcTx } = await supabase.from('supplier_transactions').select('id').eq('id', suppTxId).maybeSingle()
+        if (srcTx) {
+          toast.error('Bu işlem Tedarikçiler / Satıcılar modülünden otomatik yansımıştır. Lütfen işlemi ait olduğu modülden iptal edin.');
+          return;
+        } else {
+          isOrphan = true;
+        }
+      } else if (transferId.startsWith('CUST-')) {
+        const custTxId = transferId.replace('CUST-', '')
+        const { data: srcTx } = await supabase.from('customer_transactions').select('id').eq('id', custTxId).maybeSingle()
+        if (srcTx) {
+          toast.error('Bu işlem Müşteriler modülünden otomatik yansımıştır. Lütfen işlemi ait olduğu modülden iptal edin.');
+          return;
+        } else {
+          isOrphan = true;
+        }
+      } else if (transferId.startsWith('EXP-')) {
+        const expTxId = transferId.replace('EXP-', '')
+        const { data: srcTx } = await supabase.from('expense_transactions').select('id').eq('id', expTxId).maybeSingle()
+        if (srcTx) {
+          toast.error('Bu işlem Giderler modülünden otomatik yansımıştır. Lütfen işlemi ait olduğu modülden iptal edin.');
+          return;
+        } else {
+          isOrphan = true;
+        }
+      } else if (transferId.startsWith('POS-')) {
+        toast.error('Bu işlem Mağaza (POS) modülünden otomatik yansımıştır. Lütfen işlemi ait olduğu modülden iptal edin.');
+        return;
+      }
     }
 
     if (isTransfer) {
@@ -299,8 +329,10 @@ export default function CashRegistersPage() {
     } else {
       setConfirmDialog({
         isOpen: true,
-        title: 'Hareketi Sil',
-        message: 'Hareketi silmek istediğinize emin misiniz? İşlem tutarı kasa bakiyenize iade edilecektir.',
+        title: isOrphan ? 'Yetim Hareketi Sil' : 'Hareketi Sil',
+        message: isOrphan
+          ? 'Bu hareketin bağlı olduğu kaynak kayıt (Cari/Gider) sistemde bulunamadı (yetim kayıt). Kasadan kaldırıp kasa bakiyesini güncellemek istediğinize emin misiniz?'
+          : 'Hareketi silmek istediğinize emin misiniz? İşlem tutarı kasa bakiyenize iade edilecektir.',
         confirmText: 'Evet, Sil',
         cancelText: 'Vazgeç',
         isDanger: true,

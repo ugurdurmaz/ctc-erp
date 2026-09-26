@@ -518,6 +518,29 @@ export default function CustomersPage() {
         setConfirmDialog(prev => ({ ...prev, isOpen: false }))
         try {
           const custToDelete = customers.find(c => c.id === id)
+
+          // Müşteriye ait tahsilatların karşı bacaklarını (kasa, banka) temizle
+          const { data: relatedTxs } = await supabase.from('customer_transactions').select('*').eq('customer_id', id)
+          if (relatedTxs && relatedTxs.length > 0) {
+            for (const rTx of relatedTxs) {
+              if (rTx.payment_source_type && rTx.payment_source_id) {
+                await modifyPaymentSourceBalance(
+                  rTx.payment_source_type,
+                  rTx.payment_source_id,
+                  rTx.amount,
+                  rTx.currency || 'TRY',
+                  rTx.exchange_rate || 1,
+                  'reverse',
+                  rTx.id,
+                  rTx.tx_date,
+                  custToDelete?.name || '',
+                  rTx.description,
+                  rTx.company_id ?? null
+                )
+              }
+            }
+          }
+
           await supabase.from('customers').delete().eq('id', id); 
           await logActivity('customer', 'DELETE', `Müşteri silindi: ${custToDelete?.name}`, id, custToDelete?.balance, 'TRY', custToDelete, null)
           toast.success('Müşteri başarıyla silindi.')

@@ -438,7 +438,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Kasa oluştur/düzenle: ad, para birimi (**oluşturulduktan sonra kilitli**), merkez, açılış bakiyesi (`Açılış Bakiyesi / Devir` hareketi olarak yönetilir; 0 girilirse silinir).
 - Hareket ekle: tarih, merkez, yön, açıklama, tutar (kasa para biriminde).
 - Virman: transfer tarihi (`tx_date`), hedef banka veya başka kasa seçimi; farklı para biriminde kur ve hedef tutar alanları çift yönlü hesaplanır. İki bacak aynı `TRF-` id'siyle yazılır.
-- Silme: `SUPP-/CUST-/EXP-/POS-` ön ekli hareketler engellenir; `TRF-` silinirse karşı bacak da silinir.
+- Silme: `SUPP-/CUST-/EXP-/POS-` ön ekli hareketler kaynak modülden silinmelidir; ancak kaynak kayıt sistemde silinmişse (yetim kayıt), ekran kullanıcıya "Yetim Hareketi Sil" onayı sunarak kaydın silinmesine ve bakiyenin düzeltilmesine izin verir. `TRF-` silinirse karşı bacak da silinir.
 
 ### 7.4 Banka Hesapları `/bank-accounts`
 - **Vadeli / Yatırım Hesabı Desteği**:
@@ -453,7 +453,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
   - Tablodaki her işlem satırında yer alan düzenleme butonu (`Edit3`) ile modal açılır; işlem tarihi (`tx_date`), ilgili merkez (`company_id`), banka hesabı (`bank_account_id` - hareketi başka bir banka hesabına taşıma), işlem yönü (giriş/çıkış), açıklama, tutar ve işlem durumu (`completed` / `pending`) güncellenebilir.
   - **Virman / Transfer Düzenleme**: Düzenlenen hareket bir transfer ise, karşı hesaptaki (diğer banka veya kasa) eşleşen hareketin tarihi, ilgili merkezi ve tutarı da otomatik güncellenir. Çapraz dövizli transferlerde her iki bacağın tutarı oransal/manuel düzenlenebilir.
   - **Mutlak Bakiye Güncellemesi**: Düzenlenen işlem kaydedildiğinde etkilenen tüm hesapların (`recalculateAbsoluteBankBalance` / `recalculateAbsoluteCashBalance`) bakiyeleri anında yeniden hesaplanır.
-  - **Harici Modül Uyumluluğu**: Mağaza (POS), Cari veya Gider kaynaklı banka ekstre hareketleri için bilgilendirme şeridiyle birlikte tarih, açıklama ve tutar düzenleme imkanı sunulur.
+  - **Harici Modül Uyumluluğu**: Mağaza (POS), Cari veya Gider kaynaklı banka ekstre hareketleri için bilgilendirme şeridiyle birlikte tarih, açıklama ve tutar düzenleme imkanı sunulur. Silme anında kaynak kayıt yoksa yetim kayıt temizliği sunulur.
 - Provizyon onayı: valör tarihi (varsayılan işlem tarihi + 1 gün), komisyon (0 ≤ k < tutar). Komisyon `POS-Z-CARD-COMM-<tarih>` id'siyle `out` yazılır; böylece o POS günü yeniden kaydedilince komisyon da temizlenir.
 
 ### 7.5 Kredi Kartları `/credit-cards`
@@ -461,7 +461,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Alt: seçili kart ekstresi; hareket formu (tarih, merkez, Harcama/Ödeme, açıklama, tutar ₺).
 - Kart oluştur/düzenle: ad, limit, ekstre günü, dönem başı devir borcu (`Dönem Başı Devir Borcu` hareketi), renk, merkez.
 - Bakiye sütunu her satırda **kartın güncel borcunu** gösterir (yürüyen bakiye değil).
-- Gider/tedarikçi modüllerinden gelen `expense` hareketleri burada listelenir ve **silinebilir** (kasa/bankadaki gibi ön ek koruması yoktur).
+- Gider/tedarikçi modüllerinden gelen `expense` hareketleri (`[SUPP-]`, `[EXP-]`) korunur; silme işlemi kaynak modülden yapılmalıdır. Kaynak kayıt sistemde bulunamazsa (yetim kayıt), kart ekstresinden "Yetim Hareketi Sil" onayıyla temizlenebilir ve kart borcu yeniden hesaplanır.
 
 ### 7.6 Stok Yönetimi `/stocks`
 - Üst şerit: Sol tarafta çoklu depo seçim sekmeleri (KDV dahil USD/TRY toplamı, depolar arası hızlı geçiş, düzenle/sil) + "Depo Ekle"; sağ tarafta seçili deponun anlık canlı KPI şeridi (Bağlı Sermaye, Çeşit & Stok, Kritik & Tükenen, Ölü/Uyuyan Stok).
@@ -484,12 +484,14 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Sol: tedarikçi listesi (ad/yetkili arama), bakiye "BORCUMUZ". Sağ: kart bilgileri (tel, e-posta, VD/VN, adres), hareket formu, **Detaylı Fatura Gir**, hareket tablosu (TRY yürüyen bakiye, döviz satırlarında kur ve TRY karşılığı).
 - Hareket: Borç/Fatura (+) veya Ödeme (−). Ödemede kaynak zorunlu: kasa, banka **veya kredi kartı**. Kaynağa `SUPP-<tx_id>` hareketi yazılır.
 - Hareket düzenleme: eski kaynak hareketi silinir, yeni yazılır.
+- Tedarikçi silme: Tedarikçi silinmeden önce bağlı tüm ödemelerin karşı bacakları (kasa, banka, kredi kartı) otomatik olarak tersine çevrilerek silinir ve kaynak bakiyeleri mutlak olarak yeniden hesaplanır (yetim kayıt oluşması engellenir).
 - Detaylı fatura: §6.4.
 - Tedarikçi kartı: açılış bakiyesi + hangi merkeze ait olduğu.
 - Abonelik modülü kredi yüklemelerini bu carilere `debt` olarak yazar.
 
 ### 7.9 Müşteriler (Alacak) `/customers`
 - Tedarikçinin aynası. Tahsilat kaynağı yalnız **kasa veya banka** (kart yok). Kaynağa `CUST-<tx_id>` `in` hareketi yazılır.
+- Müşteri silme: Müşteri silinmeden önce bağlı tüm tahsilatların karşı bacakları (kasa, banka) otomatik olarak tersine çevrilerek silinir ve kaynak bakiyeleri mutlak olarak yeniden hesaplanır.
 - Detaylı satış faturası: satır türü Ürün/Hizmet; ürünlerde "Stoktan Düş" ve depo seçimi.
 
 ### 7.10 Genel Giderler `/expenses`

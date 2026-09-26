@@ -550,7 +550,7 @@ Sonra `credit_card_transactions` tablosu boşaltılıp kaldırılabilir.
 ### 7.6 Kayıt silinemiyor
 | Mesaj | Anlamı | Çözüm |
 |---|---|---|
-| "Bu işlem harici bir modülden … otomatik yansımıştır" | `SUPP-/CUST-/EXP-/POS-` ön ekli hareket | Kaynak modülden sil |
+| "Bu işlem harici bir modülden … otomatik yansımıştır" | `SUPP-/CUST-/EXP-/POS-` ön ekli hareket | Kaynak modülden sil (Kaynak kayıt silinmişse kart/kasa/banka ekranı otomatik olarak "Yetim Hareketi Sil" onayı sunar) |
 | "Silinemedi! Bu merkeze bağlı hareketler/hesaplar bulunuyor" | FK restrict | Önce bağlı kasa/banka/depo/gideri taşı veya sil |
 | "Silinemedi! Bu kategoriye ait kayıtlı giderler var" | FK restrict | Giderleri başka kategoriye al (SQL: §8.5) |
 | "Silme başarısız! … faturada kullanılmış" | Hizmet FK | Faturayı düzenle |

@@ -410,6 +410,29 @@ export default function SuppliersPage() {
         setConfirmDialog(prev => ({ ...prev, isOpen: false }))
         try {
           const suppToDelete = suppliers.find(s => s.id === id)
+
+          // Tedarikçiye ait ödemelerin karşı bacaklarını (kasa, banka, kredi kartı) temizle
+          const { data: relatedTxs } = await supabase.from('supplier_transactions').select('*').eq('supplier_id', id)
+          if (relatedTxs && relatedTxs.length > 0) {
+            for (const rTx of relatedTxs) {
+              if (rTx.tx_type === 'payment' && rTx.payment_source_type && rTx.payment_source_id) {
+                await modifyPaymentSourceBalance(
+                  rTx.payment_source_type,
+                  rTx.payment_source_id,
+                  rTx.amount,
+                  rTx.currency || 'TRY',
+                  rTx.exchange_rate || 1,
+                  'reverse',
+                  rTx.id,
+                  rTx.tx_date,
+                  suppToDelete?.company_name || '',
+                  rTx.description,
+                  rTx.company_id ?? null
+                )
+              }
+            }
+          }
+
           await supabase.from('suppliers').delete().eq('id', id)
           
           await logActivity('supplier', 'DELETE', `Tedarikçi silindi: ${suppToDelete?.company_name}`, id, suppToDelete?.balance, 'TRY', suppToDelete, null)

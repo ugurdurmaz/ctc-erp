@@ -342,26 +342,49 @@ export default function CreditCardsPage() {
     } catch (err: any) { toast.error('İşlem kaydedilemedi: ' + err.message) }
   }
 
-  function handleDeleteTransaction(txId: string, amount: number, type: 'expense' | 'payment') {
+  async function handleDeleteTransaction(txId: string, amount: number, type: 'expense' | 'payment') {
     if (isRestricted && (!selectedCard?.company_id || !profile?.allowed_companies?.includes(selectedCard.company_id))) {
       toast.error('Bu kart hareketini silme yetkiniz bulunmuyor.')
       return
     }
 
     const txToDelete = transactions.find(t => t.id === txId)
+    let isOrphan = false
+
     if (txToDelete?.description?.includes('[SUPP-')) {
-      toast.error('Bu hareket Tedarikçiler / Satıcılar modülünden otomatik yansıtılmıştır. Silme işlemini Satıcılar sayfasındaki ilgili hareket üzerinden yapmalısınız.')
-      return
+      const match = txToDelete.description.match(/\[SUPP-([^\]]+)\]/)
+      const suppTxId = match ? match[1] : null
+      if (suppTxId) {
+        const { data: srcTx } = await supabase.from('supplier_transactions').select('id').eq('id', suppTxId).maybeSingle()
+        if (srcTx) {
+          toast.error('Bu hareket Tedarikçiler / Satıcılar modülünden otomatik yansıtılmıştır. Silme işlemini Satıcılar sayfasındaki ilgili hareket üzerinden yapmalısınız.')
+          return
+        } else {
+          isOrphan = true
+        }
+      }
     }
+
     if (txToDelete?.description?.includes('[EXP-')) {
-      toast.error('Bu hareket Giderler modülünden otomatik yansıtılmıştır. Silme işlemini Giderler sayfasından yapmalısınız.')
-      return
+      const match = txToDelete.description.match(/\[EXP-([^\]]+)\]/)
+      const expTxId = match ? match[1] : null
+      if (expTxId) {
+        const { data: srcTx } = await supabase.from('expense_transactions').select('id').eq('id', expTxId).maybeSingle()
+        if (srcTx) {
+          toast.error('Bu hareket Giderler modülünden otomatik yansıtılmıştır. Silme işlemini Giderler sayfasından yapmalısınız.')
+          return
+        } else {
+          isOrphan = true
+        }
+      }
     }
 
     setConfirmDialog({
       isOpen: true,
-      title: 'İşlemi Sil',
-      message: 'Bu işlemi silmek istediğinize emin misiniz? İşlem tutarı kart bakiyenize geri yansıtılacaktır.',
+      title: isOrphan ? 'Yetim Hareketi Sil' : 'İşlemi Sil',
+      message: isOrphan
+        ? 'Bu hareketin bağlı olduğu kaynak kayıt (Tedarikçi/Gider) silinmiş veya bulunamadı (yetim kayıt). Karttan kaldırıp kart borcunu güncellemek istediğinize emin misiniz?'
+        : 'Bu işlemi silmek istediğinize emin misiniz? İşlem tutarı kart bakiyenize geri yansıtılacaktır.',
       confirmText: 'Evet, Sil',
       cancelText: 'Vazgeç',
       isDanger: true,
@@ -375,11 +398,14 @@ export default function CreditCardsPage() {
             await recalculateAbsoluteCardDebt(selectedCardId)
           }
 
-          await logActivity('card_tx', 'DELETE', `Kart işlemi silindi: ${txToDelete?.description}`, txId, amount, 'TRY', { deleted_tx: txToDelete }, null, txToDelete?.company_id)
+          await logActivity('card_tx', 'DELETE', `Kart işlemi silindi${isOrphan ? ' (Yetim Kayıt Temizliği)' : ''}: ${txToDelete?.description}`, txId, amount, 'TRY', { deleted_tx: txToDelete }, null, txToDelete?.company_id)
 
-          toast.success('İşlem silindi ve bakiye güncellendi.')
-          fetchTransactions(selectedCardId!); fetchCards()
-        } catch (err: any) { toast.error('Silme başarısız: ' + err.message) }
+          toast.success(isOrphan ? 'Yetim işlem silindi ve kart borcu güncellendi.' : 'İşlem silindi ve bakiye güncellendi.')
+          fetchTransactions(selectedCardId!)
+          fetchCards()
+        } catch (err: any) {
+          toast.error('Silme başarısız: ' + err.message)
+        }
       }
     })
   }
