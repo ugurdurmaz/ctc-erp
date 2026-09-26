@@ -66,6 +66,10 @@ Detay `docs/` altında. En yakın konuyu bul, o dosyayı oku; burada tekrar etme
 4. **Pre-Push Güvenlik Kapısı (`npm run build`):**
    - Canlı ortama (`origin main`) push yapmadan önce yerelde `npm run build` **MUTLAKA 0 hata ile tamamlanmalıdır**. Vercel derlemesini bozacak hiçbir commit canlıya gönderilemez.
 
+5. **Otomatik Onay ve Tam Özerklik (Kullanıcı Direktifi):**
+   - Kullanıcı geliştirme süreçlerinde onay ve soru modallarıyla kesilmek istemez.
+   - İstenen geliştirmeler, hata onarımları, izolasyon/filtreleme kuralları, kalite kontrolleri (`tsc`, `build`), Git commit ve deploy adımları kullanıcıdan tekrar onay beklemeden **doğrudan en doğru ve önerilen yöntemle otomatik olarak uygulanır** ve kullanıcıya yapılan işlemler şeffafça raporlanır.
+
 ## Çalışma kuralları (ZORUNLU — insan ve ajan için)
 
 1. **Koda dokunmadan önce bu dosya okunur.** Projeye yeni katılan herkes (geliştirici veya yapay zeka ajanı) sırayla `CLAUDE.md` → `docs/HANDBOOK.md §3–6` → ilgili modülün `docs/HANDBOOK.md §7` bölümünü okur. "Şemayı koddan çıkarırım" yaklaşımı yasak; şema ve kurallar dokümanda.

@@ -18,3 +18,7 @@
 
 ## 4. Pre-Push Kapısı (`npm run build`)
 - `origin main`'e push yapmadan önce yerelde `npm run build` MUTLAKA çalıştırılmalı ve 0 hata ile derlendiği teyit edilmelidir. Vercel derlemesini bozacak hiçbir commit canlıya atılamaz.
+
+## 5. Otomatik Onay ve Tam Özerklik (Kullanıcı Direktifi)
+- Kullanıcı, geliştirme süreçlerinde onay ve soru modallarıyla kesilmek istemez.
+- İstenen geliştirmeler, hata onarımları, izolasyon/filtreleme kuralları, kalite kontrolleri (`tsc`, `build`), Git commit ve deploy adımları kullanıcıdan tekrar onay beklemeden **doğrudan en doğru ve önerilen yöntemle otomatik olarak uygulanır** ve kullanıcıya yapılan işlemler şeffafça raporlanır.
