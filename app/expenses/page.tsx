@@ -643,6 +643,53 @@ export default function ExpensesPage() {
     setIsQuickPayModalOpen(true)
   }
 
+  function handleSwitchQuickPayCurrency(targetCurr: 'TRY' | 'USD' | 'EUR') {
+    if (targetCurr === quickPayCurrency) return
+    const tmplCurr = quickPayTemplate?.currency || 'TRY'
+    const tmplAmt = quickPayTemplate?.amount || 0
+    const currentRate = parseFloat(quickPayExchangeRate) || (tmplCurr === 'EUR' ? rates.EUR : rates.USD) || 1
+    const currentAmt = parseFloat(quickPayAmount) || 0
+
+    if (targetCurr === 'TRY') {
+      // Dövizden TRY'ye geçiş: Tutar = şablon döviz tutarı * kur
+      const baseAmt = tmplAmt > 0 ? tmplAmt : currentAmt
+      const tryAmt = baseAmt > 0 ? (baseAmt * currentRate).toFixed(2) : ''
+      setQuickPayCurrency('TRY')
+      setQuickPayAmount(tryAmt)
+      if (quickPayTemplate && !quickPayDesc.includes(quickPayTemplate.currency)) {
+        setQuickPayDesc(prev => `${prev} (${quickPayTemplate.amount} ${quickPayTemplate.currency} karşılığı)`)
+      }
+    } else {
+      // TRY'den dövize geçiş: Orijinal şablon tutarına veya TRY / kur'a dön
+      const origAmt = tmplAmt > 0 ? tmplAmt.toString() : (currentAmt > 0 ? (currentAmt / currentRate).toFixed(2) : '')
+      const newRate = targetCurr === 'EUR' ? rates.EUR.toString() : rates.USD.toString()
+      setQuickPayCurrency(targetCurr)
+      setQuickPayAmount(origAmt)
+      setQuickPayExchangeRate(newRate)
+      if (quickPayTemplate) {
+        setQuickPayDesc(prev => prev.replace(` (${quickPayTemplate.amount} ${quickPayTemplate.currency} karşılığı)`, ''))
+      }
+    }
+  }
+
+  function handleQuickPayRateChange(newRateStr: string) {
+    setQuickPayExchangeRate(newRateStr)
+    const newRate = parseFloat(newRateStr)
+    if (!newRate || isNaN(newRate) || !quickPayTemplate || quickPayTemplate.currency === 'TRY') return
+    if (quickPayCurrency === 'TRY' && quickPayTemplate.amount > 0) {
+      setQuickPayAmount((quickPayTemplate.amount * newRate).toFixed(2))
+    }
+  }
+
+  function handleQuickPayAmountChange(newAmtStr: string) {
+    setQuickPayAmount(newAmtStr)
+    const newAmt = parseFloat(newAmtStr)
+    if (!newAmt || isNaN(newAmt) || !quickPayTemplate || quickPayTemplate.currency === 'TRY') return
+    if (quickPayCurrency === 'TRY' && quickPayTemplate.amount > 0) {
+      setQuickPayExchangeRate((newAmt / quickPayTemplate.amount).toFixed(4))
+    }
+  }
+
   async function handleExecuteQuickPay(e: React.FormEvent) {
     e.preventDefault()
     const amountNum = parseFloat(quickPayAmount)
@@ -819,12 +866,63 @@ export default function ExpensesPage() {
     if (tmpl.category_id) setTxCategoryId(tmpl.category_id)
     if (tmpl.amount > 0) setTxAmount(tmpl.amount.toString())
     setTxCurrency(tmpl.currency)
+    if (tmpl.currency === 'USD') setTxExchangeRate(rates.USD.toString())
+    else if (tmpl.currency === 'EUR') setTxExchangeRate(rates.EUR.toString())
+    else setTxExchangeRate('1')
     setTxDesc(`${tmpl.title} - ${currentMonthName}`)
     if (tmpl.default_source_type && tmpl.default_source_id) {
       setPaymentSource(`${tmpl.default_source_type}|${tmpl.default_source_id}`)
     }
     toast.success(`"${tmpl.title}" bilgileri forma yüklendi.`)
   }
+
+  function handleTxCurrencyChange(newCurr: 'TRY' | 'USD' | 'EUR') {
+    if (newCurr === txCurrency) return
+    const currentRate = parseFloat(txExchangeRate) || (txCurrency === 'EUR' ? rates.EUR : rates.USD) || 1
+    const currentAmt = parseFloat(txAmount) || 0
+
+    if (newCurr === 'TRY') {
+      if (currentAmt > 0) {
+        setTxAmount((currentAmt * currentRate).toFixed(2))
+      }
+      setTxCurrency('TRY')
+      setTxExchangeRate('1')
+    } else {
+      const targetRate = newCurr === 'EUR' ? rates.EUR : rates.USD
+      if (currentAmt > 0 && txCurrency === 'TRY') {
+        setTxAmount((currentAmt / targetRate).toFixed(2))
+      }
+      setTxCurrency(newCurr)
+      setTxExchangeRate(targetRate.toString())
+    }
+  }
+
+  const selectedSourceCurrency = useMemo(() => {
+    if (quickPaySourceType === 'card') return 'TRY'
+    if (quickPaySourceType === 'bank') {
+      return banks.find(b => b.id === quickPaySourceId)?.currency || 'TRY'
+    }
+    if (quickPaySourceType === 'cash') {
+      return cashes.find(c => c.id === quickPaySourceId)?.currency || 'TRY'
+    }
+    return 'TRY'
+  }, [quickPaySourceType, quickPaySourceId, banks, cashes])
+
+  const quickPayDeductionInfo = useMemo(() => {
+    const amt = parseFloat(quickPayAmount) || 0
+    const rate = quickPayCurrency === 'TRY' ? 1 : (parseFloat(quickPayExchangeRate) || 1)
+    
+    let amountInTry = quickPayCurrency === 'TRY' ? amt : amt * rate
+    let finalDeducted = amountInTry
+    if (selectedSourceCurrency === 'USD') finalDeducted = rates.USD > 0 ? (amountInTry / rates.USD) : amountInTry
+    else if (selectedSourceCurrency === 'EUR') finalDeducted = rates.EUR > 0 ? (amountInTry / rates.EUR) : amountInTry
+    
+    return {
+      amountInTry,
+      finalDeducted,
+      currency: selectedSourceCurrency
+    }
+  }, [quickPayAmount, quickPayCurrency, quickPayExchangeRate, selectedSourceCurrency, rates])
 
   const getPaymentSourceName = (type: string, id: string) => {
     if (type === 'cash') return cashes.find(c => c.id === id)?.name || 'Kasa'
@@ -966,9 +1064,11 @@ export default function ExpensesPage() {
   const pendingRecurringCount = totalRecurringCount - paidRecurringCount
 
   const totalRecurringBudgetTRY = recurringStatusList.reduce((acc, r) => {
+    if (r.isPaid && r.matchedExpense) {
+      return acc + (r.matchedExpense.amount * (r.matchedExpense.exchange_rate || 1))
+    }
     const rate = r.template.currency === 'USD' ? rates.USD : r.template.currency === 'EUR' ? rates.EUR : 1
-    const amt = (r.isPaid && r.matchedExpense) ? r.matchedExpense.amount : r.template.amount
-    return acc + (amt * rate)
+    return acc + (r.template.amount * rate)
   }, 0)
 
   const paidRecurringTotalTRY = recurringStatusList.filter(r => r.isPaid).reduce((acc, r) => {
@@ -1795,7 +1895,7 @@ export default function ExpensesPage() {
 
                 <div className="w-16">
                   <label className="block text-[9px] text-slate-400 mb-0.5">Döviz</label>
-                  <select value={txCurrency} onChange={(e) => setTxCurrency(e.target.value as any)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-1.5 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors">
+                  <select value={txCurrency} onChange={(e) => handleTxCurrencyChange(e.target.value as any)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-1.5 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors">
                     <option value="TRY">₺</option>
                     <option value="USD">$</option>
                     <option value="EUR">€</option>
@@ -1985,16 +2085,56 @@ export default function ExpensesPage() {
                 />
               </div>
 
+              {/* Dövizli Şablonlar İçin ₺ ile Ödeme / Döviz ile Ödeme Seçici */}
+              {quickPayTemplate.currency !== 'TRY' && (
+                <div className="bg-slate-900/90 p-3 rounded-xl border border-indigo-500/30 space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Sabit Gider Tanımı:</span>
+                    <span className="text-indigo-300 font-mono font-bold">
+                      {formatMoney(quickPayTemplate.amount, quickPayTemplate.currency).formatted}
+                    </span>
+                  </div>
+                  
+                  {/* Ödeme Para Birimi Düğmesi: ₺ ile mi yoksa Dövizle mi ödenecek? */}
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-black/40 rounded-lg border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchQuickPayCurrency('TRY')}
+                      className={`py-1.5 px-3 rounded-md text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 ${
+                        quickPayCurrency === 'TRY'
+                          ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/50'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <span>₺ (TRY) Olarak Öde</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchQuickPayCurrency(quickPayTemplate.currency)}
+                      className={`py-1.5 px-3 rounded-md text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 ${
+                        quickPayCurrency !== 'TRY'
+                          ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950/50'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <span>{quickPayTemplate.currency} Olarak Öde</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2">
-                  <label className="block text-[10px] text-slate-400 mb-1">Ödenecek Tutar *</label>
+                  <label className="block text-[10px] text-slate-400 mb-1">
+                    {quickPayCurrency === 'TRY' ? 'Ödenecek Tutar (₺)' : `Ödenecek Tutar (${quickPayCurrency})`} *
+                  </label>
                   <input 
                     type="number" 
                     step="0.01" 
                     required 
                     placeholder="0.00" 
                     value={quickPayAmount} 
-                    onChange={(e) => setQuickPayAmount(e.target.value)} 
+                    onChange={(e) => handleQuickPayAmountChange(e.target.value)} 
                     className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-rose-400 font-mono font-bold text-base focus:outline-none focus:border-indigo-500 transition-colors" 
                   />
                 </div>
@@ -2003,7 +2143,7 @@ export default function ExpensesPage() {
                   <label className="block text-[10px] text-slate-400 mb-1">Para Birimi</label>
                   <select 
                     value={quickPayCurrency} 
-                    onChange={(e) => setQuickPayCurrency(e.target.value as any)} 
+                    onChange={(e) => handleSwitchQuickPayCurrency(e.target.value as any)} 
                     className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
                   >
                     <option value="TRY">TRY (₺)</option>
@@ -2013,17 +2153,30 @@ export default function ExpensesPage() {
                 </div>
               </div>
 
-              {quickPayCurrency !== 'TRY' && (
-                <div>
-                  <label className="block text-[10px] text-slate-400 mb-1">Döviz Kuru</label>
+              {(quickPayCurrency !== 'TRY' || quickPayTemplate.currency !== 'TRY') && (
+                <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <label className="text-[10px] text-slate-400">
+                      Döviz Kuru ({quickPayTemplate.currency !== 'TRY' ? quickPayTemplate.currency : quickPayCurrency} / TRY)
+                    </label>
+                    <span className="text-[10px] text-slate-500">
+                      Güncel MB: {quickPayTemplate.currency === 'EUR' || quickPayCurrency === 'EUR' ? rates.EUR : rates.USD} ₺
+                    </span>
+                  </div>
                   <input 
                     type="number" 
                     step="0.0001" 
                     required 
                     value={quickPayExchangeRate} 
-                    onChange={(e) => setQuickPayExchangeRate(e.target.value)} 
-                    className="w-full bg-rose-950/20 text-rose-300 border border-rose-500/30 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none transition-colors" 
+                    onChange={(e) => handleQuickPayRateChange(e.target.value)} 
+                    className="w-full bg-[#070b14] text-rose-300 border border-rose-500/30 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-rose-400 transition-colors" 
                   />
+                  {quickPayCurrency === 'TRY' && quickPayTemplate.currency !== 'TRY' && (
+                    <p className="text-[10px] text-emerald-400/90 flex items-center gap-1">
+                      <Sparkles size={11} /> 
+                      {quickPayTemplate.amount} {quickPayTemplate.currency} × {quickPayExchangeRate} ₺ = <strong>{quickPayAmount} ₺</strong>
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -2162,6 +2315,19 @@ export default function ExpensesPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Canlı Hesaptan Düşüş Özeti */}
+                {quickPayDeductionInfo && quickPayDeductionInfo.amountInTry > 0 && quickPaySourceId && (
+                  <div className="mt-3 p-3 bg-indigo-950/40 border border-indigo-500/30 rounded-xl flex items-center justify-between text-xs animate-in fade-in duration-150">
+                    <span className="text-slate-300 flex items-center gap-1.5 font-medium">
+                      <ArrowRight size={14} className="text-indigo-400" />
+                      Hesaptan Düşecek Tutar:
+                    </span>
+                    <span className="font-mono font-bold text-emerald-400 text-sm">
+                      {formatMoney(quickPayDeductionInfo.finalDeducted, quickPayDeductionInfo.currency).formatted}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2.5 mt-5 pt-4 border-t border-slate-800">
