@@ -355,6 +355,7 @@ export default function Home() {
     interface Point {
       key: string
       label: string
+      summaryLabel: string
       fullLabel: string
       startDate: string
       endDate: string
@@ -367,6 +368,7 @@ export default function Home() {
       posCost: number
       posProfit: number
       isCurrent: boolean
+      isFuture?: boolean
     }
 
     const points: Point[] = []
@@ -390,10 +392,12 @@ export default function Home() {
         const endDate = `${yyyy}-${mm}-${String(lastDay).padStart(2, '0')}`
         const label = `${shortMonthNames[d.getMonth()]} ${String(yyyy).slice(2)}`
         const fullLabel = `${fullMonthNames[d.getMonth()]} ${yyyy}`
+        const summaryLabel = label
 
         points.push({
           key,
           label,
+          summaryLabel,
           fullLabel,
           startDate,
           endDate,
@@ -426,10 +430,12 @@ export default function Home() {
           : `${mon.getDate()} ${shortMonthNames[mon.getMonth()]}-${sun.getDate()} ${shortMonthNames[sun.getMonth()]}`
 
         const fullLabel = `${mon.getDate()} ${fullMonthNames[mon.getMonth()]} - ${sun.getDate()} ${fullMonthNames[sun.getMonth()]} ${sun.getFullYear()}`
+        const summaryLabel = label
 
         points.push({
           key,
           label,
+          summaryLabel,
           fullLabel,
           startDate,
           endDate,
@@ -445,17 +451,26 @@ export default function Home() {
         })
       }
     } else {
-      // Son 14 Gün (Günlük)
-      for (let i = 13; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
+      // Mevcut Ayın Günleri (1 - Ayın Son Günü)
+      const currentYear = now.getFullYear()
+      const currentMonth = now.getMonth()
+      const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
+      const todayDate = now.getDate()
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const d = new Date(currentYear, currentMonth, day)
         const dateStr = formatISO(d)
         const key = dateStr
-        const label = `${d.getDate()} ${shortMonthNames[d.getMonth()]}`
-        const fullLabel = `${d.getDate()} ${fullMonthNames[d.getMonth()]} ${d.getFullYear()} (${dayNames[d.getDay()]})`
+        const label = String(day)
+        const summaryLabel = `${day} ${shortMonthNames[currentMonth]}`
+        const fullLabel = `${day} ${fullMonthNames[currentMonth]} ${currentYear} (${dayNames[d.getDay()]})`
+        const isToday = day === todayDate && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+        const isFuture = day > todayDate
 
         points.push({
           key,
           label,
+          summaryLabel,
           fullLabel,
           startDate: dateStr,
           endDate: dateStr,
@@ -467,7 +482,8 @@ export default function Home() {
           posRev: 0,
           posCost: 0,
           posProfit: 0,
-          isCurrent: i === 0
+          isCurrent: isToday,
+          isFuture
         })
       }
     }
@@ -548,8 +564,9 @@ export default function Home() {
       if (barMax > maxVal) maxVal = barMax
     })
 
-    const currPoint = points[points.length - 1] || { revenue: 0, cost: 0, expense: 0, profit: 0, posRev: 0, posCost: 0, posProfit: 0, marginPct: 0 }
-    const prevPoint = points[points.length - 2] || { revenue: 0, cost: 0, expense: 0, profit: 0, posRev: 0, posCost: 0, posProfit: 0, marginPct: 0 }
+    const currIdx = points.findIndex(p => p.isCurrent)
+    const currPoint = (currIdx >= 0 ? points[currIdx] : points[points.length - 1]) || { revenue: 0, cost: 0, expense: 0, profit: 0, posRev: 0, posCost: 0, posProfit: 0, marginPct: 0 }
+    const prevPoint = (currIdx > 0 ? points[currIdx - 1] : (points[points.length - 2] || { revenue: 0, cost: 0, expense: 0, profit: 0, posRev: 0, posCost: 0, posProfit: 0, marginPct: 0 }))
 
     const calculateTrend = (curr: number, prev: number) => {
       if (prev === 0 && curr > 0) return { percent: 100, isUp: true }
@@ -1018,7 +1035,7 @@ export default function Home() {
                       pnlPeriod === 'daily' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    Günlük (14 Gün)
+                    Günlük ({pnlPeriod === 'daily' ? pnlData.points.length : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()} Gün)
                   </button>
                   <button
                     onClick={() => setPnlPeriod('weekly')}
@@ -1089,13 +1106,13 @@ export default function Home() {
 
             {/* ORTA: DİNAMİK ÇUBUK GRAFİĞİ */}
             <div className="pt-3 border-t border-slate-800/60 flex-1 flex items-end min-h-[160px] pb-2">
-              <div className="flex items-end gap-1 sm:gap-1.5 md:gap-2 h-full w-full">
+              <div className={`flex items-end h-full w-full ${pnlPeriod === 'daily' ? 'gap-0.5 sm:gap-1' : 'gap-1 sm:gap-1.5 md:gap-2'}`}>
                 {pnlData.points.map((pt) => {
                   const totalOut = pt.cost + pt.expense
                   const revHeight = Math.max((pt.revenue / pnlData.maxVal) * 100, 2)
                   const outHeight = Math.max((totalOut / pnlData.maxVal) * 100, 2)
                   return (
-                    <div key={pt.key} className="flex-1 flex flex-col justify-end items-center gap-1 group relative h-full">
+                    <div key={pt.key} className="flex-1 flex flex-col justify-end items-center gap-1 group relative h-full min-w-0">
                         <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#070b14] border border-slate-700 rounded-lg p-2 text-[10px] font-mono shadow-2xl z-20 w-44 pointer-events-none">
                           <div className="text-white font-bold pb-1 mb-1 border-b border-slate-800 text-[10px]">{pt.fullLabel}</div>
                           <div className="text-blue-400">Ciro: {formatMoney(pt.revenue, 'TRY').formatted}</div>
@@ -1111,22 +1128,30 @@ export default function Home() {
                             <div className="text-slate-400 text-[9px] mt-0.5">Marj: %{pt.marginPct.toFixed(1)}</div>
                           )}
                         </div>
-                        <div className="w-full flex justify-center gap-1 sm:gap-1.5 items-end h-full relative">
+                        <div className={`w-full flex justify-center ${pnlPeriod === 'daily' ? 'gap-0.5' : 'gap-1 sm:gap-1.5'} items-end h-full relative`}>
                           <div
                             className={`w-1/2 max-w-[22px] rounded-t transition-all duration-700 ease-out shadow-sm ${
-                              pt.isCurrent ? 'bg-blue-400 ring-1 ring-blue-300/40' : 'bg-blue-500'
+                              pt.isCurrent
+                                ? 'bg-blue-400 ring-1 ring-blue-300'
+                                : pt.isFuture
+                                ? 'bg-blue-500/20'
+                                : 'bg-blue-500'
                             }`}
                             style={{ height: `${revHeight}%` }}
                           />
                           <div
                             className={`w-1/2 max-w-[22px] rounded-t transition-all duration-700 ease-out delay-75 shadow-sm ${
-                              pt.isCurrent ? 'bg-orange-400 ring-1 ring-orange-300/40' : 'bg-orange-500'
+                              pt.isCurrent
+                                ? 'bg-orange-400 ring-1 ring-orange-300'
+                                : pt.isFuture
+                                ? 'bg-orange-500/20'
+                                : 'bg-orange-500'
                             }`}
                             style={{ height: `${outHeight}%` }}
                           />
                         </div>
-                        <div className={`text-[8px] sm:text-[9px] font-bold mt-1.5 text-center truncate w-full shrink-0 transition-colors ${
-                          pt.isCurrent ? 'text-indigo-400 font-black' : 'text-slate-500 group-hover:text-slate-300'
+                        <div className={`${pnlPeriod === 'daily' ? 'text-[7px] sm:text-[8px] md:text-[9px]' : 'text-[8px] sm:text-[9px]'} font-bold mt-1 text-center truncate w-full shrink-0 transition-colors ${
+                          pt.isCurrent ? 'text-indigo-400 font-black' : pt.isFuture ? 'text-slate-600' : 'text-slate-500 group-hover:text-slate-300'
                         }`}>
                           {pt.label}
                         </div>
@@ -1142,7 +1167,7 @@ export default function Home() {
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                   <FileText size={12} className="text-indigo-400" />
                   {pnlPeriod === 'daily'
-                    ? 'Günlük Finansal Özet Tablosu (Son 14 Gün)'
+                    ? `Günlük Finansal Özet Tablosu (Bu Ay - ${pnlData.points.length} Gün)`
                     : pnlPeriod === 'weekly'
                     ? 'Haftalık Finansal Özet Tablosu (Son 8 Hafta)'
                     : '12 Aylık Finansal Özet Tablosu (Son 1 Yıl)'}
@@ -1156,22 +1181,40 @@ export default function Home() {
                     <div
                       key={pt.key}
                       className={`flex-1 min-w-[70px] p-1.5 rounded-lg border text-center font-mono transition-colors shrink-0 ${
-                        isCurrent ? 'bg-indigo-950/30 border-indigo-500/50' : 'bg-[#070b14]/70 border-slate-800/70 hover:border-slate-700'
+                        isCurrent
+                          ? 'bg-indigo-950/40 border-indigo-500/60 ring-1 ring-indigo-500/30'
+                          : pt.isFuture
+                          ? 'bg-[#070b14]/40 border-slate-800/40 opacity-60'
+                          : 'bg-[#070b14]/70 border-slate-800/70 hover:border-slate-700'
                       }`}
                     >
-                      <span className={`text-[8px] font-sans font-bold block truncate ${isCurrent ? 'text-indigo-300 font-black' : 'text-slate-400'}`}>
-                        {pt.label}
+                      <span className={`text-[8px] font-sans font-bold block truncate ${
+                        isCurrent ? 'text-indigo-300 font-black' : pt.isFuture ? 'text-slate-500' : 'text-slate-400'
+                      }`}>
+                        {pt.summaryLabel}
                       </span>
-                      <span className="text-[9px] font-bold text-blue-400 block mt-0.5 truncate" title={`Ciro: ${formatMoney(pt.revenue, 'TRY').formatted}`}>
+                      <span className={`text-[9px] font-bold block mt-0.5 truncate ${pt.isFuture ? 'text-blue-400/50' : 'text-blue-400'}`} title={`Ciro: ${formatMoney(pt.revenue, 'TRY').formatted}`}>
                         {formatMoney(pt.revenue, 'TRY').formatted}
                       </span>
                       <span
-                        className={`text-[9px] font-bold block mt-0.5 truncate ${pt.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}
+                        className={`text-[9px] font-bold block mt-0.5 truncate ${
+                          pt.isFuture
+                            ? 'text-slate-500'
+                            : pt.profit >= 0
+                            ? 'text-emerald-400'
+                            : 'text-rose-400'
+                        }`}
                         title={`Net Kâr: ${formatMoney(pt.profit, 'TRY').formatted}`}
                       >
                         {pt.profit >= 0 ? '+' : ''}{formatMoney(pt.profit, 'TRY').formatted}
                       </span>
-                      <span className={`text-[8px] block mt-0.5 font-sans ${pt.marginPct >= 0 ? 'text-emerald-400/90' : 'text-rose-400/90'}`}>
+                      <span className={`text-[8px] block mt-0.5 font-sans ${
+                        pt.isFuture
+                          ? 'text-slate-600'
+                          : pt.marginPct >= 0
+                          ? 'text-emerald-400/90'
+                          : 'text-rose-400/90'
+                      }`}>
                         %{pt.marginPct.toFixed(0)} Marj
                       </span>
                     </div>
