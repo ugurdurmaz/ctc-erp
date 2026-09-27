@@ -80,6 +80,7 @@ export default function Home() {
   const [banks, setBanks] = useState<BankDetail[]>([])
   const [cashes, setCashes] = useState<CashDetail[]>([])
   const [cards, setCards] = useState<CardDetail[]>([])
+  const [bankCommTxs, setBankCommTxs] = useState<any[]>([])
   
   const [customers, setCustomers] = useState<CustomerDetail[]>([])
   const [customerTxs, setCustomerTxs] = useState<CustTx[]>([])
@@ -152,6 +153,12 @@ export default function Home() {
 
       const { data: bankData } = await supabase.from('bank_accounts').select('id, bank_name, account_name, balance, currency, company_id')
       setBanks(bankData || [])
+
+      const { data: bCommData } = await supabase.from('bank_transactions')
+        .select('id, amount, currency, exchange_rate, company_id, tx_date, description, created_at, transfer_id')
+        .eq('tx_type', 'out')
+        .ilike('description', '%POS Komisyon%')
+      setBankCommTxs(bCommData || [])
 
       const { data: cashData } = await supabase.from('cash_registers').select('id, name, balance, currency, company_id')
       setCashes(cashData || [])
@@ -329,14 +336,16 @@ export default function Home() {
   // POS (Mağaza) Nakit Giderlerinin Hesaplanması
   const posExpTotalComm = posTxs.filter(t => t.category_id === 'gider' && isMatch(t.company_id) && (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal)).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0)
   const posExpTotalPers = isAdmin ? posTxs.filter(t => t.category_id === 'gider' && isMatch(t.company_id) && (t.company_id && companies.find(c => c.id === t.company_id)?.is_personal)).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0) : 0
+  const posCommTotalComm = bankCommTxs.filter(t => isMatch(t.company_id) && (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal)).reduce((acc, t) => acc + (t.amount * (t.exchange_rate || 1)), 0)
 
-  const totalCommExpTry = commercialExpensesList.reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0) + posExpTotalComm
+  const totalCommExpTry = commercialExpensesList.reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0) + posExpTotalComm + posCommTotalComm
   const totalPersExpTry = personalExpensesList.reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0) + posExpTotalPers
 
   const commExpBreakdown = visibleCompanies.filter(c => !c.is_personal).map(c => {
     const expTxsTotal = commercialExpensesList.filter(e => e.company_id === c.id).reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0)
     const posTxsTotal = posTxs.filter(t => t.category_id === 'gider' && t.company_id === c.id).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0)
-    return { id: c.id, name: c.name, total: expTxsTotal + posTxsTotal }
+    const commTotal = bankCommTxs.filter(t => t.company_id === c.id).reduce((acc, t) => acc + (t.amount * (t.exchange_rate || 1)), 0)
+    return { id: c.id, name: c.name, total: expTxsTotal + posTxsTotal + commTotal }
   }).filter(c => c.total > 0).sort((a, b) => b.total - a.total)
 
   const persExpBreakdown = isAdmin ? Array.from(new Set(personalExpensesList.map(e => e.category?.name || 'Diğer'))).map(catName => {
@@ -521,11 +530,16 @@ export default function Home() {
       if (pt) pt.cost += getTryEquivalent(tx.quantity * tx.unit_price, tx.currency || 'TRY')
     })
 
-    // 3. Ticari Giderler
+    // 3. Ticari Giderler ve POS Komisyon Kesintileri
     commercialExpensesList.forEach(exp => {
       const dStr = exp.tx_date || exp.created_at
       const pt = findPoint(dStr)
       if (pt) pt.expense += exp.amount * (exp.exchange_rate || 1)
+    })
+    bankCommTxs.filter(t => isMatch(t.company_id)).forEach(comm => {
+      const dStr = comm.tx_date || comm.created_at
+      const pt = findPoint(dStr)
+      if (pt) pt.expense += comm.amount * (comm.exchange_rate || 1)
     })
 
     // 4. Mağaza Satış (POS) P&L Entegrasyonu (Çifte Sayım Korumalı)

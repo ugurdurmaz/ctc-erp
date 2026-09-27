@@ -480,11 +480,12 @@ export default function AdvancedReportsPage() {
       }
     })
 
-    // 9. Banka Diğer Çıkışları (Tekrarsız)
+    // 9. Banka Diğer Çıkışları (Tekrarsız ve POS Komisyon Kesintileri Dahil)
     bankTxs.forEach(t => {
       if (t.tx_type === 'out' && isMatchCompany(t.company_id) && !t.is_transfer) {
         const trf = t.transfer_id || ''
-        if (!trf.startsWith('SUPP-') && !trf.startsWith('EXP-') && !trf.startsWith('POS-')) {
+        const isPosComm = trf.includes('-COMM-') || (t.description && t.description.toLowerCase().includes('pos komisyon'))
+        if ((!trf.startsWith('SUPP-') && !trf.startsWith('EXP-') && !trf.startsWith('POS-')) || isPosComm) {
           const d = t.tx_date
           const day = ensureDay(d)
           if (day) {
@@ -493,7 +494,7 @@ export default function AdvancedReportsPage() {
             const item = {
               id: `bank-out-${t.id}`,
               date: d,
-              module: 'Banka Çıkışı',
+              module: isPosComm ? 'POS Komisyonu' : 'Banka Çıkışı',
               description: t.description || 'Banka Çıkışı / EFT',
               source: 'Banka Hesabı',
               amountTry: val,
