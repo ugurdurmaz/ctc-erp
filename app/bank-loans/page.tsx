@@ -409,8 +409,11 @@ export default function BankLoansPage() {
     setFormInsuranceAmount(loan.insurance_amount ? loan.insurance_amount.toString() : '')
     setFormNetDisbursed(loan.net_disbursed_amount ? loan.net_disbursed_amount.toString() : '')
     setFormNotes(loan.notes || '')
-    setIsExistingLoan(false)
-    setFormPrepaidCount('0')
+    
+    // Ödenmiş taksit bilgisi
+    const paidCount = loan.paid_installments ?? loan.installments_plan?.filter(i => i.status === 'paid').length ?? 0
+    setIsExistingLoan(paidCount > 0)
+    setFormPrepaidCount(paidCount.toString())
     setFormDisburseToBank(false)
     setIsLoanModalOpen(true)
   }
@@ -432,21 +435,34 @@ export default function BankLoansPage() {
     // Amortisman planını üret
     let plan = generateInstallmentsPlan(principal, rate, totalInst, formFirstDueDate, taxRate, manualMonthly)
     
-    // Eğer önceden ödenmiş devir taksitleri varsa işaretle
-    if (prepaid > 0) {
-      plan = plan.map((inst, idx) => {
-        if (idx < prepaid) {
-          return {
-            ...inst,
-            status: 'paid' as const,
-            is_opening_settled: true,
-            payment_date: inst.due_date,
-            notes: 'Sistem öncesi devir taksiti (Ödendi)'
-          }
+    // Eğer önceden ödenmiş devir taksitleri varsa veya düzenleniyorsa koru ve işaretle
+    const existingLoan = editingLoanId ? loans.find(l => l.id === editingLoanId) : null
+
+    plan = plan.map((inst, idx) => {
+      const oldInst = existingLoan?.installments_plan?.find(o => o.installment_no === inst.installment_no)
+      if (oldInst?.bank_tx_id && oldInst.status === 'paid') {
+        return {
+          ...inst,
+          status: 'paid' as const,
+          payment_date: oldInst.payment_date,
+          bank_account_id: oldInst.bank_account_id,
+          bank_tx_id: oldInst.bank_tx_id,
+          expense_tx_id: oldInst.expense_tx_id,
+          notes: oldInst.notes
         }
-        return inst
-      })
-    }
+      }
+
+      if (idx < prepaid) {
+        return {
+          ...inst,
+          status: 'paid' as const,
+          is_opening_settled: true,
+          payment_date: oldInst?.payment_date || inst.due_date,
+          notes: 'Sistem öncesi devir taksiti (Ödendi)'
+        }
+      }
+      return inst
+    })
 
     const totalPayment = plan.reduce((acc, i) => acc + i.total_amount, 0)
     const totalInterest = plan.reduce((acc, i) => acc + i.interest_amount, 0)
@@ -798,6 +814,50 @@ export default function BankLoansPage() {
         }
       }
     })
+  }
+
+  // Taksiti Devir Olarak İşaretle (Banka hesabından para düşmeden ödendi say)
+  async function handleMarkAsSettled(loan: BankLoan, inst: LoanInstallment) {
+    const updatedPlan = loan.installments_plan.map(i => {
+      if (i.installment_no === inst.installment_no) {
+        return {
+          ...i,
+          status: 'paid' as const,
+          is_opening_settled: true,
+          payment_date: i.due_date,
+          notes: 'Sistem öncesi devir taksiti (Ödendi)'
+        }
+      }
+      return i
+    })
+
+    const paidCount = updatedPlan.filter(i => i.status === 'paid').length
+    const remainingPrincipal = Math.max(0, Math.round(updatedPlan.filter(i => i.status === 'pending').reduce((acc, i) => acc + i.principal_amount, 0) * 100) / 100)
+    const remainingTotal = Math.max(0, Math.round(updatedPlan.filter(i => i.status === 'pending').reduce((acc, i) => acc + i.total_amount, 0) * 100) / 100)
+
+    const updateLoanPayload = {
+      installments_plan: updatedPlan,
+      paid_installments: paidCount,
+      remaining_principal: remainingPrincipal,
+      remaining_total: remainingTotal,
+      status: remainingPrincipal <= 0 ? ('completed' as const) : ('active' as const)
+    }
+
+    try {
+      if (!isTableMissing) {
+        await supabase.from('bank_loans').update(updateLoanPayload).eq('id', loan.id)
+      } else {
+        const cached = localStorage.getItem('ctc_bank_loans_cache')
+        let cachedList: BankLoan[] = cached ? JSON.parse(cached) : []
+        cachedList = cachedList.map(l => l.id === loan.id ? { ...l, ...updateLoanPayload } as BankLoan : l)
+        localStorage.setItem('ctc_bank_loans_cache', JSON.stringify(cachedList))
+      }
+      toast.success(`Taksit ${inst.installment_no} devir (ödendi) olarak işaretlendi.`)
+      fetchLoans()
+    } catch (err: any) {
+      console.error(err)
+      toast.error('İşlem kaydedilemedi.')
+    }
   }
 
   // Taksit Manuel Düzenleme
@@ -1292,6 +1352,13 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                                     Taksit Öde
                                   </button>
                                   <button
+                                    onClick={() => handleMarkAsSettled(selectedLoan, inst)}
+                                    className="p-1 text-slate-500 hover:text-emerald-400 transition cursor-pointer"
+                                    title="Devir (Geçmişte Ödendi) Olarak İşaretle (Bankadan düşmez)"
+                                  >
+                                    <CheckCircle2 size={13} />
+                                  </button>
+                                  <button
                                     onClick={() => openEditInstallmentModal(inst)}
                                     className="p-1 text-slate-500 hover:text-slate-300 transition cursor-pointer"
                                     title="Taksit Tutarlarını Düzenle"
@@ -1644,56 +1711,61 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
               )}
 
               {/* HALİHAZIRDA DEVAM EDEN KREDİLER İÇİN ÖZEL DEVİR ALANI */}
-              {!editingLoanId && (
-                <div className="p-3.5 bg-indigo-950/20 border border-indigo-500/30 rounded-xl space-y-3">
+              <div className="p-3.5 bg-indigo-950/20 border border-indigo-500/30 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
                       id="cb-existing"
                       checked={isExistingLoan}
-                      onChange={e => setIsExistingLoan(e.target.checked)}
+                      onChange={e => {
+                        setIsExistingLoan(e.target.checked)
+                        if (!e.target.checked) setFormPrepaidCount('0')
+                      }}
                       className="w-4 h-4 rounded text-indigo-600 focus:ring-0 cursor-pointer"
                     />
                     <label htmlFor="cb-existing" className="text-indigo-200 font-bold cursor-pointer">
-                      Bu kredi daha önceden çekilmiş aktif bir kredidir (Geçmiş taksitleri var)
+                      {editingLoanId 
+                        ? 'Ödenmiş (Devir) Taksit Sayısını Güncelle'
+                        : 'Bu kredi daha önceden çekilmiş aktif bir kredidir (Geçmiş taksitleri var)'}
                     </label>
                   </div>
-
-                  {isExistingLoan && (
-                    <div className="pt-2 border-t border-indigo-500/20 flex items-center gap-4 animate-in fade-in">
-                      <div className="flex-1">
-                        <label className="block text-slate-300 font-semibold mb-1">Şu ana kadar kaç taksit ödendi?</label>
-                        <input
-                          type="number"
-                          min="0"
-                          max={formTotalInstallments}
-                          value={formPrepaidCount}
-                          onChange={e => setFormPrepaidCount(e.target.value)}
-                          className="w-32 bg-[#070b14] border border-slate-700 rounded-xl px-3 py-1.5 text-white font-mono font-bold outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                      <p className="text-[11px] text-indigo-300/80 flex-1 leading-relaxed">
-                        💡 İlk {formPrepaidCount} taksit otomatik olarak "Devir (Ödendi)" olarak işaretlenir. Bankadan mükerrer para düşmez ve kalan borç tam güncel başlar.
-                      </p>
-                    </div>
-                  )}
-
-                  {!isExistingLoan && (
-                    <div className="flex items-center gap-2 pt-1">
-                      <input
-                        type="checkbox"
-                        id="cb-disburse"
-                        checked={formDisburseToBank}
-                        onChange={e => setFormDisburseToBank(e.target.checked)}
-                        className="w-4 h-4 rounded text-indigo-600 focus:ring-0 cursor-pointer"
-                      />
-                      <label htmlFor="cb-disburse" className="text-slate-300 cursor-pointer">
-                        Kredi tutarını vadesiz banka hesabına <strong>para girişi (+)</strong> olarak kaydet
-                      </label>
-                    </div>
-                  )}
                 </div>
-              )}
+
+                {isExistingLoan && (
+                  <div className="pt-2 border-t border-indigo-500/20 flex items-center gap-4 animate-in fade-in">
+                    <div className="flex-1">
+                      <label className="block text-slate-300 font-semibold mb-1">Şu ana kadar kaç taksit ödendi?</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max={formTotalInstallments}
+                        value={formPrepaidCount}
+                        onChange={e => setFormPrepaidCount(e.target.value)}
+                        className="w-32 bg-[#070b14] border border-slate-700 rounded-xl px-3 py-1.5 text-white font-mono font-bold outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <p className="text-[11px] text-indigo-300/80 flex-1 leading-relaxed">
+                      💡 İlk {formPrepaidCount} taksit otomatik olarak "Devir (Ödendi)" olarak işaretlenir. Bankadan para düşmez ve kalan borç tam güncel başlar.
+                    </p>
+                  </div>
+                )}
+
+                {!editingLoanId && !isExistingLoan && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      id="cb-disburse"
+                      checked={formDisburseToBank}
+                      onChange={e => setFormDisburseToBank(e.target.checked)}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                    />
+                    <label htmlFor="cb-disburse" className="text-slate-300 cursor-pointer">
+                      Kredi tutarını vadesiz banka hesabına <strong>para girişi (+)</strong> olarak kaydet
+                    </label>
+                  </div>
+                )}
+              </div>
 
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">Notlar / Açıklama</label>
