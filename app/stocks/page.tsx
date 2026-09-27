@@ -100,6 +100,7 @@ export default function StocksPage() {
 
   const [allStocks, setAllStocks] = useState<StockItem[]>([])
   const [selectedStockId, setSelectedStockId] = useState<string | null>(null)
+  const [hoveredStockId, setHoveredStockId] = useState<string | null>(null)
   const [transactions, setTransactions] = useState<StockTransaction[]>([])
   const [allStockTxs, setAllStockTxs] = useState<{ id: string; stock_id: string; tx_date: string; tx_type: 'in' | 'out'; quantity: number; unit_price: number; currency: string }[]>([])
   const [rates, setRates] = useState<ExchangeRates>({ USD: 34.25, EUR: 37.80 })
@@ -200,6 +201,43 @@ export default function StocksPage() {
       cancelEditTx()
     }
   }, [selectedStockId, allStocks])
+
+  const hoveredStockIdRef = useRef<string | null>(null)
+  hoveredStockIdRef.current = hoveredStockId
+
+  const selectedStockIdRef = useRef<string | null>(null)
+  selectedStockIdRef.current = selectedStockId
+
+  const allStocksRef = useRef<StockItem[]>(allStocks)
+  allStocksRef.current = allStocks
+
+  const isAnyModalOpenRef = useRef<boolean>(false)
+  isAnyModalOpenRef.current = isStockModalOpen || isWarehouseModalOpen || isCategoryModalOpen || isCategoryManageModalOpen
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F2') {
+        if (isAnyModalOpenRef.current) return
+
+        const targetId = hoveredStockIdRef.current || selectedStockIdRef.current
+        if (!targetId) return
+
+        const targetStock = allStocksRef.current.find(s => s.id === targetId)
+        if (targetStock) {
+          e.preventDefault()
+          openEditStock(targetStock)
+        }
+      } else if (e.key === 'Escape') {
+        if (isStockModalOpen) setIsStockModalOpen(false)
+        else if (isCategoryManageModalOpen) setIsCategoryManageModalOpen(false)
+        else if (isCategoryModalOpen) setIsCategoryModalOpen(false)
+        else if (isWarehouseModalOpen) setIsWarehouseModalOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isStockModalOpen, isCategoryManageModalOpen, isCategoryModalOpen, isWarehouseModalOpen])
 
   async function fetchExchangeRates() {
     try {
@@ -1197,8 +1235,8 @@ export default function StocksPage() {
     setEditingStockId(null); setName(''); setSku(''); setCategory(''); setSubCategory(''); setIsCustomSubCat(false); setQuantity(''); setUnitPrice(''); setVatRate('20'); setIsStockModalOpen(true)
   }
   
-  async function openEditStock(item: StockItem, e: React.MouseEvent) {
-    e.stopPropagation()
+  async function openEditStock(item: StockItem, e?: React.MouseEvent) {
+    if (e) e.stopPropagation()
     setEditingStockId(item.id)
     if (item.warehouse_id) setSelectedWarehouseId(item.warehouse_id)
     setName(item.name)
@@ -1887,8 +1925,11 @@ export default function StocksPage() {
                                           setSelectedStockId(item.id)
                                           setRightPanelMode('product')
                                         }} 
+                                        onMouseEnter={() => setHoveredStockId(item.id)}
+                                        onMouseLeave={() => setHoveredStockId(prev => (prev === item.id ? null : prev))}
+                                        title={`${item.name} - Stok Kartını Düzenlemek için F2'ye basın`}
                                         style={{ animation: 'fadeSlideRight 0.25s both', animationDelay: `${Math.min(idx * 0.02, 0.3)}s` }}
-                                        className={`flex items-center justify-between text-[11px] py-2 px-3 ${hasSubHeader ? 'pl-7' : 'pl-4'} cursor-pointer transition-colors ${isSelected ? 'bg-indigo-900/30 border-l-2 border-l-indigo-400' : 'hover:bg-slate-800/30'} ${item.quantity <= 0 ? 'opacity-60 bg-rose-950/5' : ''}`}
+                                        className={`group/item flex items-center justify-between text-[11px] py-2 px-3 ${hasSubHeader ? 'pl-7' : 'pl-4'} cursor-pointer transition-colors ${isSelected ? 'bg-indigo-900/30 border-l-2 border-l-indigo-400' : 'hover:bg-slate-800/30'} ${item.quantity <= 0 ? 'opacity-60 bg-rose-950/5' : ''}`}
                                       >
                                         <div className="flex items-center gap-1.5 min-w-0 pr-2 flex-1">
                                           <span className={`font-normal truncate ${item.quantity <= 0 ? 'text-slate-400 line-through decoration-slate-600' : 'text-slate-200'}`}>
@@ -1901,6 +1942,15 @@ export default function StocksPage() {
                                           )}
                                         </div>
                                         <div className="flex items-center gap-3 shrink-0 font-mono text-[10px]">
+                                          <button 
+                                            type="button"
+                                            onClick={(e) => openEditStock(item, e)}
+                                            className="hidden group-hover/item:inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-950/90 text-indigo-300 border border-indigo-500/30 text-[9px] font-sans hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
+                                            title="Stok Kartını Düzenle (F2)"
+                                          >
+                                            <Edit3 size={10} />
+                                            <span className="font-bold">F2</span>
+                                          </button>
                                           <div className="text-slate-400 flex items-center">
                                             <span className={item.currency === 'USD' ? 'text-indigo-300 font-semibold' : ''}>{formatMoney(unitUsd, 'USD').formatted}</span>
                                             <span className="mx-1 text-slate-600">/</span>
@@ -2036,6 +2086,8 @@ export default function StocksPage() {
                           quickSearchStocks.map(stock => (
                             <div 
                               key={`quick-${stock.id}`} 
+                              onMouseEnter={() => setHoveredStockId(stock.id)}
+                              onMouseLeave={() => setHoveredStockId(prev => (prev === stock.id ? null : prev))}
                               onClick={() => {
                                 setSelectedStockId(stock.id);
                                 setRightPanelMode('product');
@@ -2065,7 +2117,11 @@ export default function StocksPage() {
               </div>
 
               {/* ÜRÜN DETAYI VE İŞLEMLER */}
-              <div className="p-4 border-b border-slate-800/80 bg-gradient-to-r from-[#0a0f1d] to-[#0d1322] flex justify-between items-center shrink-0">
+              <div 
+                onMouseEnter={() => setHoveredStockId(selectedStock.id)}
+                onMouseLeave={() => setHoveredStockId(prev => (prev === selectedStock.id ? null : prev))}
+                className="p-4 border-b border-slate-800/80 bg-gradient-to-r from-[#0a0f1d] to-[#0d1322] flex justify-between items-center shrink-0"
+              >
                 <div className="flex-1 min-w-0 pr-4">
                   <div className="flex items-center gap-2 mb-1">
                     <h2 className="text-lg font-bold text-white truncate">{selectedStock.name}</h2>
@@ -2086,7 +2142,10 @@ export default function StocksPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800 shrink-0">
-                  <button onClick={(e) => openEditStock(selectedStock, e)} className="text-slate-400 hover:text-indigo-400 p-1.5 transition" title="Stok Kartını Düzenle"><Edit3 size={14} /></button>
+                  <button onClick={(e) => openEditStock(selectedStock, e)} className="text-slate-400 hover:text-indigo-400 p-1.5 transition flex items-center gap-1" title="Stok Kartını Düzenle (F2)">
+                    <Edit3 size={14} />
+                    <span className="text-[10px] font-mono font-bold bg-indigo-950/80 px-1 py-0.2 rounded border border-indigo-500/30 text-indigo-300">F2</span>
+                  </button>
                   <button onClick={(e) => handleDeleteStock(selectedStock.id, e)} className="text-slate-400 hover:text-rose-400 p-1.5 transition" title="Stok Kartını Sil"><Trash2 size={14} /></button>
                 </div>
               </div>
@@ -2629,7 +2688,12 @@ export default function StocksPage() {
                               )
                             })
                             .map((it) => (
-                              <tr key={it.stock.id} className="hover:bg-slate-800/30 transition-colors">
+                              <tr 
+                                key={it.stock.id} 
+                                onMouseEnter={() => setHoveredStockId(it.stock.id)}
+                                onMouseLeave={() => setHoveredStockId(prev => (prev === it.stock.id ? null : prev))}
+                                className="hover:bg-slate-800/30 transition-colors"
+                              >
                                 <td className="p-2.5 font-sans">
                                   <div className="font-semibold text-slate-200">{it.stock.name}</div>
                                   <div className="text-[9px] text-slate-500 font-mono">{it.stock.sku || 'SKU Yok'}</div>
@@ -2765,7 +2829,12 @@ export default function StocksPage() {
                               )
                             })
                             .map((it) => (
-                              <tr key={it.stock.id} className="hover:bg-slate-800/30 transition-colors">
+                              <tr 
+                                key={it.stock.id} 
+                                onMouseEnter={() => setHoveredStockId(it.stock.id)}
+                                onMouseLeave={() => setHoveredStockId(prev => (prev === it.stock.id ? null : prev))}
+                                className="hover:bg-slate-800/30 transition-colors"
+                              >
                                 <td className="p-2.5 font-sans">
                                   <div className="font-semibold text-slate-200">{it.stock.name}</div>
                                   <div className="text-[9px] text-slate-500 font-mono">{it.stock.sku || 'SKU Yok'}</div>

@@ -474,6 +474,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
     3. *Hareketsiz / Ölü Stok:* Seçilebilir gün eşiğine (30/60/90 gün veya hiç çıkış olmayan) göre son hareket ve çıkış tarihlerini inceleyerek atıl yatan sermaye tutarı ve ürünlerin detaylı dökümü.
 - Depo silme: "içindeki stok kartları da silinir" (cascade'e bağlı). Kategori silme: stokların `category` alanı `NULL` yapılır.
 - Kategori adı değişince aynı depodaki stokların `category` string'i toplu güncellenir.
+- **F2 Hızlı Stok Kartı Düzenleme:** ERP standartlarına uygun olarak ürün listesinde, hızlı aramada veya analiz tablolarında herhangi bir ürünün üzerindeyken (fare ile üzerine gelindiğinde `hover` veya ürün seçildiğinde) klavyeden **`F2`** tuşuna basıldığında doğrudan o ürünün "Stok Kartını Düzenle" penceresi açılır. Modal açıkken `Escape` tuşu ile kapatılabilir.
 - **Rol ve Depo Yetkilendirmesi:** Kasiyer / Satış personeli sol menüden Stok Yönetimi modülüne erişebilir. Personelin yetkili olduğu şirket kısıtlaması (`allowed_companies`) varsa, ekranda **yalnızca o mağazaya ait depolar** listelenir; başka mağaza veya şirketlerin depoları gizlenir. Personel yalnızca kendi mağazasının deposuna yeni stok kartı açabilir ve **Stok Girişi (`tx_type = 'in'`) / Sayım** yapabilir.
 
 ### 7.7 Hizmet Yönetimi `/services`
