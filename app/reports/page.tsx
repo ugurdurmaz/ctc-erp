@@ -1556,7 +1556,7 @@ export default function AdvancedReportsPage() {
                       <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
                       <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Giren (+)</th>
                       <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Çıkan (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
@@ -1591,7 +1591,7 @@ export default function AdvancedReportsPage() {
                       <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
                       <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Giren (+)</th>
                       <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Çıkan (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
@@ -1624,7 +1624,7 @@ export default function AdvancedReportsPage() {
                       <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
                       <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Harcama (+)</th>
                       <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Ödeme (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
@@ -1657,7 +1657,7 @@ export default function AdvancedReportsPage() {
                       <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
                       <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Giren (+)</th>
                       <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Çıkan (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
@@ -1700,7 +1700,7 @@ export default function AdvancedReportsPage() {
                       <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
                       <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Satış (+)</th>
                       <th className="font-bold font-sans uppercase text-blue-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Tahsilat (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
@@ -1749,7 +1749,7 @@ export default function AdvancedReportsPage() {
                       <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
                       <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Alış (+)</th>
                       <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Ödeme (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
