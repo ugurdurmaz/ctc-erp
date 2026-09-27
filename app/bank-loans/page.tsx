@@ -11,7 +11,7 @@ import {
   BadgePercent, Plus, Trash2, Edit3, X, Check, CheckCircle2, Clock, 
   AlertTriangle, ChevronRight, ChevronDown, Landmark, Building2, Calendar, 
   Wallet, ArrowUpRight, RefreshCw, FileText, Info, ShieldCheck, Copy,
-  CheckCircle, ArrowDownLeft, AlertCircle
+  CheckCircle, ArrowDownLeft, AlertCircle, Percent, Shield, ReceiptText
 } from 'lucide-react'
 
 interface Company {
@@ -35,6 +35,14 @@ const LOAN_TYPE_LABELS: Record<LoanType, string> = {
   vehicle: 'Taşıt Kredisi',
   housing: 'Konut Kredisi',
   other: 'Diğer Kredi'
+}
+
+type TaxRateType = 'commercial_bsmv' | 'consumer_tax' | 'none'
+
+const TAX_RATE_CONFIG: Record<TaxRateType, { label: string; rate: number; desc: string }> = {
+  commercial_bsmv: { label: 'Ticari Kredi (%5 BSMV)', rate: 5, desc: 'Yalnızca %5 BSMV uygulanır (KKDF %0)' },
+  consumer_tax: { label: 'Bireysel Kredi (%5 BSMV + %15 KKDF)', rate: 20, desc: 'Toplam %20 yasal vergi uygulanır' },
+  none: { label: 'Vergisiz / Muaf (%0)', rate: 0, desc: 'Vergi eklenmez' }
 }
 
 function getLocalTodayISO() {
@@ -61,24 +69,28 @@ function addMonthsToDate(dateStr: string, monthsToAdd: number): string {
   return `${year}-${month}-${day}`
 }
 
-// Standart Eşit Taksitli (Annuity) Amortisman Planı Hesaplama
+// Bankacılık Standartlarında (BSMV ve KKDF Dahil) Eşit Taksitli Amortisman Planı
 function generateInstallmentsPlan(
   principal: number,
   monthlyRatePercent: number,
   totalInstallments: number,
   firstDueDateStr: string,
+  taxRatePercent: number = 5,
   manualMonthlyInstallment?: number
 ): LoanInstallment[] {
   const plan: LoanInstallment[] = []
   if (principal <= 0 || totalInstallments <= 0) return plan
 
   const r = monthlyRatePercent / 100
+  const taxRate = taxRatePercent / 100
+  const rBrut = r * (1 + taxRate)
+
   let monthlyInstallment = manualMonthlyInstallment || 0
 
   if (!monthlyInstallment) {
-    if (r > 0) {
-      const factor = Math.pow(1 + r, totalInstallments)
-      monthlyInstallment = Math.round((principal * (r * factor) / (factor - 1)) * 100) / 100
+    if (rBrut > 0) {
+      const factor = Math.pow(1 + rBrut, totalInstallments)
+      monthlyInstallment = Math.round((principal * (rBrut * factor) / (factor - 1)) * 100) / 100
     } else {
       monthlyInstallment = Math.round((principal / totalInstallments) * 100) / 100
     }
@@ -88,12 +100,15 @@ function generateInstallmentsPlan(
 
   for (let i = 1; i <= totalInstallments; i++) {
     const dueDate = addMonthsToDate(firstDueDateStr, i - 1)
-    let interestPart = r > 0 ? Math.round(currentPrincipal * r * 100) / 100 : 0
-    let principalPart = Math.round((monthlyInstallment - interestPart) * 100) / 100
+    const interestPart = r > 0 ? Math.round(currentPrincipal * r * 100) / 100 : 0
+    const taxPart = taxRate > 0 ? Math.round(interestPart * taxRate * 100) / 100 : 0
+    let principalPart = Math.round((monthlyInstallment - interestPart - taxPart) * 100) / 100
+    let instTotal = monthlyInstallment
 
+    // Son taksit veya anapara taşması durumunda kuruş dengelemesi
     if (i === totalInstallments || principalPart > currentPrincipal) {
       principalPart = currentPrincipal
-      monthlyInstallment = Math.round((principalPart + interestPart) * 100) / 100
+      instTotal = Math.round((principalPart + interestPart + taxPart) * 100) / 100
     }
 
     currentPrincipal = Math.max(0, Math.round((currentPrincipal - principalPart) * 100) / 100)
@@ -101,9 +116,10 @@ function generateInstallmentsPlan(
     plan.push({
       installment_no: i,
       due_date: dueDate,
-      total_amount: monthlyInstallment,
+      total_amount: instTotal,
       principal_amount: principalPart,
       interest_amount: interestPart,
+      tax_amount: taxPart,
       remaining_principal_after: currentPrincipal,
       status: 'pending'
     })
@@ -130,16 +146,20 @@ export default function BankLoansPage() {
   const [isLoanModalOpen, setIsLoanModalOpen] = useState(false)
   const [editingLoanId, setEditingLoanId] = useState<string | null>(null)
   const [formLoanName, setFormLoanName] = useState('')
+  const [formReferenceNo, setFormReferenceNo] = useState('')
   const [formBankName, setFormBankName] = useState('')
   const [formBankAccountId, setFormBankAccountId] = useState('')
   const [formCompanyId, setFormCompanyId] = useState('common')
   const [formLoanType, setFormLoanType] = useState<LoanType>('commercial')
-  const [formPrincipal, setFormPrincipal] = useState('')
-  const [formInterestRate, setFormInterestRate] = useState('')
+  const [formTaxType, setFormTaxType] = useState<TaxRateType>('commercial_bsmv')
+  const [formPrincipal, setFormPrincipal] = useState('250000')
+  const [formInterestRate, setFormInterestRate] = useState('3.59')
   const [formTotalInstallments, setFormTotalInstallments] = useState('12')
   const [formMonthlyInstallment, setFormMonthlyInstallment] = useState('')
   const [formStartDate, setFormStartDate] = useState(getLocalTodayISO())
   const [formFirstDueDate, setFormFirstDueDate] = useState(addMonthsToDate(getLocalTodayISO(), 1))
+  const [formInsuranceAmount, setFormInsuranceAmount] = useState('')
+  const [formNetDisbursed, setFormNetDisbursed] = useState('')
   const [formNotes, setFormNotes] = useState('')
   
   // Aktif Kredi Devir Alanları (Önceden ödenmiş taksitler)
@@ -156,6 +176,7 @@ export default function BankLoansPage() {
   const [payTotalAmount, setPayTotalAmount] = useState('')
   const [payPrincipalAmount, setPayPrincipalAmount] = useState('')
   const [payInterestAmount, setPayInterestAmount] = useState('')
+  const [payTaxAmount, setPayTaxAmount] = useState('')
   const [isSubmittingPay, setIsSubmittingPay] = useState(false)
 
   // Taksit Düzenle Modalı State
@@ -165,6 +186,7 @@ export default function BankLoansPage() {
   const [editInstTotal, setEditInstTotal] = useState('')
   const [editInstPrincipal, setEditInstPrincipal] = useState('')
   const [editInstInterest, setEditInstInterest] = useState('')
+  const [editInstTax, setEditInstTax] = useState('')
 
   // Onay Modalı State
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -228,7 +250,6 @@ export default function BankLoansPage() {
       if (error) {
         if (error.code === 'PGRST205' || error.message?.includes('bank_loans')) {
           setIsTableMissing(true)
-          // LocalStorage fallback kontrolü
           const cached = localStorage.getItem('ctc_bank_loans_cache')
           if (cached) {
             try {
@@ -291,6 +312,25 @@ export default function BankLoansPage() {
     return loans.find(l => l.id === selectedLoanId) || null
   }, [loans, selectedLoanId])
 
+  // Canlı Form Önizleme Amortisman Tablosu
+  const previewPlan = useMemo(() => {
+    const p = parseFloat(formPrincipal) || 0
+    const r = parseFloat(formInterestRate) || 0
+    const n = parseInt(formTotalInstallments) || 12
+    const m = parseFloat(formMonthlyInstallment) || undefined
+    const taxRate = TAX_RATE_CONFIG[formTaxType].rate
+
+    return generateInstallmentsPlan(p, r, n, formFirstDueDate, taxRate, m)
+  }, [formPrincipal, formInterestRate, formTotalInstallments, formFirstDueDate, formTaxType, formMonthlyInstallment])
+
+  const previewSummary = useMemo(() => {
+    const totalPayment = previewPlan.reduce((acc, i) => acc + i.total_amount, 0)
+    const totalInterest = previewPlan.reduce((acc, i) => acc + i.interest_amount, 0)
+    const totalTax = previewPlan.reduce((acc, i) => acc + (i.tax_amount || 0), 0)
+    const monthlyInstallment = previewPlan[0]?.total_amount || 0
+    return { totalPayment, totalInterest, totalTax, monthlyInstallment }
+  }, [previewPlan])
+
   // KPI Hesaplamaları
   const kpiStats = useMemo(() => {
     const active = filteredLoans.filter(l => l.status === 'active')
@@ -298,7 +338,6 @@ export default function BankLoansPage() {
     const remainingPrincipal = active.reduce((acc, l) => acc + Number(l.remaining_principal || 0), 0)
     const totalPaid = active.reduce((acc, l) => acc + (Number(l.principal_amount || 0) - Number(l.remaining_principal || 0)), 0)
 
-    // Bu ayın taksitleri
     const today = new Date()
     const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
     
@@ -330,16 +369,20 @@ export default function BankLoansPage() {
   function openNewLoanModal() {
     setEditingLoanId(null)
     setFormLoanName('')
+    setFormReferenceNo('')
     setFormBankName(banks[0]?.bank_name || '')
     setFormBankAccountId(banks[0]?.id || '')
     setFormCompanyId(isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common')
     setFormLoanType('commercial')
-    setFormPrincipal('')
-    setFormInterestRate('')
+    setFormTaxType('commercial_bsmv')
+    setFormPrincipal('250000')
+    setFormInterestRate('3.59')
     setFormTotalInstallments('12')
     setFormMonthlyInstallment('')
     setFormStartDate(getLocalTodayISO())
     setFormFirstDueDate(addMonthsToDate(getLocalTodayISO(), 1))
+    setFormInsuranceAmount('')
+    setFormNetDisbursed('')
     setFormNotes('')
     setIsExistingLoan(false)
     setFormPrepaidCount('0')
@@ -350,16 +393,20 @@ export default function BankLoansPage() {
   function openEditLoanModal(loan: BankLoan) {
     setEditingLoanId(loan.id)
     setFormLoanName(loan.loan_name)
+    setFormReferenceNo(loan.loan_reference_no || '')
     setFormBankName(loan.bank_name)
     setFormBankAccountId(loan.bank_account_id || '')
     setFormCompanyId(loan.company_id || 'common')
     setFormLoanType(loan.loan_type)
+    setFormTaxType(loan.tax_rate_type || 'commercial_bsmv')
     setFormPrincipal(loan.principal_amount.toString())
     setFormInterestRate(loan.interest_rate.toString())
     setFormTotalInstallments(loan.total_installments.toString())
     setFormMonthlyInstallment(loan.monthly_installment.toString())
     setFormStartDate(loan.start_date)
     setFormFirstDueDate(loan.first_due_date)
+    setFormInsuranceAmount(loan.insurance_amount ? loan.insurance_amount.toString() : '')
+    setFormNetDisbursed(loan.net_disbursed_amount ? loan.net_disbursed_amount.toString() : '')
     setFormNotes(loan.notes || '')
     setIsExistingLoan(false)
     setFormPrepaidCount('0')
@@ -374,6 +421,7 @@ export default function BankLoansPage() {
     const totalInst = parseInt(formTotalInstallments) || 12
     const manualMonthly = parseFloat(formMonthlyInstallment) || undefined
     const prepaid = isExistingLoan ? Math.min(parseInt(formPrepaidCount) || 0, totalInst) : 0
+    const taxRate = TAX_RATE_CONFIG[formTaxType].rate
 
     if (!formLoanName.trim() || !formBankName.trim() || isNaN(principal) || principal <= 0) {
       toast.error('Lütfen kredi adı, banka ve geçerli bir anapara tutarı giriniz.')
@@ -381,7 +429,7 @@ export default function BankLoansPage() {
     }
 
     // Amortisman planını üret
-    let plan = generateInstallmentsPlan(principal, rate, totalInst, formFirstDueDate, manualMonthly)
+    let plan = generateInstallmentsPlan(principal, rate, totalInst, formFirstDueDate, taxRate, manualMonthly)
     
     // Eğer önceden ödenmiş devir taksitleri varsa işaretle
     if (prepaid > 0) {
@@ -400,7 +448,8 @@ export default function BankLoansPage() {
     }
 
     const totalPayment = plan.reduce((acc, i) => acc + i.total_amount, 0)
-    const totalInterest = Math.max(0, Math.round((totalPayment - principal) * 100) / 100)
+    const totalInterest = plan.reduce((acc, i) => acc + i.interest_amount, 0)
+    const totalTax = plan.reduce((acc, i) => acc + (i.tax_amount || 0), 0)
     const monthlyInst = plan[0]?.total_amount || 0
 
     // Kalan borç hesabı
@@ -413,10 +462,12 @@ export default function BankLoansPage() {
 
     const payload: Partial<BankLoan> = {
       loan_name: formLoanName.trim(),
+      loan_reference_no: formReferenceNo.trim() || null,
       bank_name: formBankName.trim(),
       bank_account_id: formBankAccountId || null,
       company_id: formCompanyId === 'common' ? null : formCompanyId,
       loan_type: formLoanType,
+      tax_rate_type: formTaxType,
       principal_amount: principal,
       interest_rate: rate,
       total_installments: totalInst,
@@ -424,11 +475,14 @@ export default function BankLoansPage() {
       monthly_installment: monthlyInst,
       total_payment: totalPayment,
       total_interest: totalInterest,
+      total_tax: totalTax,
       remaining_principal: remainingPrincipal,
       remaining_total: remainingTotal,
       currency: 'TRY',
       start_date: formStartDate,
       first_due_date: formFirstDueDate,
+      insurance_amount: parseFloat(formInsuranceAmount) || 0,
+      net_disbursed_amount: parseFloat(formNetDisbursed) || 0,
       status: remainingPrincipal <= 0 ? 'completed' : 'active',
       notes: formNotes.trim() || null,
       installments_plan: plan
@@ -436,7 +490,6 @@ export default function BankLoansPage() {
 
     try {
       if (isTableMissing) {
-        // LocalStorage fallback
         const existingCached = localStorage.getItem('ctc_bank_loans_cache')
         let cachedList: BankLoan[] = existingCached ? JSON.parse(existingCached) : []
         if (editingLoanId) {
@@ -454,25 +507,23 @@ export default function BankLoansPage() {
       }
 
       if (editingLoanId) {
-        // Güncelleme
         const { error } = await supabase.from('bank_loans').update(payload).eq('id', editingLoanId)
         if (error) throw error
         await logActivity('bank', 'UPDATE', `Banka kredisi güncellendi: ${payload.loan_name}`, editingLoanId, principal, 'TRY', null, payload, payload.company_id)
         toast.success('Kredi başarıyla güncellendi.')
       } else {
-        // Yeni Kayıt
         const { data, error } = await supabase.from('bank_loans').insert([payload]).select().single()
         if (error) throw error
 
-        // Kullanıcı yeni çekilen kredi için hesaba giriş istediyse
         if (formDisburseToBank && formBankAccountId) {
+          const disburseAmount = parseFloat(formNetDisbursed) > 0 ? parseFloat(formNetDisbursed) : principal
           const bankTxPayload = {
             bank_account_id: formBankAccountId,
             company_id: payload.company_id,
             tx_date: formStartDate,
-            description: `Kredi Kullandırımı: ${payload.loan_name} (Giriş)`,
+            description: `Kredi Kullandırımı: ${payload.loan_name} (Net Giriş)`,
             tx_type: 'in',
-            amount: principal,
+            amount: disburseAmount,
             currency: 'TRY',
             exchange_rate: 1,
             is_transfer: false,
@@ -506,6 +557,7 @@ export default function BankLoansPage() {
     setPayTotalAmount(inst.total_amount.toString())
     setPayPrincipalAmount(inst.principal_amount.toString())
     setPayInterestAmount(inst.interest_amount.toString())
+    setPayTaxAmount((inst.tax_amount || 0).toString())
     setIsPayModalOpen(true)
   }
 
@@ -516,6 +568,8 @@ export default function BankLoansPage() {
     const totalAmt = parseFloat(payTotalAmount)
     const principalAmt = parseFloat(payPrincipalAmount)
     const interestAmt = parseFloat(payInterestAmount) || 0
+    const taxAmt = parseFloat(payTaxAmount) || 0
+    const totalFinancingCost = Math.round((interestAmt + taxAmt) * 100) / 100
 
     if (!payBankAccountId) {
       toast.error('Lütfen ödemenin çıkacağı banka hesabını seçiniz.')
@@ -540,7 +594,7 @@ export default function BankLoansPage() {
         bank_account_id: payBankAccountId,
         company_id: payingLoan.company_id,
         tx_date: payDate,
-        description: `Kredi Taksiti: ${payingLoan.bank_name} - ${payingLoan.loan_name} (Taksit ${payingInstallment.installment_no}/${payingLoan.total_installments} - Anapara: ${formatMoney(principalAmt).formatted}, Faiz: ${formatMoney(interestAmt).formatted})`,
+        description: `Kredi Taksiti: ${payingLoan.bank_name} - ${payingLoan.loan_name} (Taksit ${payingInstallment.installment_no}/${payingLoan.total_installments} - Anapara: ${formatMoney(principalAmt).formatted}, Faiz: ${formatMoney(interestAmt).formatted}, BSMV: ${formatMoney(taxAmt).formatted})`,
         tx_type: 'out',
         amount: totalAmt,
         currency: 'TRY',
@@ -554,9 +608,8 @@ export default function BankLoansPage() {
       if (bErr) throw bErr
       bankTxId = bTxData.id
 
-      // 2. Faiz Payı İçin Gider Kaydı (LOAN-EXP) — Kâr/Zarar Doğruluğu
-      if (interestAmt > 0) {
-        // Gider kategorisini bul veya genel gider olarak ata
+      // 2. Faiz + BSMV Toplam Finansman Maliyeti İçin Gider Kaydı (LOAN-EXP)
+      if (totalFinancingCost > 0) {
         const { data: catList } = await supabase.from('expense_categories').select('id, name')
         const matchedCat = catList?.find(c => c.name.toLowerCase().includes('faiz') || c.name.toLowerCase().includes('finansman') || c.name.toLowerCase().includes('kredi'))
         
@@ -564,8 +617,8 @@ export default function BankLoansPage() {
           category_id: matchedCat?.id || catList?.[0]?.id || null,
           company_id: payingLoan.company_id,
           tx_date: payDate,
-          description: `Finansman Gideri: ${payingLoan.bank_name} - ${payingLoan.loan_name} (Taksit ${payingInstallment.installment_no} Kredi Faizi)`,
-          amount: interestAmt,
+          description: `Finansman Gideri & BSMV: ${payingLoan.bank_name} - ${payingLoan.loan_name} (Taksit ${payingInstallment.installment_no} Net Faiz: ${formatMoney(interestAmt).formatted} + BSMV: ${formatMoney(taxAmt).formatted})`,
+          amount: totalFinancingCost,
           currency: 'TRY',
           exchange_rate: 1,
           payment_source_type: 'bank',
@@ -587,6 +640,7 @@ export default function BankLoansPage() {
             total_amount: totalAmt,
             principal_amount: principalAmt,
             interest_amount: interestAmt,
+            tax_amount: taxAmt,
             status: 'paid' as const,
             payment_date: payDate,
             bank_account_id: payBankAccountId,
@@ -630,11 +684,11 @@ export default function BankLoansPage() {
         totalAmt,
         'TRY',
         null,
-        { bankTxId, expenseTxId, principalAmt, interestAmt },
+        { bankTxId, expenseTxId, principalAmt, interestAmt, taxAmt },
         payingLoan.company_id
       )
 
-      toast.success(`Taksit ${payingInstallment.installment_no} başarıyla ödendi ve bankadan düşüldü!`)
+      toast.success(`Taksit ${payingInstallment.installment_no} ödendi ve bankadan düşüldü!`)
       setIsPayModalOpen(false)
       fetchLoans()
     } catch (err: any) {
@@ -657,27 +711,22 @@ export default function BankLoansPage() {
       onConfirm: async () => {
         setConfirmDialog(prev => ({ ...prev, isOpen: false }))
         try {
-          // Eğer bu sistem öncesi devir taksiti değilse banka ve gider hareketini sil
           if (!inst.is_opening_settled) {
-            // 1. Banka hareketini sil
             await supabase
               .from('bank_transactions')
               .delete()
               .eq('transfer_id', `LOAN-INST-${loan.id}-${inst.installment_no}`)
 
-            // 2. Gider hareketini sil
             await supabase
               .from('expense_transactions')
               .delete()
               .eq('transfer_id', `LOAN-EXP-${loan.id}-${inst.installment_no}`)
 
-            // 3. Banka bakiyesini yeniden hesapla
             if (inst.bank_account_id) {
               await recalculateAbsoluteBankBalance(inst.bank_account_id)
             }
           }
 
-          // 4. Krediyi güncelle
           const updatedPlan = loan.installments_plan.map(i => {
             if (i.installment_no === inst.installment_no) {
               return {
@@ -732,6 +781,7 @@ export default function BankLoansPage() {
     setEditInstTotal(inst.total_amount.toString())
     setEditInstPrincipal(inst.principal_amount.toString())
     setEditInstInterest(inst.interest_amount.toString())
+    setEditInstTax((inst.tax_amount || 0).toString())
     setIsEditInstallmentModalOpen(true)
   }
 
@@ -742,6 +792,7 @@ export default function BankLoansPage() {
     const total = parseFloat(editInstTotal)
     const principal = parseFloat(editInstPrincipal)
     const interest = parseFloat(editInstInterest) || 0
+    const tax = parseFloat(editInstTax) || 0
 
     if (isNaN(total) || total <= 0 || isNaN(principal) || principal <= 0) {
       toast.error('Geçerli taksit ve anapara tutarları giriniz.')
@@ -755,7 +806,8 @@ export default function BankLoansPage() {
           due_date: editInstDueDate,
           total_amount: total,
           principal_amount: principal,
-          interest_amount: interest
+          interest_amount: interest,
+          tax_amount: tax
         }
       }
       return i
@@ -826,21 +878,26 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     loan_name TEXT NOT NULL,
     bank_name TEXT NOT NULL,
+    loan_reference_no TEXT,
     bank_account_id UUID REFERENCES public.bank_accounts(id) ON DELETE SET NULL,
     company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
     loan_type TEXT NOT NULL DEFAULT 'commercial',
     principal_amount NUMERIC(15, 2) NOT NULL DEFAULT 0,
     interest_rate NUMERIC(8, 4) NOT NULL DEFAULT 0,
+    tax_rate_type TEXT NOT NULL DEFAULT 'commercial_bsmv',
     total_installments INTEGER NOT NULL DEFAULT 12,
     paid_installments INTEGER NOT NULL DEFAULT 0,
     monthly_installment NUMERIC(15, 2) NOT NULL DEFAULT 0,
     total_payment NUMERIC(15, 2) NOT NULL DEFAULT 0,
     total_interest NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    total_tax NUMERIC(15, 2) NOT NULL DEFAULT 0,
     remaining_principal NUMERIC(15, 2) NOT NULL DEFAULT 0,
     remaining_total NUMERIC(15, 2) NOT NULL DEFAULT 0,
     currency TEXT NOT NULL DEFAULT 'TRY',
     start_date DATE NOT NULL,
     first_due_date DATE NOT NULL,
+    insurance_amount NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    net_disbursed_amount NUMERIC(15, 2) NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'active',
     notes TEXT,
     installments_plan JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -857,16 +914,16 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
 
       {/* VERİTABANI TABLOSU EKSİK UYARISI BANNERI */}
       {isTableMissing && (
-        <div className="bg-amber-950/40 border-b border-amber-500/40 px-4 py-2.5 flex items-center justify-between text-xs text-amber-300 shrink-0">
+        <div className="bg-amber-950/40 border-b border-amber-500/40 px-4 py-2 flex items-center justify-between text-xs text-amber-300 shrink-0">
           <div className="flex items-center gap-2">
-            <AlertTriangle size={16} className="text-amber-400 shrink-0 animate-pulse" />
+            <AlertTriangle size={15} className="text-amber-400 shrink-0 animate-pulse" />
             <span>
-              <strong>Veritabanı Hazırlığı:</strong> Supabase veritabanında <code className="bg-amber-900/60 px-1 py-0.5 rounded font-mono text-amber-200">bank_loans</code> tablosu bekleniyor. Script hazırlandı.
+              <strong>Veritabanı Tablosu Hazır:</strong> Supabase SQL Editor'da <code className="bg-amber-900/60 px-1 py-0.5 rounded font-mono text-amber-200">supabase/bank_loans.sql</code> dosyasını bir defa çalıştırarak kalıcı hale getirebilirsiniz.
             </span>
           </div>
           <button 
             onClick={copyMigrationSql}
-            className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition-colors shadow"
+            className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition-colors shadow text-xs cursor-pointer active:scale-95"
           >
             <Copy size={12} /> SQL'i Kopyala
           </button>
@@ -886,7 +943,7 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                 {filteredLoans.length} Kredi
               </span>
             </h1>
-            <p className="text-xs text-slate-400">Aktif taksitli krediler, amortisman planları ve faiz gideri ayrımı</p>
+            <p className="text-xs text-slate-400">Aktif krediler, BSMV/KKDF amortisman planları ve faiz gideri ayrımı</p>
           </div>
         </div>
 
@@ -920,7 +977,6 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
 
       {/* KPI KARTLARI ŞERİDİ */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-[#0a0f1d]/50 border-b border-slate-800/60 shrink-0">
-        {/* Kalan Anapara Borcu */}
         <div className="bg-[#0d1322] border border-slate-800/80 rounded-xl p-3 shadow">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">KALAN ANAPARA BORCU</span>
           <div className="text-lg font-black font-mono text-rose-400 mt-0.5">
@@ -929,7 +985,6 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
           <span className="text-[10px] text-slate-500 font-medium">Net finansal durumu düşüren borç</span>
         </div>
 
-        {/* Bu Ayın Taksit Yükü */}
         <div className="bg-[#0d1322] border border-slate-800/80 rounded-xl p-3 shadow">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">BU AY ÖDENECEK TAKSİTLER</span>
           <div className="text-lg font-black font-mono text-amber-400 mt-0.5">
@@ -938,7 +993,6 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
           <span className="text-[10px] text-slate-500 font-medium">{kpiStats.thisMonthDueCount} adet vadesi gelen taksit</span>
         </div>
 
-        {/* Toplam Ödenen Tutar */}
         <div className="bg-[#0d1322] border border-slate-800/80 rounded-xl p-3 shadow">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">ÖDENEN ANAPARA</span>
           <div className="text-lg font-black font-mono text-emerald-400 mt-0.5">
@@ -947,7 +1001,6 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
           <span className="text-[10px] text-slate-500 font-medium">Toplam kapanan borç payı</span>
         </div>
 
-        {/* Toplam Çekilen Kredi */}
         <div className="bg-[#0d1322] border border-slate-800/80 rounded-xl p-3 shadow">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">ÇEKİLEN TOPLAM KREDİ</span>
           <div className="text-lg font-black font-mono text-indigo-300 mt-0.5">
@@ -957,7 +1010,7 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
         </div>
       </div>
 
-      {/* ANA İÇERİK: SOL KREDİ KARTLARI LİSTESİ + SAĞ AMORTİSMAN TABLOSU */}
+      {/* ANA İÇERİK: SOL KREDİLER LİSTESİ + SAĞ AMORTİSMAN TABLOSU */}
       <div className="flex-1 flex overflow-hidden">
         {/* SOL: Kredi Listesi Panel */}
         <div className="w-80 md:w-96 border-r border-slate-800/80 flex flex-col bg-[#080d1a] shrink-0">
@@ -971,7 +1024,7 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
               <div className="p-8 text-center text-slate-500">
                 <BadgePercent size={32} className="mx-auto mb-2 opacity-40 text-slate-400" />
                 <p className="font-semibold text-xs text-slate-400">Tanımlı kredi bulunamadı.</p>
-                <p className="text-[10px] mt-1 text-slate-500">Sağ üstteki "Yeni Kredi Ekle" butonu ile aktif kredilerinizi ekleyebilirsiniz.</p>
+                <p className="text-[10px] mt-1 text-slate-500">Sağ üstteki "Yeni Kredi Ekle" butonu ile aktif kredinizi ekleyebilirsiniz.</p>
               </div>
             ) : (
               filteredLoans.map(loan => {
@@ -989,14 +1042,18 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                         : 'bg-[#0d1322] border-slate-800/80 hover:border-slate-700 hover:bg-[#101728]'
                     }`}
                   >
-                    {/* Üst Satır: Banka & Şirket Rozeti */}
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-black text-white">{loan.bank_name}</span>
                           <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-medium">
                             {LOAN_TYPE_LABELS[loan.loan_type]}
                           </span>
+                          {loan.loan_reference_no && (
+                            <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-mono">
+                              #{loan.loan_reference_no}
+                            </span>
+                          )}
                         </div>
                         <h3 className="text-xs text-slate-300 font-semibold mt-0.5 line-clamp-1" title={loan.loan_name}>
                           {loan.loan_name}
@@ -1021,7 +1078,6 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                       </div>
                     </div>
 
-                    {/* Finansal Detaylar */}
                     <div className="mt-3 flex items-baseline justify-between font-mono">
                       <div>
                         <span className="text-[9px] text-slate-500 uppercase block font-sans">Kalan Anapara</span>
@@ -1037,7 +1093,6 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                       </div>
                     </div>
 
-                    {/* İlerleme Çubuğu */}
                     <div className="mt-2.5">
                       <div className="flex justify-between text-[9px] text-slate-400 mb-1">
                         <span>{loan.paid_installments} / {loan.total_installments} Taksit</span>
@@ -1051,7 +1106,6 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                       </div>
                     </div>
 
-                    {/* Sıradaki Taksit Bilgisi */}
                     {nextPending && (
                       <div className="mt-2.5 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-400">
                         <span className="flex items-center gap-1">
@@ -1080,22 +1134,31 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                     <Landmark size={18} />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h2 className="text-sm font-black text-white">{selectedLoan.loan_name}</h2>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-500/30">
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-500/30 font-bold">
                         {selectedLoan.bank_name}
                       </span>
+                      {selectedLoan.loan_reference_no && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono">
+                          Ref: {selectedLoan.loan_reference_no}
+                        </span>
+                      )}
                       {selectedLoan.company?.name && (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
                           {selectedLoan.company.name}
                         </span>
                       )}
                     </div>
-                    <div className="text-[11px] text-slate-400 flex items-center gap-3 mt-0.5">
-                      <span>Anapara: <strong className="text-slate-200">{formatMoney(selectedLoan.principal_amount).formatted}</strong></span>
+                    <div className="text-[11px] text-slate-400 flex items-center gap-3 mt-1 flex-wrap font-mono">
+                      <span>Kredi Tutarı: <strong className="text-slate-200">{formatMoney(selectedLoan.principal_amount).formatted}</strong></span>
                       <span>Aylık Faiz: <strong className="text-slate-200">%{selectedLoan.interest_rate}</strong></span>
-                      <span>Toplam Geri Ödeme: <strong className="text-slate-200">{formatMoney(selectedLoan.total_payment).formatted}</strong></span>
+                      <span>Vergi: <strong className="text-slate-200">%{TAX_RATE_CONFIG[selectedLoan.tax_rate_type || 'commercial_bsmv'].rate} BSMV</strong></span>
+                      <span>Geri Ödeme: <strong className="text-slate-200">{formatMoney(selectedLoan.total_payment).formatted}</strong></span>
                       <span>Toplam Faiz: <strong className="text-amber-400">{formatMoney(selectedLoan.total_interest).formatted}</strong></span>
+                      {selectedLoan.total_tax ? (
+                        <span>Toplam BSMV: <strong className="text-sky-400">{formatMoney(selectedLoan.total_tax).formatted}</strong></span>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -1103,7 +1166,7 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => openEditLoanModal(selectedLoan)}
-                    className="flex items-center gap-1 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition"
+                    className="flex items-center gap-1 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer"
                   >
                     <Edit3 size={12} /> Düzenle
                   </button>
@@ -1116,12 +1179,13 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-[#0a0f1d] text-slate-400 border-b border-slate-800">
                       <tr>
-                        <th className="p-2.5 font-bold font-sans uppercase w-16 text-center">No</th>
-                        <th className="p-2.5 font-bold font-sans uppercase">Vade Tarihi</th>
-                        <th className="p-2.5 font-bold font-sans uppercase text-right">Taksit Tutarı</th>
-                        <th className="p-2.5 font-bold font-sans uppercase text-right text-emerald-400">Anapara Payı</th>
-                        <th className="p-2.5 font-bold font-sans uppercase text-right text-rose-400">Faiz & Gider</th>
+                        <th className="p-2.5 font-bold font-sans uppercase w-14 text-center">Sıra</th>
+                        <th className="p-2.5 font-bold font-sans uppercase">Taksit Tarihi</th>
                         <th className="p-2.5 font-bold font-sans uppercase text-right">Kalan Anapara</th>
+                        <th className="p-2.5 font-bold font-sans uppercase text-right text-amber-300">Taksit Tutarı</th>
+                        <th className="p-2.5 font-bold font-sans uppercase text-right text-emerald-400">Anapara</th>
+                        <th className="p-2.5 font-bold font-sans uppercase text-right text-rose-400">Net Faiz</th>
+                        <th className="p-2.5 font-bold font-sans uppercase text-right text-sky-400">BSMV</th>
                         <th className="p-2.5 font-bold font-sans uppercase text-center w-28">Durum</th>
                         <th className="p-2.5 font-bold font-sans uppercase text-center w-36">İşlem</th>
                       </tr>
@@ -1145,7 +1209,10 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                             <td className="p-2.5 font-medium text-slate-200">
                               {formatDateTR(inst.due_date)}
                             </td>
-                            <td className="p-2.5 text-right font-bold text-white">
+                            <td className="p-2.5 text-right text-slate-400">
+                              {formatMoney(inst.remaining_principal_after).formatted}
+                            </td>
+                            <td className="p-2.5 text-right font-bold text-amber-300">
                               {formatMoney(inst.total_amount).formatted}
                             </td>
                             <td className="p-2.5 text-right font-bold text-emerald-400">
@@ -1154,8 +1221,8 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                             <td className="p-2.5 text-right font-bold text-rose-400">
                               {formatMoney(inst.interest_amount).formatted}
                             </td>
-                            <td className="p-2.5 text-right text-slate-400">
-                              {formatMoney(inst.remaining_principal_after).formatted}
+                            <td className="p-2.5 text-right font-bold text-sky-400">
+                              {formatMoney(inst.tax_amount || 0).formatted}
                             </td>
                             <td className="p-2.5 text-center font-sans">
                               {isPaid ? (
@@ -1184,7 +1251,7 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                                   </span>
                                   <button
                                     onClick={() => handleReverseInstallmentPayment(selectedLoan, inst)}
-                                    className="p-1 text-slate-500 hover:text-rose-400 transition"
+                                    className="p-1 text-slate-500 hover:text-rose-400 transition cursor-pointer"
                                     title="Ödemeyi İptal Et / Geri Al"
                                   >
                                     <Trash2 size={12} />
@@ -1200,7 +1267,7 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                                   </button>
                                   <button
                                     onClick={() => openEditInstallmentModal(inst)}
-                                    className="p-1 text-slate-500 hover:text-slate-300 transition"
+                                    className="p-1 text-slate-500 hover:text-slate-300 transition cursor-pointer"
                                     title="Taksit Tutarlarını Düzenle"
                                   >
                                     <Edit3 size={11} />
@@ -1212,6 +1279,26 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                         )
                       })}
                     </tbody>
+                    <tfoot className="bg-[#0a0f1d] border-t-2 border-slate-700 font-bold font-mono">
+                      <tr>
+                        <td colSpan={3} className="p-2.5 text-right font-sans uppercase text-slate-300">
+                          Toplam
+                        </td>
+                        <td className="p-2.5 text-right text-amber-300">
+                          {formatMoney(selectedLoan.total_payment).formatted}
+                        </td>
+                        <td className="p-2.5 text-right text-emerald-400">
+                          {formatMoney(selectedLoan.principal_amount).formatted}
+                        </td>
+                        <td className="p-2.5 text-right text-rose-400">
+                          {formatMoney(selectedLoan.total_interest).formatted}
+                        </td>
+                        <td className="p-2.5 text-right text-sky-400">
+                          {formatMoney(selectedLoan.total_tax || 0).formatted}
+                        </td>
+                        <td colSpan={2}></td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               </div>
@@ -1232,24 +1319,27 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
       {/* ============================================================================== */}
       {isLoanModalOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
-          <div className="bg-[#0d1322] border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="bg-[#0d1322] border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
             <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-[#0a0f1d]">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-indigo-600/20 text-indigo-400 rounded-lg">
                   <BadgePercent size={18} />
                 </div>
-                <h3 className="font-bold text-sm text-white">
-                  {editingLoanId ? 'Krediyi Düzenle' : 'Yeni Taksitli Kredi Tanımla'}
-                </h3>
+                <div>
+                  <h3 className="font-bold text-sm text-white">
+                    {editingLoanId ? 'Krediyi Düzenle' : 'Yeni Taksitli Kredi Tanımla'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">Bankanın verdiği ödeme planı parametrelerini giriniz</p>
+                </div>
               </div>
-              <button onClick={() => setIsLoanModalOpen(false)} className="text-slate-400 hover:text-white transition">
+              <button onClick={() => setIsLoanModalOpen(false)} className="text-slate-400 hover:text-white transition cursor-pointer">
                 <X size={18} />
               </button>
             </div>
 
             <form onSubmit={handleSaveLoan} className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4 text-xs">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                <div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                <div className="md:col-span-2">
                   <label className="block text-slate-300 font-semibold mb-1">Kredi Tanımı / Adı *</label>
                   <input
                     type="text"
@@ -1257,10 +1347,23 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                     placeholder="Örn: Garanti BBVA 250.000 ₺ Ticari Kredi"
                     value={formLoanName}
                     onChange={e => setFormLoanName(e.target.value)}
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-indigo-500"
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-indigo-500 font-medium"
                   />
                 </div>
 
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">Kredi Referans Numarası</label>
+                  <input
+                    type="text"
+                    placeholder="Örn: 03663-TT-000000000483"
+                    value={formReferenceNo}
+                    onChange={e => setFormReferenceNo(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-indigo-500 font-mono text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3.5">
                 <div>
                   <label className="block text-slate-300 font-semibold mb-1">Banka Adı *</label>
                   <input
@@ -1269,14 +1372,12 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                     placeholder="Örn: Garanti BBVA"
                     value={formBankName}
                     onChange={e => setFormBankName(e.target.value)}
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-indigo-500"
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-indigo-500 font-medium"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Ödemenin Çıkacağı Banka Hesabı</label>
+                  <label className="block text-slate-300 font-semibold mb-1">Ödemenin Çıkacağı Hesap</label>
                   <select
                     value={formBankAccountId}
                     onChange={e => setFormBankAccountId(e.target.value)}
@@ -1292,7 +1393,7 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                 </div>
 
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Bağlı Şirket / Masraf Merkezi</label>
+                  <label className="block text-slate-300 font-semibold mb-1">Bağlı Merkez</label>
                   <select
                     value={formCompanyId}
                     onChange={e => setFormCompanyId(e.target.value)}
@@ -1323,81 +1424,180 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                 </div>
               </div>
 
-              {/* Finansal Parametreler */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3.5 p-3.5 bg-[#070b14] border border-slate-800 rounded-xl">
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Çekilen Anapara Tutarı (₺) *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    placeholder="250000"
-                    value={formPrincipal}
-                    onChange={e => setFormPrincipal(e.target.value)}
-                    className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-bold outline-none focus:border-indigo-500"
-                  />
+              {/* FİNANSAL HESAPLAMA VE VERGİ ALANI */}
+              <div className="p-4 bg-[#070b14] border border-slate-800 rounded-xl space-y-3.5">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+                  <span className="font-bold text-slate-200 text-xs flex items-center gap-1.5">
+                    <Percent size={14} className="text-indigo-400" /> Kredi Tutarları & Vergi Oranı
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    Banka ödeme planınızdaki değerleri birebir yansıtır
+                  </span>
                 </div>
 
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Aylık Faiz Oranı (%)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Örn: 3.85"
-                    value={formInterestRate}
-                    onChange={e => setFormInterestRate(e.target.value)}
-                    className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono outline-none focus:border-indigo-500"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3.5">
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Kredi Tutarı (₺) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="250000"
+                      value={formPrincipal}
+                      onChange={e => setFormPrincipal(e.target.value)}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-black text-sm outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Aylık Faiz Oranı (%) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="Örn: 3.59"
+                      value={formInterestRate}
+                      onChange={e => setFormInterestRate(e.target.value)}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-bold outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Vergi / BSMV Türü *</label>
+                    <select
+                      value={formTaxType}
+                      onChange={e => setFormTaxType(e.target.value as TaxRateType)}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white font-medium outline-none focus:border-indigo-500 cursor-pointer"
+                    >
+                      <option value="commercial_bsmv">Ticari (%5 BSMV)</option>
+                      <option value="consumer_tax">Bireysel (%5 BSMV + %15 KKDF)</option>
+                      <option value="none">Vergisiz (%0)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Taksit Sayısı (Ay) *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="120"
+                      required
+                      value={formTotalInstallments}
+                      onChange={e => setFormTotalInstallments(e.target.value)}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-bold outline-none focus:border-indigo-500"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Toplam Taksit Sayısı</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="120"
-                    required
-                    value={formTotalInstallments}
-                    onChange={e => setFormTotalInstallments(e.target.value)}
-                    className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono outline-none focus:border-indigo-500"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">
+                      Aylık Taksit Tutarı (₺)
+                      <span className="text-[10px] text-indigo-400 ml-1.5 font-normal">
+                        (Hesaplanan: {formatMoney(previewSummary.monthlyInstallment).formatted})
+                      </span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder={`Banka taksiti (örn: ${previewSummary.monthlyInstallment})`}
+                      value={formMonthlyInstallment}
+                      onChange={e => setFormMonthlyInstallment(e.target.value)}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-bold outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Başlangıç Tarihi</label>
+                    <input
+                      type="date"
+                      required
+                      value={formStartDate}
+                      onChange={e => setFormStartDate(e.target.value)}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">İlk Taksit Vade Tarihi</label>
+                    <input
+                      type="date"
+                      required
+                      value={formFirstDueDate}
+                      onChange={e => setFormFirstDueDate(e.target.value)}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Aylık Taksit (Opsiyonel)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Banka ekstresindeki tutar"
-                    value={formMonthlyInstallment}
-                    onChange={e => setFormMonthlyInstallment(e.target.value)}
-                    className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono outline-none focus:border-indigo-500"
-                  />
+                {/* Sigorta ve Net Yatan Tutar */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
+                  <div>
+                    <label className="block text-slate-400 font-medium mb-1">Sigorta Prim Tutarı (₺)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Örn: 8505.00"
+                      value={formInsuranceAmount}
+                      onChange={e => setFormInsuranceAmount(e.target.value)}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 font-medium mb-1">Hesaba Yatacak Net Tutar (₺)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Örn: 238607.50"
+                      value={formNetDisbursed}
+                      onChange={e => setFormNetDisbursed(e.target.value)}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono outline-none focus:border-indigo-500"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* Tarihler */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Kredi Çekiliş Tarihi</label>
-                  <input
-                    type="date"
-                    required
-                    value={formStartDate}
-                    onChange={e => setFormStartDate(e.target.value)}
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-indigo-500"
-                  />
+              {/* CANLI AMORTİSMAN ÖNİZLEME TABLOSU & TOPLAMLAR */}
+              <div className="p-3.5 bg-[#0a0f1d] border border-indigo-500/30 rounded-xl space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between text-xs font-mono">
+                  <div className="flex items-center gap-4">
+                    <span>Toplam Geri Ödeme: <strong className="text-amber-300 text-sm">{formatMoney(previewSummary.totalPayment).formatted}</strong></span>
+                    <span>Toplam Faiz: <strong className="text-rose-400">{formatMoney(previewSummary.totalInterest).formatted}</strong></span>
+                    <span>Toplam BSMV: <strong className="text-sky-400">{formatMoney(previewSummary.totalTax).formatted}</strong></span>
+                  </div>
+                  <span className="text-[10px] text-indigo-400 font-sans font-bold">
+                    ✓ Banka tablosuyla tam eşleşen kuruş hesabı
+                  </span>
                 </div>
 
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">İlk Taksit Vade Tarihi</label>
-                  <input
-                    type="date"
-                    required
-                    value={formFirstDueDate}
-                    onChange={e => setFormFirstDueDate(e.target.value)}
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-indigo-500"
-                  />
+                <div className="max-h-40 overflow-y-auto custom-scrollbar border border-slate-800 rounded-lg">
+                  <table className="w-full text-[11px] font-mono text-left">
+                    <thead className="bg-[#070b14] text-slate-400 sticky top-0">
+                      <tr>
+                        <th className="p-1.5 text-center w-10">No</th>
+                        <th className="p-1.5">Vade</th>
+                        <th className="p-1.5 text-right">Taksit</th>
+                        <th className="p-1.5 text-right text-emerald-400">Anapara</th>
+                        <th className="p-1.5 text-right text-rose-400">Net Faiz</th>
+                        <th className="p-1.5 text-right text-sky-400">BSMV</th>
+                        <th className="p-1.5 text-right text-slate-400">Kalan</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {previewPlan.slice(0, 12).map(p => (
+                        <tr key={p.installment_no} className="hover:bg-slate-800/30">
+                          <td className="p-1.5 text-center text-slate-500">{p.installment_no}</td>
+                          <td className="p-1.5 text-slate-300">{formatDateTR(p.due_date)}</td>
+                          <td className="p-1.5 text-right text-amber-300 font-bold">{formatMoney(p.total_amount).formatted}</td>
+                          <td className="p-1.5 text-right text-emerald-400">{formatMoney(p.principal_amount).formatted}</td>
+                          <td className="p-1.5 text-right text-rose-400">{formatMoney(p.interest_amount).formatted}</td>
+                          <td className="p-1.5 text-right text-sky-400">{formatMoney(p.tax_amount || 0).formatted}</td>
+                          <td className="p-1.5 text-right text-slate-400">{formatMoney(p.remaining_principal_after).formatted}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
@@ -1468,13 +1668,13 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                 <button
                   type="button"
                   onClick={() => setIsLoanModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition cursor-pointer"
                 >
                   İptal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition shadow-lg shadow-indigo-600/30"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition shadow-lg shadow-indigo-600/30 cursor-pointer active:scale-95"
                 >
                   {editingLoanId ? 'Güncelle' : 'Krediyi Kaydet'}
                 </button>
@@ -1502,13 +1702,13 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                   </p>
                 </div>
               </div>
-              <button onClick={() => setIsPayModalOpen(false)} className="text-slate-400 hover:text-white transition">
+              <button onClick={() => setIsPayModalOpen(false)} className="text-slate-400 hover:text-white transition cursor-pointer">
                 <X size={18} />
               </button>
             </div>
 
             <form onSubmit={handleConfirmPayment} className="p-5 space-y-4 text-xs">
-              <div className="p-3 bg-[#070b14] border border-slate-800 rounded-xl space-y-2">
+              <div className="p-3.5 bg-[#070b14] border border-slate-800 rounded-xl space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400">Taksit Vadesi:</span>
                   <span className="font-mono font-bold text-slate-200">{formatDateTR(payingInstallment.due_date)}</span>
@@ -1517,13 +1717,17 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                   <span className="text-slate-400">Toplam Ödenecek Tutar:</span>
                   <span className="font-mono text-sm font-black text-amber-400">{formatMoney(payingInstallment.total_amount).formatted}</span>
                 </div>
-                <div className="flex justify-between items-center text-[11px] pt-1 border-t border-slate-800/80">
+                <div className="flex justify-between items-center text-[11px] pt-1.5 border-t border-slate-800/80">
                   <span className="text-emerald-400">Anapara Payı (Borcu Düşürür):</span>
                   <span className="font-mono font-bold text-emerald-400">{formatMoney(payingInstallment.principal_amount).formatted}</span>
                 </div>
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-rose-400">Faiz & Masraf (Gidere İşlenir):</span>
+                  <span className="text-rose-400">Net Faiz (Gidere İşlenir):</span>
                   <span className="font-mono font-bold text-rose-400">{formatMoney(payingInstallment.interest_amount).formatted}</span>
+                </div>
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-sky-400">BSMV / Vergi (Gidere İşlenir):</span>
+                  <span className="font-mono font-bold text-sky-400">{formatMoney(payingInstallment.tax_amount || 0).formatted}</span>
                 </div>
               </div>
 
@@ -1556,9 +1760,9 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
               </div>
 
               {/* Tutar Teyidi / Düzeltmesi */}
-              <div className="grid grid-cols-2 gap-3 pt-2">
+              <div className="grid grid-cols-3 gap-2.5 pt-2">
                 <div>
-                  <label className="block text-slate-400 text-[11px] mb-1">Gerçekleşen Anapara</label>
+                  <label className="block text-slate-400 text-[10px] mb-1">Anapara</label>
                   <input
                     type="number"
                     step="0.01"
@@ -1567,14 +1771,15 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                     onChange={e => {
                       const p = parseFloat(e.target.value) || 0
                       const i = parseFloat(payInterestAmount) || 0
+                      const t = parseFloat(payTaxAmount) || 0
                       setPayPrincipalAmount(e.target.value)
-                      setPayTotalAmount((p + i).toFixed(2))
+                      setPayTotalAmount((p + i + t).toFixed(2))
                     }}
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-1.5 text-white font-mono outline-none focus:border-emerald-500"
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-2.5 py-1.5 text-white font-mono outline-none focus:border-emerald-500 text-xs"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 text-[11px] mb-1">Gerçekleşen Faiz & Masraf</label>
+                  <label className="block text-slate-400 text-[10px] mb-1">Net Faiz</label>
                   <input
                     type="number"
                     step="0.01"
@@ -1583,10 +1788,28 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                     onChange={e => {
                       const i = parseFloat(e.target.value) || 0
                       const p = parseFloat(payPrincipalAmount) || 0
+                      const t = parseFloat(payTaxAmount) || 0
                       setPayInterestAmount(e.target.value)
-                      setPayTotalAmount((p + i).toFixed(2))
+                      setPayTotalAmount((p + i + t).toFixed(2))
                     }}
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-1.5 text-white font-mono outline-none focus:border-emerald-500"
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-2.5 py-1.5 text-white font-mono outline-none focus:border-emerald-500 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 text-[10px] mb-1">BSMV</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={payTaxAmount}
+                    onChange={e => {
+                      const t = parseFloat(e.target.value) || 0
+                      const p = parseFloat(payPrincipalAmount) || 0
+                      const i = parseFloat(payInterestAmount) || 0
+                      setPayTaxAmount(e.target.value)
+                      setPayTotalAmount((p + i + t).toFixed(2))
+                    }}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-2.5 py-1.5 text-white font-mono outline-none focus:border-emerald-500 text-xs"
                   />
                 </div>
               </div>
@@ -1595,14 +1818,14 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                 <button
                   type="button"
                   onClick={() => setIsPayModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition cursor-pointer"
                 >
                   Vazgeç
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingPay}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl font-bold transition shadow-lg shadow-emerald-600/30 flex items-center gap-1.5"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl font-bold transition shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer active:scale-95"
                 >
                   {isSubmittingPay ? 'İşleniyor...' : 'Ödemeyi Kaydet & Bankadan Düş'}
                 </button>
@@ -1627,7 +1850,7 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                   Taksit #{editingInstallment.installment_no} Tutarlarını Düzenle
                 </h3>
               </div>
-              <button onClick={() => setIsEditInstallmentModalOpen(false)} className="text-slate-400 hover:text-white transition">
+              <button onClick={() => setIsEditInstallmentModalOpen(false)} className="text-slate-400 hover:text-white transition cursor-pointer">
                 <X size={18} />
               </button>
             </div>
@@ -1654,28 +1877,50 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                   onChange={e => {
                     const p = parseFloat(e.target.value) || 0
                     const i = parseFloat(editInstInterest) || 0
+                    const t = parseFloat(editInstTax) || 0
                     setEditInstPrincipal(e.target.value)
-                    setEditInstTotal((p + i).toFixed(2))
+                    setEditInstTotal((p + i + t).toFixed(2))
                   }}
                   className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-bold outline-none focus:border-indigo-500"
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Faiz & Masraf Payı (₺)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={editInstInterest}
-                  onChange={e => {
-                    const i = parseFloat(e.target.value) || 0
-                    const p = parseFloat(editInstPrincipal) || 0
-                    setEditInstInterest(e.target.value)
-                    setEditInstTotal((p + i).toFixed(2))
-                  }}
-                  className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-bold outline-none focus:border-indigo-500"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">Net Faiz (₺)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={editInstInterest}
+                    onChange={e => {
+                      const i = parseFloat(e.target.value) || 0
+                      const p = parseFloat(editInstPrincipal) || 0
+                      const t = parseFloat(editInstTax) || 0
+                      setEditInstInterest(e.target.value)
+                      setEditInstTotal((p + i + t).toFixed(2))
+                    }}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-bold outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">BSMV (₺)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={editInstTax}
+                    onChange={e => {
+                      const t = parseFloat(e.target.value) || 0
+                      const p = parseFloat(editInstPrincipal) || 0
+                      const i = parseFloat(editInstInterest) || 0
+                      setEditInstTax(e.target.value)
+                      setEditInstTotal((p + i + t).toFixed(2))
+                    }}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-bold outline-none focus:border-indigo-500"
+                  />
+                </div>
               </div>
 
               <div>
@@ -1686,7 +1931,7 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                   required
                   value={editInstTotal}
                   onChange={e => setEditInstTotal(e.target.value)}
-                  className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-bold outline-none focus:border-indigo-500"
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white font-mono font-black text-amber-300 outline-none focus:border-indigo-500"
                 />
               </div>
 
@@ -1694,13 +1939,13 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                 <button
                   type="button"
                   onClick={() => setIsEditInstallmentModalOpen(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition cursor-pointer"
                 >
                   İptal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition shadow-lg shadow-indigo-600/30"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition shadow-lg shadow-indigo-600/30 cursor-pointer"
                 >
                   Güncelle
                 </button>
@@ -1725,13 +1970,13 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
-                className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition"
+                className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
               >
                 {confirmDialog.cancelText}
               </button>
               <button
                 onClick={confirmDialog.onConfirm}
-                className={`px-4 py-1.5 rounded-xl text-xs font-bold text-white transition shadow ${
+                className={`px-4 py-1.5 rounded-xl text-xs font-bold text-white transition shadow cursor-pointer ${
                   confirmDialog.isDanger ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30' : 'bg-indigo-600 hover:bg-indigo-500'
                 }`}
               >

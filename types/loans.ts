@@ -6,6 +6,7 @@ export interface LoanInstallment {
   total_amount: number
   principal_amount: number
   interest_amount: number
+  tax_amount?: number // BSMV / KKDF
   remaining_principal_after: number
   status: 'pending' | 'paid'
   payment_date?: string | null
@@ -20,21 +21,26 @@ export interface BankLoan {
   id: string
   loan_name: string
   bank_name: string
+  loan_reference_no?: string | null
   bank_account_id: string | null
   company_id: string | null
   loan_type: LoanType
   principal_amount: number
   interest_rate: number
+  tax_rate_type?: 'commercial_bsmv' | 'consumer_tax' | 'none'
   total_installments: number
   paid_installments: number
   monthly_installment: number
   total_payment: number
   total_interest: number
+  total_tax?: number
   remaining_principal: number
   remaining_total: number
   currency: string
   start_date: string
   first_due_date: string
+  insurance_amount?: number
+  net_disbursed_amount?: number
   status: 'active' | 'completed' | 'cancelled'
   notes?: string | null
   installments_plan: LoanInstallment[]
