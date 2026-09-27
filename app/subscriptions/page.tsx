@@ -10,7 +10,7 @@ import { Key, Plus, Trash2, X, Edit3, Search, Building, Globe, CheckCircle2, Ale
 type Company = { id: string; name: string; is_personal: boolean }
 type Supplier = { id: string; company_name: string; balance: number; currency: string }
 type CreditWallet = { id: string; supplier_id: string; company_id?: string | null; name: string; balance: number; unit_cost: number; currency: string; supplier?: { company_name: string }; company?: { name: string; is_personal: boolean }; fifo_lots?: any[] }
-type BankAccount = { id: string; bank_name: string; balance: number; currency: string }
+type BankAccount = { id: string; bank_name: string; account_name?: string | null; balance: number; currency: string }
 type CashRegister = { id: string; name: string; balance: number; currency: string }
 
 type Subscription = {
@@ -96,8 +96,8 @@ export default function SubscriptionsPage() {
   }
   async function fetchSubscriptions() { const { data } = await supabase.from('credit_subscriptions').select('*, company:companies(name, is_personal), wallet:credit_wallets(name)').order('end_date'); setSubscriptions(data || []) }
   async function fetchPaymentSources() {
-    const { data: bData } = await supabase.from('bank_accounts').select('id, bank_name, balance, currency')
-    const { data: cData } = await supabase.from('cash_registers').select('id, name, balance, currency')
+    const { data: bData } = await supabase.from('bank_accounts').select('id, bank_name, account_name, balance, currency').order('bank_name')
+    const { data: cData } = await supabase.from('cash_registers').select('id, name, balance, currency').order('name')
     setBanks(bData || []); setCashes(cData || [])
   }
 
@@ -993,8 +993,8 @@ export default function SubscriptionsPage() {
                 <label className="block text-slate-400 mb-1">Tahsilatın Gireceği Kasa / Banka *</label>
                 <select required value={paymentSource} onChange={(e) => setPaymentSource(e.target.value)} className="w-full bg-[#070b14] border border-slate-800 rounded px-3 py-2.5 text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors">
                   <option value="">Seçiniz...</option>
-                  {cashes.length > 0 && <optgroup label="Nakit Kasalar">{cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name}</option>)}</optgroup>}
-                  {banks.length > 0 && <optgroup label="Bankalar">{banks.map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name}</option>)}</optgroup>}
+                  {cashes.length > 0 && <optgroup label="Nakit Kasalar">{cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name} ({c.currency})</option>)}</optgroup>}
+                  {banks.length > 0 && <optgroup label="Bankalar">{banks.map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name}{b.account_name ? ` - ${b.account_name}` : ''} ({b.currency})</option>)}</optgroup>}
                 </select>
               </div>
               <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded text-[10px] text-emerald-400 leading-relaxed">

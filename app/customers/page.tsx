@@ -46,8 +46,8 @@ type CustomerTransaction = {
   running_balance?: number; company?: { name: string; is_personal: boolean }
 }
 
-type BankAccount = { id: string; bank_name: string; balance: number; currency: string }
-type CashRegister = { id: string; name: string; balance: number; currency: string }
+type BankAccount = { id: string; bank_name: string; account_name?: string | null; balance: number; currency: string; company_id?: string | null }
+type CashRegister = { id: string; name: string; balance: number; currency: string; company_id?: string | null }
 type StockItem = { id: string; name: string; unit_price: number; vat_rate: number; warehouse_id: string; currency: string; quantity: number }
 type ServiceItem = { id: string; name: string; unit_price: number; vat_rate: number; currency: string; company_id: string | null } 
 
@@ -170,9 +170,17 @@ export default function CustomersPage() {
 
   async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name', { ascending: true }); setCompanies(data || []) }
   async function fetchPaymentSources() {
-    const { data: bData } = await supabase.from('bank_accounts').select('id, bank_name, balance, currency')
-    const { data: cData } = await supabase.from('cash_registers').select('id, name, balance, currency')
-    setBanks(bData || []); setCashes(cData || [])
+    const { data: bData } = await supabase.from('bank_accounts').select('id, bank_name, account_name, balance, currency, company_id').order('bank_name')
+    const { data: cData } = await supabase.from('cash_registers').select('id, name, balance, currency, company_id').order('name')
+    
+    let bList = bData || []
+    let cList = cData || []
+    if (isRestricted) {
+      bList = bList.filter(b => !b.company_id || hasCompanyAccess(b.company_id))
+      cList = cList.filter(c => !c.company_id || hasCompanyAccess(c.company_id))
+    }
+
+    setBanks(bList); setCashes(cList)
   }
 
   async function fetchCustomers() {
@@ -848,7 +856,11 @@ export default function CustomersPage() {
 
   const getPaymentSourceName = (type: string, id: string) => {
     if (type === 'cash') return cashes.find(c => c.id === id)?.name || 'Kasa'
-    if (type === 'bank') return banks.find(b => b.id === id)?.bank_name || 'Banka'
+    if (type === 'bank') {
+      const b = banks.find(b => b.id === id)
+      if (!b) return 'Banka'
+      return b.account_name ? `${b.bank_name} - ${b.account_name} (${b.currency})` : `${b.bank_name} (${b.currency})`
+    }
     return ''
   }
 
@@ -1110,7 +1122,7 @@ export default function CustomersPage() {
 
                     <div className="w-36"><label className="block text-[9px] text-slate-400 mb-0.5">İşlem Yönü</label><select value={txType} onChange={(e) => setTxType(e.target.value as any)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors"><option value="debt">Satış / Borçlandır (+)</option><option value="payment">Tahsilat / Ödeme Al (-)</option></select></div>
                     {txType === 'payment' && (
-                      <div className="w-40"><label className="block text-[9px] text-slate-400 mb-0.5">Tahsilatın Gireceği Yer *</label><select value={paymentSource} onChange={(e) => setPaymentSource(e.target.value)} required className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors"><option value="">Seçiniz</option>{cashes.length > 0 && <optgroup label="Nakit Kasalar">{cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name}</option>)}</optgroup>}{banks.length > 0 && <optgroup label="Bankalar">{banks.map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name}</option>)}</optgroup>}</select></div>
+                      <div className="w-40"><label className="block text-[9px] text-slate-400 mb-0.5">Tahsilatın Gireceği Yer *</label><select value={paymentSource} onChange={(e) => setPaymentSource(e.target.value)} required className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors"><option value="">Seçiniz</option>{cashes.length > 0 && <optgroup label="Nakit Kasalar">{cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name} ({c.currency})</option>)}</optgroup>}{banks.length > 0 && <optgroup label="Bankalar">{banks.map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name}{b.account_name ? ` - ${b.account_name}` : ''} ({b.currency})</option>)}</optgroup>}</select></div>
                     )}
                     <div className="flex-1 min-w-[120px]"><label className="block text-[9px] text-slate-400 mb-0.5">Açıklama</label><input type="text" required placeholder="Fatura / Tahsilat Açıklaması" value={txDesc} onChange={(e) => setTxDesc(e.target.value)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors" /></div>
                     <div className="w-16"><label className="block text-[9px] text-slate-400 mb-0.5">Döviz</label><select value={txCurrency} onChange={(e) => setTxCurrency(e.target.value as any)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-1.5 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors"><option value="TRY">₺</option><option value="USD">$</option><option value="EUR">€</option></select></div>

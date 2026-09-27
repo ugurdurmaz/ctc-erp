@@ -973,7 +973,11 @@ export default function ExpensesPage() {
 
   const getPaymentSourceName = (type: string, id: string) => {
     if (type === 'cash') return cashes.find(c => c.id === id)?.name || 'Kasa'
-    if (type === 'bank') return banks.find(b => b.id === id)?.bank_name || 'Banka'
+    if (type === 'bank') {
+      const b = banks.find(b => b.id === id)
+      if (!b) return 'Banka'
+      return b.account_name ? `${b.bank_name} - ${b.account_name} (${b.currency})` : `${b.bank_name} (${b.currency})`
+    }
     if (type === 'card') return cards.find(c => c.id === id)?.name || 'Kredi Kartı'
     return ''
   }
