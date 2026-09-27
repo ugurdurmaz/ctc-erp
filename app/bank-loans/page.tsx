@@ -161,6 +161,7 @@ export default function BankLoansPage() {
   const [formInsuranceAmount, setFormInsuranceAmount] = useState('')
   const [formNetDisbursed, setFormNetDisbursed] = useState('')
   const [formNotes, setFormNotes] = useState('')
+  const [isSubmittingLoan, setIsSubmittingLoan] = useState(false)
   
   // Aktif Kredi Devir Alanları (Önceden ödenmiş taksitler)
   const [isExistingLoan, setIsExistingLoan] = useState(false)
@@ -489,6 +490,8 @@ export default function BankLoansPage() {
     }
 
     try {
+      setIsSubmittingLoan(true)
+
       if (isTableMissing) {
         const existingCached = localStorage.getItem('ctc_bank_loans_cache')
         let cachedList: BankLoan[] = existingCached ? JSON.parse(existingCached) : []
@@ -507,15 +510,36 @@ export default function BankLoansPage() {
       }
 
       if (editingLoanId) {
-        const { error } = await supabase.from('bank_loans').update(payload).eq('id', editingLoanId)
+        let { error } = await supabase.from('bank_loans').update(payload).eq('id', editingLoanId)
+        if (error && (error.code === '42703' || error.message?.includes('column'))) {
+          const fallbackPayload: any = { ...payload }
+          delete fallbackPayload.tax_rate_type
+          delete fallbackPayload.total_tax
+          delete fallbackPayload.loan_reference_no
+          delete fallbackPayload.insurance_amount
+          delete fallbackPayload.net_disbursed_amount
+          const res = await supabase.from('bank_loans').update(fallbackPayload).eq('id', editingLoanId)
+          error = res.error
+        }
         if (error) throw error
         await logActivity('bank', 'UPDATE', `Banka kredisi güncellendi: ${payload.loan_name}`, editingLoanId, principal, 'TRY', null, payload, payload.company_id)
         toast.success('Kredi başarıyla güncellendi.')
       } else {
-        const { data, error } = await supabase.from('bank_loans').insert([payload]).select().single()
+        let { data, error } = await supabase.from('bank_loans').insert([payload]).select().single()
+        if (error && (error.code === '42703' || error.message?.includes('column'))) {
+          const fallbackPayload: any = { ...payload }
+          delete fallbackPayload.tax_rate_type
+          delete fallbackPayload.total_tax
+          delete fallbackPayload.loan_reference_no
+          delete fallbackPayload.insurance_amount
+          delete fallbackPayload.net_disbursed_amount
+          const res = await supabase.from('bank_loans').insert([fallbackPayload]).select().single()
+          data = res.data
+          error = res.error
+        }
         if (error) throw error
 
-        if (formDisburseToBank && formBankAccountId) {
+        if (formDisburseToBank && formBankAccountId && data) {
           const disburseAmount = parseFloat(formNetDisbursed) > 0 ? parseFloat(formNetDisbursed) : principal
           const bankTxPayload = {
             bank_account_id: formBankAccountId,
@@ -543,6 +567,8 @@ export default function BankLoansPage() {
     } catch (err: any) {
       console.error('Kredi kaydedilirken hata:', err)
       toast.error(err.message || 'Kredi kaydedilemedi.')
+    } finally {
+      setIsSubmittingLoan(false)
     }
   }
 
@@ -1319,8 +1345,8 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
       {/* ============================================================================== */}
       {isLoanModalOpen && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
-          <div className="bg-[#0d1322] border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-[#0a0f1d]">
+          <form onSubmit={handleSaveLoan} className="bg-[#0d1322] border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-[#0a0f1d] shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-indigo-600/20 text-indigo-400 rounded-lg">
                   <BadgePercent size={18} />
@@ -1332,12 +1358,12 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                   <p className="text-[11px] text-slate-400">Bankanın verdiği ödeme planı parametrelerini giriniz</p>
                 </div>
               </div>
-              <button onClick={() => setIsLoanModalOpen(false)} className="text-slate-400 hover:text-white transition cursor-pointer">
+              <button type="button" onClick={() => setIsLoanModalOpen(false)} className="text-slate-400 hover:text-white transition cursor-pointer">
                 <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleSaveLoan} className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4 text-xs">
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4 text-xs">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
                 <div className="md:col-span-2">
                   <label className="block text-slate-300 font-semibold mb-1">Kredi Tanımı / Adı *</label>
@@ -1679,7 +1705,7 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                   className="w-full bg-[#070b14] border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-indigo-500 resize-none"
                 />
               </div>
-            </form>
+            </div>
 
             {/* Modal Sabit Footer (Her zaman görünür, ekran kaydırmadan bağımsız) */}
             <div className="p-4 border-t border-slate-800 bg-[#0a0f1d] flex flex-wrap items-center justify-between gap-3 shrink-0">
@@ -1709,14 +1735,21 @@ CREATE TABLE IF NOT EXISTS public.bank_loans (
                 </button>
                 <button
                   type="submit"
-                  form="loan-form"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition shadow-lg shadow-indigo-600/30 cursor-pointer active:scale-95"
+                  disabled={isSubmittingLoan}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl font-bold transition shadow-lg shadow-indigo-600/30 cursor-pointer active:scale-95 flex items-center gap-2"
                 >
-                  {editingLoanId ? 'Güncelle' : 'Krediyi Kaydet'}
+                  {isSubmittingLoan ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Kaydediliyor...</span>
+                    </>
+                  ) : (
+                    editingLoanId ? 'Güncelle' : 'Krediyi Kaydet'
+                  )}
                 </button>
               </div>
             </div>
-          </div>
+          </form>
         </div>
       )}
 

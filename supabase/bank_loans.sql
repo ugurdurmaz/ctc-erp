@@ -40,6 +40,13 @@ CREATE INDEX IF NOT EXISTS idx_bank_loans_company ON public.bank_loans(company_i
 CREATE INDEX IF NOT EXISTS idx_bank_loans_bank_account ON public.bank_loans(bank_account_id);
 CREATE INDEX IF NOT EXISTS idx_bank_loans_status ON public.bank_loans(status);
 
+-- Mevcut bank_loans tablosu için yeni kolonları güvenli şekilde ekle
+ALTER TABLE public.bank_loans ADD COLUMN IF NOT EXISTS loan_reference_no TEXT;
+ALTER TABLE public.bank_loans ADD COLUMN IF NOT EXISTS tax_rate_type TEXT DEFAULT 'commercial_bsmv';
+ALTER TABLE public.bank_loans ADD COLUMN IF NOT EXISTS total_tax NUMERIC(15, 2) DEFAULT 0;
+ALTER TABLE public.bank_loans ADD COLUMN IF NOT EXISTS insurance_amount NUMERIC(15, 2) DEFAULT 0;
+ALTER TABLE public.bank_loans ADD COLUMN IF NOT EXISTS net_disbursed_amount NUMERIC(15, 2) DEFAULT 0;
+
 -- Kullanıcı profil izinlerinde modülü varsayılanlara ekle
 ALTER TABLE public.user_profiles 
 ALTER COLUMN allowed_modules SET DEFAULT array[
