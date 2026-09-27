@@ -70,6 +70,7 @@ export default function SubscriptionsPage() {
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)
   const [paymentSubId, setPaymentSubId] = useState('')
   const [paymentSource, setPaymentSource] = useState('')
+  const [paymentDate, setPaymentDate] = useState(getLocalTodayISO())
 
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; confirmText: string; cancelText: string; isDanger: boolean; onConfirm: () => void; }>({ isOpen: false, title: '', message: '', confirmText: '', cancelText: '', isDanger: false, onConfirm: () => {} })
 
@@ -635,7 +636,7 @@ export default function SubscriptionsPage() {
     } catch(err:any) { toast.error('Yenileme başarısız: ' + err.message) }
   }
 
-  function openPaymentModal(subId: string) { setPaymentSubId(subId); setPaymentSource(''); setIsPaymentModalOpen(true) }
+  function openPaymentModal(subId: string) { setPaymentSubId(subId); setPaymentSource(''); setPaymentDate(getLocalTodayISO()); setIsPaymentModalOpen(true) }
 
   async function handleReceivePayment(e: React.FormEvent) {
     e.preventDefault()
@@ -660,7 +661,7 @@ export default function SubscriptionsPage() {
       const txIdField = sourceType === 'cash' ? 'cash_register_id' : 'bank_account_id'
       
       const payload: any = { 
-        [txIdField]: sourceId, company_id: sub.company_id, tx_date: getLocalTodayISO(), description: `Abonelik Tahsilatı: ${sub.username} (${sub.full_name})`, tx_type: 'in', amount: amountToAdd, currency: account.currency, exchange_rate: 1 
+        [txIdField]: sourceId, company_id: sub.company_id, tx_date: paymentDate || getLocalTodayISO(), description: `Abonelik Tahsilatı: ${sub.username} (${sub.full_name})`, tx_type: 'in', amount: amountToAdd, currency: account.currency, exchange_rate: 1 
       }
       if (sourceType === 'bank') payload.status = 'completed'
 
@@ -984,30 +985,61 @@ export default function SubscriptionsPage() {
         </div>
       )}
 
-      {isPaymentModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
-          <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-sm p-5 shadow-2xl animate-in zoom-in-95 duration-200">
-            <h3 className="text-sm font-bold text-white mb-4">Tahsilat Al</h3>
-            <form onSubmit={handleReceivePayment} className="space-y-4 text-xs">
-              <div>
-                <label className="block text-slate-400 mb-1">Tahsilatın Gireceği Kasa / Banka *</label>
-                <select required value={paymentSource} onChange={(e) => setPaymentSource(e.target.value)} className="w-full bg-[#070b14] border border-slate-800 rounded px-3 py-2.5 text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors">
-                  <option value="">Seçiniz...</option>
-                  {cashes.length > 0 && <optgroup label="Nakit Kasalar">{cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name} ({c.currency})</option>)}</optgroup>}
-                  {banks.length > 0 && <optgroup label="Bankalar">{banks.map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name}{b.account_name ? ` - ${b.account_name}` : ''} ({b.currency})</option>)}</optgroup>}
-                </select>
+      {isPaymentModalOpen && (() => {
+        const targetSub = subscriptions.find(s => s.id === paymentSubId)
+        return (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
+            <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-sm p-5 shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <CreditCard size={16} className="text-emerald-400" /> Tahsilat Al
+                </h3>
+                <button type="button" onClick={() => setIsPaymentModalOpen(false)} className="text-slate-500 hover:text-slate-300">
+                  <X size={16} />
+                </button>
               </div>
-              <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded text-[10px] text-emerald-400 leading-relaxed">
-                Tutar abonelik bedeli üzerinden hesaplanacak ve seçili kasaya/bankaya aktarılacaktır.
-              </div>
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-                <button type="button" onClick={() => setIsPaymentModalOpen(false)} className="px-3 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
-                <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded font-bold transition-all active:scale-95 shadow-lg shadow-emerald-900/20">Tahsil Et</button>
-              </div>
-            </form>
+
+              {targetSub && (
+                <div className="bg-[#070b14] border border-slate-800 rounded-lg p-3 mb-4 text-xs">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-bold text-slate-200">{targetSub.username}</span>
+                    <span className="font-mono font-bold text-emerald-400">{formatMoney(targetSub.sale_price, targetSub.currency).formatted}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 truncate">{targetSub.full_name}</div>
+                </div>
+              )}
+
+              <form onSubmit={handleReceivePayment} className="space-y-4 text-xs">
+                <div>
+                  <label className="block text-slate-400 mb-1">Tahsilat Tarihi *</label>
+                  <input
+                    type="date"
+                    required
+                    value={paymentDate}
+                    onChange={(e) => setPaymentDate(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-800 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Tahsilatın Gireceği Kasa / Banka *</label>
+                  <select required value={paymentSource} onChange={(e) => setPaymentSource(e.target.value)} className="w-full bg-[#070b14] border border-slate-800 rounded px-3 py-2.5 text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors">
+                    <option value="">Seçiniz...</option>
+                    {cashes.length > 0 && <optgroup label="Nakit Kasalar">{cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name} ({c.currency})</option>)}</optgroup>}
+                    {banks.length > 0 && <optgroup label="Bankalar">{banks.map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name}{b.account_name ? ` - ${b.account_name}` : ''} ({b.currency})</option>)}</optgroup>}
+                  </select>
+                </div>
+                <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded text-[10px] text-emerald-400 leading-relaxed">
+                  Tutar abonelik bedeli üzerinden hesaplanacak ve seçili tarihte kasaya/bankaya işlenecektir.
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                  <button type="button" onClick={() => setIsPaymentModalOpen(false)} className="px-3 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
+                  <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded font-bold transition-all active:scale-95 shadow-lg shadow-emerald-900/20">Tahsil Et</button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {isWalletModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
