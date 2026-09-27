@@ -660,6 +660,9 @@ export default function BankAccountsPage() {
       } else if (transferId.startsWith('POS-')) {
         toast.error('Bu işlem Mağaza (POS) modülünden otomatik yansımıştır. Lütfen işlemi ait olduğu modülden iptal edin.');
         return;
+      } else if (transferId.startsWith('LOAN-')) {
+        toast.error('Bu işlem Banka Kredileri modülünden otomatik yansımıştır. Lütfen taksit planı üzerinden ödemeyi iptal ediniz.');
+        return;
       }
     }
 

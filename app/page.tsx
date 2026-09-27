@@ -5,13 +5,14 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney } from '@/lib/utils'
-import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, TrendingUp, ChevronDown, ChevronUp, Building, Home as HomeIcon, Filter, BarChart4, ArrowUpRightFromSquare, ArrowDownRightFromSquare, Sparkles, Activity, FileText, Scale, Users, Building2, Search, X, Lock, Wrench, Calendar, Clock, AlertTriangle, CheckCircle2, Zap } from 'lucide-react'
+import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, TrendingUp, ChevronDown, ChevronUp, Building, Home as HomeIcon, Filter, BarChart4, ArrowUpRightFromSquare, ArrowDownRightFromSquare, Sparkles, Activity, FileText, Scale, Users, Building2, Search, X, Lock, Wrench, Calendar, Clock, AlertTriangle, CheckCircle2, Zap, BadgePercent } from 'lucide-react'
 
 type ExchangeRates = { USD: number | null, EUR: number | null }
 
 type BankDetail = { id: string; bank_name: string; account_name: string; balance: number; currency: any; company_id: string | null }
 type CashDetail = { id: string; name: string; balance: number; currency: any; company_id: string | null }
 type CardDetail = { id: string; name: string; current_debt: number; card_limit: number; company_id: string | null }
+type LoanDetail = { id: string; loan_name: string; bank_name: string; principal_amount: number; remaining_principal: number; monthly_installment: number; company_id: string | null; status: string; installments_plan: any[] }
 type CustomerDetail = { id: string; name: string; balance: number; currency: string }
 type SupplierDetail = { id: string; company_name: string; balance: number; currency: string }
 type RawStock = { quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
@@ -97,8 +98,11 @@ export default function Home() {
   const [techTickets, setTechTickets] = useState<TechTicket[]>([])
 
   const [openSections, setOpenSections] = useState<{ [key: string]: boolean }>({
-    bank: false, cash: false, card: false, customer: false, supplier: false, stock: false, comm: false, pers: false
+    bank: false, cash: false, card: false, loan: false, customer: false, supplier: false, stock: false, comm: false, pers: false
   })
+
+  // Banka Kredileri State
+  const [loans, setLoans] = useState<LoanDetail[]>([])
 
   // Kâr / Zarar (P&L) ve Performans Analizi Periyodu
   const [pnlPeriod, setPnlPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
@@ -165,6 +169,19 @@ export default function Home() {
 
       const { data: cardData } = await supabase.from('credit_cards').select('id, name, current_debt, card_limit, company_id')
       setCards(cardData || [])
+
+      try {
+        const { data: loanData, error: loanErr } = await supabase.from('bank_loans').select('id, loan_name, bank_name, principal_amount, remaining_principal, monthly_installment, company_id, status, installments_plan')
+        if (!loanErr && loanData) {
+          setLoans(loanData)
+        } else {
+          const cached = typeof window !== 'undefined' ? localStorage.getItem('ctc_bank_loans_cache') : null
+          if (cached) setLoans(JSON.parse(cached))
+        }
+      } catch (e) {
+        const cached = typeof window !== 'undefined' ? localStorage.getItem('ctc_bank_loans_cache') : null
+        if (cached) setLoans(JSON.parse(cached))
+      }
 
       const { data: whData } = await supabase.from('warehouses').select('id, name, company_id')
       setWarehouses(whData || [])
@@ -372,7 +389,10 @@ export default function Home() {
     return { id: catName, name: catName, total }
   }).filter(c => c.total > 0).sort((a, b) => b.total - a.total) : []
 
-  const netFinancialPosition = totalBankTry + totalCashTry + totalCustomerTry - totalSupplierTry - totalCreditTry
+  const filteredLoans = loans.filter(l => l.status === 'active' && isMatch(l.company_id))
+  const totalLoanDebtTry = filteredLoans.reduce((acc, l) => acc + Number(l.remaining_principal || 0), 0)
+
+  const netFinancialPosition = totalBankTry + totalCashTry + totalCustomerTry - totalSupplierTry - totalCreditTry - totalLoanDebtTry
 
   const pnlData = useMemo(() => {
     const now = new Date()
@@ -1773,6 +1793,34 @@ export default function Home() {
                 </div>
               ) : filteredCards.map(c => (
                   <div key={c.id} className="py-1 flex justify-between items-center font-mono border-b border-slate-800/50 last:border-0"><span className="text-slate-300 font-sans font-medium truncate pr-2">{c.name}</span><span className="font-bold text-rose-400 shrink-0">{formatMoney(c.current_debt, 'TRY').formatted}</span></div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Banka Kredileri */}
+        <div style={{ animation: 'fadeInUp 0.5s both 0.52s' }} onClick={() => toggleSection('loan')} className={`bg-[#0d1322] border rounded-xl p-3.5 shadow-md cursor-pointer transition-all hover:border-cyan-500/60 hover:-translate-y-0.5 ${openSections.loan ? 'border-cyan-500 ring-1 ring-cyan-500' : 'border-slate-800/80'}`}>
+          <div className="flex justify-between items-start">
+            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">BANKA KREDİLERİ BORÇ</span>
+            <div className="flex items-center gap-1.5"><div className="p-1 bg-cyan-500/10 text-cyan-400 rounded-md"><BadgePercent size={14} /></div>{openSections.loan ? <ChevronUp size={13} className="text-slate-400" /> : <ChevronDown size={13} className="text-slate-400" />}</div>
+          </div>
+          <div className="my-2 font-mono flex items-baseline">
+            <span className="text-xl font-black text-rose-400">{loading ? '...' : formatMoney(totalLoanDebtTry, 'TRY').integerPart}</span>
+            <span className="text-xs font-bold text-rose-400/80">{loading ? '' : `,${formatMoney(totalLoanDebtTry, 'TRY').decimalPart}₺`}</span>
+          </div>
+          <div className="text-[10px] text-slate-500 font-medium flex justify-between items-center"><span>Aktif Krediler</span><span className="text-cyan-400 text-[10px]">({filteredLoans.length})</span></div>
+          {openSections.loan && (
+            <div className="mt-2.5 pt-2.5 border-t border-slate-800 space-y-1 text-xs animate-in fade-in slide-in-from-top-2 duration-200" onClick={(e) => e.stopPropagation()}>
+              {filteredLoans.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-4 border border-dashed border-slate-700/60 rounded-lg bg-slate-800/10 text-slate-500 shadow-inner mt-2 mb-1">
+                  <BadgePercent size={20} className="mb-2 opacity-70 text-cyan-400 animate-bounce" />
+                  <p className="text-[9px] font-bold text-slate-400">Aktif kredi yok.</p>
+                </div>
+              ) : filteredLoans.map(l => (
+                  <div key={l.id} className="py-1 flex justify-between items-center font-mono border-b border-slate-800/50 last:border-0">
+                    <span className="text-slate-300 font-sans font-medium truncate pr-2">{l.bank_name} - {l.loan_name}</span>
+                    <span className="font-bold text-rose-400 shrink-0">{formatMoney(l.remaining_principal, 'TRY').formatted}</span>
+                  </div>
               ))}
             </div>
           )}

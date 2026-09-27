@@ -16,6 +16,7 @@ const routeNames: Record<string, string> = {
   '/cash-registers': 'Nakit Kasalar',
   '/bank-accounts': 'Banka Hesapları',
   '/credit-cards': 'Kredi Kartları',
+  '/bank-loans': 'Banka Kredileri',
   '/stocks': 'Stok Yönetimi',
   '/services': 'Hizmet Yönetimi',
   '/suppliers': 'Satıcılar (Borç)',

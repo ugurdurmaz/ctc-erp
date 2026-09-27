@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
-import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, Receipt, Building2, Briefcase, Key, History, PieChart, Store, ChevronLeft, ChevronRight, Users, Wrench } from 'lucide-react'
+import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, Receipt, Building2, Briefcase, Key, History, PieChart, Store, ChevronLeft, ChevronRight, Users, Wrench, BadgePercent } from 'lucide-react'
 
 const allMenuItems = [
   { label: 'Genel Durum', href: '/', icon: LayoutDashboard, moduleKey: 'dashboard' },
@@ -13,6 +13,7 @@ const allMenuItems = [
   { label: 'Nakit Kasa', href: '/cash-registers', icon: Wallet, moduleKey: 'cash-registers' },
   { label: 'Banka Hesapları', href: '/bank-accounts', icon: Landmark, moduleKey: 'bank-accounts' },
   { label: 'Kredi Kartları', href: '/credit-cards', icon: CreditCard, moduleKey: 'credit-cards' },
+  { label: 'Banka Kredileri', href: '/bank-loans', icon: BadgePercent, moduleKey: 'bank-loans' },
   { label: 'Stok Yönetimi', href: '/stocks', icon: Package, moduleKey: 'stocks' },
   { label: 'Hizmet Yönetimi', href: '/services', icon: Briefcase, moduleKey: 'services' },
   { label: 'Satıcılar (Borç)', href: '/suppliers', icon: ArrowDownLeft, moduleKey: 'suppliers' },

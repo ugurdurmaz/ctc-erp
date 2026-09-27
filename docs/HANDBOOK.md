@@ -195,6 +195,9 @@ Kasa/banka/kart hareket tablolarındaki `transfer_id` alanı, hareketin **hangi 
 | `POS-Z-CARD-IN-<tarih>` | POS kart cirosu (banka, `pending`) | " |
 | `POS-Z-CARD-COMM-<tarih>` | Bankada provizyon onayında girilen komisyon | " |
 | `POS-TRF-CASH-<i>-<tarih>` / `POS-TRF-BANK-<i>-<tarih>` | POS gün içi kasa↔banka | " |
+| `LOAN-INST-<loan_id>-<no>` | Banka Kredileri (taksit ödemesi, banka çıkışı) | Yalnız Banka Kredileri ekranı (taksit iptali) |
+| `LOAN-EXP-<loan_id>-<no>` | Banka Kredileri (taksit faiz gideri) | Yalnız Banka Kredileri ekranı (taksit iptali) |
+| `LOAN-DISBURSE-<loan_id>` | Banka Kredileri (kredi kullandırımı, banka girişi) | Yalnız Banka Kredileri ekranı |
 
 Abonelik tahsilatları `transfer_id` **kullanmaz**; açıklama metni (`Abonelik Tahsilatı: <kullanıcı> (<ad>)`) ile eşleştirilir.
 
@@ -258,6 +261,9 @@ Bazı kayıtlar **açıklama string'i ile** tanınır. Bu metinler değiştirili
 **`credit_cards`** — `name`, `card_limit`, `cutoff_day (1-31)`, `current_debt` (türev), `card_color`, `company_id?`
 **`card_transactions`** — `card_id`, `company_id?`, `tx_date`, `description`, `tx_type (expense|payment)`, `amount`, `transfer_id?`
 **`credit_card_transactions`** — ⚠️ **Yalnızca `retail/page.tsx` kullanır.** `credit_card_id`, `company_id`, `tx_date`, `description`, `tx_type ('out')`, `amount`. Diğer tüm modüller `card_transactions` kullanır (bkz. §10 KRİTİK-1).
+
+**`bank_loans`** — `loan_name`, `bank_name`, `bank_account_id?`, `company_id?`, `loan_type (commercial|consumer|vehicle|housing|other)`, `principal_amount`, `interest_rate`, `total_installments`, `paid_installments`, `monthly_installment`, `total_payment`, `total_interest`, `remaining_principal`, `remaining_total`, `currency ('TRY')`, `start_date`, `first_due_date`, `status (active|completed|cancelled)`, `notes?`, `installments_plan (jsonb[])`
+- `installments_plan` satır şekli: `{ installment_no, due_date, total_amount, principal_amount, interest_amount, remaining_principal_after, status ('pending'|'paid'), payment_date?, bank_account_id?, bank_tx_id?, expense_tx_id?, is_opening_settled? }`
 
 **`stock_transactions`** — `stock_id`, `company_id?`, `tx_date`, `description`, `tx_type (in|out)`, `quantity`, `unit_price`, `currency`, `vat_rate`
 
@@ -462,6 +468,18 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Kart oluştur/düzenle: ad, limit, ekstre günü, dönem başı devir borcu (`Dönem Başı Devir Borcu` hareketi), renk, merkez.
 - Bakiye sütunu her satırda **kartın güncel borcunu** gösterir (yürüyen bakiye değil).
 - Gider/tedarikçi modüllerinden gelen `expense` hareketleri (`[SUPP-]`, `[EXP-]`) korunur; silme işlemi kaynak modülden yapılmalıdır. Kaynak kayıt sistemde bulunamazsa (yetim kayıt), kart ekstresinden "Yetim Hareketi Sil" onayıyla temizlenebilir ve kart borcu yeniden hesaplanır.
+
+### 7.5.1 Banka Kredileri `/bank-loans`
+- **Amaç:** Bankalardan kullanılan taksitli ticari veya bireysel kredilerin borç bakiyesini, takvimsel amortisman planını ve faiz gideri ayrımını yönetmek.
+- **Ekran Düzeni:**
+  - **Üst Şerit:** Kalan Anapara Borcu, Bu Ayın Taksit Yükü, Ödenen Anapara ve Çekilen Toplam Kredi KPI sayaçları; merkez filtresi ve "Yeni Kredi Ekle" butonu.
+  - **Sol Panel:** Kredi kartları listesi (banka adı, kredi adı, kalan anapara, aylık taksit, ödenen/kalan ilerleme çubuğu, sıradaki taksit vadesi).
+  - **Sağ Panel:** Seçili kredinin detaylı amortisman / ödeme planı tablosu (Taksit No, Vade Tarihi, Taksit Tutarı, Anapara Payı, Faiz & Gider Payı, Kalan Anapara, Durum, İşlemler).
+- **İş Mantığı ve Çapraz Modül Entegrasyonu:**
+  - **Taksit Ödeme:** Seçili taksit için "Taksit Öde" yapıldığında; toplam taksit tutarı kadar banka hesabından para çıkışı (`bank_transactions` tablosuna `out`, `LOAN-INST-<loan_id>-<no>`) yapılır; faiz payı ise kâr/zarar doğruluğu için otomatik olarak finansman gideri (`expense_transactions` tablosuna `LOAN-EXP-<loan_id>-<no>`) olarak işlenir. Kredinin kalan anapara borcu ve taksit sayacı güncellenir.
+  - **Ödeme İptali:** Taksit ödemesi geri alındığında banka ve faiz gideri kayıtları silinir, banka bakiyesi iade edilir ve taksit tekrar `pending` olur.
+  - **Mevcut Devir Kredileri:** Sistem öncesinden devam eden aktif krediler için "Önceden ödenmiş taksit sayısı" girilerek ilk taksitler devir olarak kapatılabilir; bankadan mükerrer para düşmez.
+  - **Dashboard:** Kalan toplam kredi anapara borcu, ana sayfadaki **Net Finansal Durum** formülünden (`Banka + Kasa + Müşteri − Tedarikçi − Kart − Kredi`) otomatik düşülür ve alt özet kartlarında listelenir.
 
 ### 7.6 Stok Yönetimi `/stocks`
 - Üst şerit: Sol tarafta çoklu depo seçim sekmeleri (KDV dahil USD/TRY toplamı, depolar arası hızlı geçiş, düzenle/sil) + "Depo Ekle"; sağ tarafta seçili deponun anlık canlı KPI şeridi (Bağlı Sermaye, Çeşit & Stok, Kritik & Tükenen, Ölü/Uyuyan Stok).
