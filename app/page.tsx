@@ -23,7 +23,7 @@ type CustTx = { id: string; tx_date: string; description: string; customer_id: s
 type SuppTx = { id: string; tx_date: string; description: string; supplier_id: string; tx_type: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; created_at: string }
 type StockTx = { tx_date: string; tx_type: string; quantity: number; unit_price: number; currency: string; company_id: string | null }
 type SubTx = { start_date: string; cost_price: number; sale_price: number; currency: string; company_id: string | null }
-type PosTx = { id: string; date: string; category_id: string; cash: number; card: number; cost: number; stock_id: string | null; company_id: string | null }
+type PosTx = { id: string; date: string; category_id: string; cash: number; card: number; cost: number; stock_id: string | null; company_id: string | null; description?: string | null }
 type TechTicket = { id: string; ticket_no: string; brand_model: string; customer_name: string; status: string; total_cost: number; parts_cost: number; labor_cost: number; delivered_at: string | null; company_id: string | null; created_at: string }
 
 type TimelineItem = {
@@ -184,7 +184,7 @@ export default function Home() {
       const { data: subData } = await supabase.from('credit_subscriptions').select('start_date, cost_price, sale_price, currency, company_id')
       setSubscriptions(subData || [])
 
-      const { data: posData } = await supabase.from('pos_transactions').select('id, date, category_id, cash, card, cost, stock_id, company_id')
+      const { data: posData } = await supabase.from('pos_transactions').select('id, date, category_id, cash, card, cost, stock_id, company_id, description')
       setPosTxs(posData || [])
 
       const { data: srvData } = await supabase.from('technical_service_tickets').select('id, ticket_no, brand_model, customer_name, status, total_cost, parts_cost, labor_cost, delivered_at, company_id, created_at')
@@ -333,9 +333,23 @@ export default function Home() {
   const commercialExpensesList = filteredExpenses.filter(e => e.company_id && !companies.find(c => c.id === e.company_id)?.is_personal)
   const personalExpensesList = isAdmin ? filteredExpenses.filter(e => !e.company_id || companies.find(c => c.id === e.company_id)?.is_personal) : []
   
-  // POS (Mağaza) Nakit Giderlerinin Hesaplanması
-  const posExpTotalComm = posTxs.filter(t => t.category_id === 'gider' && isMatch(t.company_id) && (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal)).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0)
-  const posExpTotalPers = isAdmin ? posTxs.filter(t => t.category_id === 'gider' && isMatch(t.company_id) && (t.company_id && companies.find(c => c.id === t.company_id)?.is_personal)).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0) : 0
+  // POS (Mağaza) Nakit Giderlerinin Hesaplanması (Genel Giderlerden ödenen EXP kayıtları çifte sayılmaz)
+  const posExpTotalComm = posTxs.filter(t => 
+    t.category_id === 'gider' && 
+    isMatch(t.company_id) && 
+    (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal) &&
+    !t.description?.includes('[EXP-') && 
+    !t.description?.startsWith('Gider Ödemesi')
+  ).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0)
+
+  const posExpTotalPers = isAdmin ? posTxs.filter(t => 
+    t.category_id === 'gider' && 
+    isMatch(t.company_id) && 
+    (t.company_id && companies.find(c => c.id === t.company_id)?.is_personal) &&
+    !t.description?.includes('[EXP-') && 
+    !t.description?.startsWith('Gider Ödemesi')
+  ).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0) : 0
+
   const posCommTotalComm = bankCommTxs.filter(t => isMatch(t.company_id) && (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal)).reduce((acc, t) => acc + (t.amount * (t.exchange_rate || 1)), 0)
 
   const totalCommExpTry = commercialExpensesList.reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0) + posExpTotalComm + posCommTotalComm
@@ -343,7 +357,12 @@ export default function Home() {
 
   const commExpBreakdown = visibleCompanies.filter(c => !c.is_personal).map(c => {
     const expTxsTotal = commercialExpensesList.filter(e => e.company_id === c.id).reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0)
-    const posTxsTotal = posTxs.filter(t => t.category_id === 'gider' && t.company_id === c.id).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0)
+    const posTxsTotal = posTxs.filter(t => 
+      t.category_id === 'gider' && 
+      t.company_id === c.id &&
+      !t.description?.includes('[EXP-') && 
+      !t.description?.startsWith('Gider Ödemesi')
+    ).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0)
     const commTotal = bankCommTxs.filter(t => t.company_id === c.id).reduce((acc, t) => acc + (t.amount * (t.exchange_rate || 1)), 0)
     return { id: c.id, name: c.name, total: expTxsTotal + posTxsTotal + commTotal }
   }).filter(c => c.total > 0).sort((a, b) => b.total - a.total)
@@ -548,7 +567,9 @@ export default function Home() {
       if (pt) {
         const amount = Number(tx.cash || 0) + Number(tx.card || 0)
         if (tx.category_id === 'gider') {
-          pt.expense += amount
+          if (!tx.description?.includes('[EXP-') && !tx.description?.startsWith('Gider Ödemesi')) {
+            pt.expense += amount
+          }
         } else {
           pt.revenue += amount
           pt.posRev += amount
