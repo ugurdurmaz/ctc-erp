@@ -1201,7 +1201,18 @@ export default function BankAccountsPage() {
           <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-md p-5 shadow-2xl animate-in zoom-in-95 duration-200">
             <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2"><ArrowRightLeft size={16} className="text-indigo-500" /> Hesaplar Arası Transfer (Virman)</h3>
             <form onSubmit={handleSaveTransfer} className="space-y-4 text-[11px]">
-              <div className="bg-[#070b14] p-3 rounded-lg border border-slate-800/80"><span className="block text-[9px] text-slate-500 uppercase font-bold mb-1">Çıkış Yapılacak Kaynak Hesap</span><div className="flex items-center justify-between text-slate-300 font-medium"><span>{selectedBank.bank_name} - {selectedBank.account_name}</span><span className="font-mono text-indigo-400">{selectedBank.currency}</span></div></div>
+              <div className="bg-[#070b14] p-3 rounded-lg border border-slate-800/80">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="block text-[9px] text-slate-500 uppercase font-bold">Çıkış Yapılacak Kaynak Hesap</span>
+                  <span className="text-[10px] text-slate-400">Mevcut Bakiye</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-300 font-medium">
+                  <span className="font-bold text-white text-xs">{selectedBank.bank_name} - {selectedBank.account_name}</span>
+                  <span className={`font-mono font-bold text-sm ${selectedBank.balance > 0 ? 'text-emerald-400' : selectedBank.balance < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                    {formatMoney(selectedBank.balance, selectedBank.currency).formatted}
+                  </span>
+                </div>
+              </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -1225,12 +1236,71 @@ export default function BankAccountsPage() {
                 </div>
               </div>
 
-              <div><label className="block text-slate-400 mb-1">Hedef Hesap (Paranın Gideceği Yer) *</label><select value={transferTarget} onChange={(e) => handleTransferTargetSelect(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"><option value="">Seçiniz</option>{banks.filter(b => b.id !== selectedBank.id).length > 0 && <optgroup label="Diğer Banka Hesapları">{banks.filter(b => b.id !== selectedBank.id).map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name} - {b.account_name} ({b.currency})</option>)}</optgroup>}{cashes.length > 0 && <optgroup label="Nakit Kasalar">{cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name} ({c.currency})</option>)}</optgroup>}</select></div>
+              <div>
+                <label className="block text-slate-400 mb-1">Hedef Hesap (Paranın Gideceği Yer) *</label>
+                <select value={transferTarget} onChange={(e) => handleTransferTargetSelect(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors">
+                  <option value="">Seçiniz</option>
+                  {banks.filter(b => b.id !== selectedBank.id).length > 0 && <optgroup label="Diğer Banka Hesapları">{banks.filter(b => b.id !== selectedBank.id).map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name} - {b.account_name} ({b.currency})</option>)}</optgroup>}
+                  {cashes.length > 0 && <optgroup label="Nakit Kasalar">{cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name} ({c.currency})</option>)}</optgroup>}
+                </select>
+                {transferTarget && (() => {
+                  const [tType, tId] = transferTarget.split('|')
+                  const targetAcc = (tType === 'bank' ? banks : cashes).find(a => a.id === tId)
+                  if (!targetAcc) return null
+                  return (
+                    <div className="mt-1 text-[10px] text-slate-400 flex items-center justify-between bg-slate-900/50 px-2.5 py-1 rounded border border-slate-800">
+                      <span className="text-slate-400">Hedef Hesap Güncel Bakiyesi:</span>
+                      <span className="font-mono font-bold text-slate-200">{formatMoney(targetAcc.balance, targetAcc.currency).formatted}</span>
+                    </div>
+                  )
+                })()}
+              </div>
+
               <div className="flex gap-3 items-end">
-                <div className="flex-1"><label className="block text-slate-400 mb-1">Çıkış Tutarı ({selectedBank.currency}) *</label><input type="number" step="0.01" required placeholder="0.00" value={transferAmount} onChange={(e) => handleTransferAmountChange(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none font-mono text-lg transition-colors" /></div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-400">
+                      Çıkış Tutarı ({selectedBank.currency}) *
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-slate-400">
+                        Bakiye: <span className="font-mono font-bold text-emerald-400">{formatMoney(selectedBank.balance, selectedBank.currency).formatted}</span>
+                      </span>
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      required 
+                      placeholder="0.00" 
+                      value={transferAmount} 
+                      onChange={(e) => handleTransferAmountChange(e.target.value)} 
+                      className={`w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 font-mono text-lg transition-colors ${selectedBank.balance > 0 ? 'pr-20' : ''}`} 
+                    />
+                    {selectedBank.balance > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleTransferAmountChange(selectedBank.balance.toString())}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white px-2 py-1 rounded border border-indigo-500/40 transition-all active:scale-95 flex items-center gap-1"
+                        title={`Tüm bakiyeyi (${formatMoney(selectedBank.balance, selectedBank.currency).formatted}) aktar`}
+                      >
+                        TÜMÜ
+                      </button>
+                    )}
+                  </div>
+                </div>
                 {transferTarget && selectedBank.currency !== targetCurrency && (
-                  <><div className="w-24"><label className="block text-slate-400 mb-1">Döviz Kuru</label><input type="number" step="0.0001" required value={transferRate} onChange={(e) => handleTransferRateChange(e.target.value)} className="w-full bg-indigo-900/20 border border-indigo-500/50 rounded px-2 py-2 text-indigo-300 focus:outline-none font-mono text-lg text-center transition-colors" /></div>
-                  <div className="flex-1"><label className="block text-emerald-400/80 mb-1">Giriş Tutarı ({targetCurrency}) *</label><input type="number" step="0.01" required placeholder="0.00" value={transferTargetAmount} onChange={(e) => handleTransferTargetAmountChange(e.target.value)} className="w-full bg-emerald-900/10 border border-emerald-500/30 rounded px-3 py-2 text-emerald-400 focus:outline-none font-mono text-lg transition-colors" /></div></>
+                  <>
+                    <div className="w-24">
+                      <label className="block text-slate-400 mb-1">Döviz Kuru</label>
+                      <input type="number" step="0.0001" required value={transferRate} onChange={(e) => handleTransferRateChange(e.target.value)} className="w-full bg-indigo-900/20 border border-indigo-500/50 rounded px-2 py-2 text-indigo-300 focus:outline-none font-mono text-lg text-center transition-colors" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-emerald-400/80 mb-1">Giriş Tutarı ({targetCurrency}) *</label>
+                      <input type="number" step="0.01" required placeholder="0.00" value={transferTargetAmount} onChange={(e) => handleTransferTargetAmountChange(e.target.value)} className="w-full bg-emerald-900/10 border border-emerald-500/30 rounded px-3 py-2 text-emerald-400 focus:outline-none font-mono text-lg transition-colors" />
+                    </div>
+                  </>
                 )}
               </div>
               <div className="flex justify-end gap-2 pt-4 border-t border-slate-800"><button type="button" onClick={() => setIsTransferModalOpen(false)} className="px-4 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button><button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded font-medium transition-all active:scale-95 shadow-lg shadow-indigo-900/20 flex items-center gap-1.5"><ArrowRightLeft size={14}/> Transferi Gerçekleştir</button></div>
