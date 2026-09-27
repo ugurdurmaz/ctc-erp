@@ -33,6 +33,7 @@ export default function BankAccountsPage() {
   const [bankCompanyId, setBankCompanyId] = useState('common')
   const todayISO = getLocalTodayISO()
   const [openingBalance, setOpeningBalance] = useState('')
+  const [openingDate, setOpeningDate] = useState(todayISO)
   const [isInvestment, setIsInvestment] = useState(false)
 
   // Günlük Faiz / Getiri Modalı State'leri
@@ -96,11 +97,29 @@ export default function BankAccountsPage() {
     if (mapped.length > 0 && !selectedBankId) setSelectedBankId(mapped[0].id) 
   }
   async function fetchCashes() { const { data } = await supabase.from('cash_registers').select('*'); setCashes(data || []) }
-  async function fetchTransactions(bankId: string) { const { data } = await supabase.from('bank_transactions').select('*, company:companies(name, is_personal)').eq('bank_account_id', bankId).order('tx_date', { ascending: false }).order('created_at', { ascending: false }); setTransactions(data || []) }
+  async function fetchTransactions(bankId: string) { 
+    const { data } = await supabase.from('bank_transactions')
+      .select('*, company:companies(name, is_personal)')
+      .eq('bank_account_id', bankId)
+      .order('tx_date', { ascending: false })
+      .order('created_at', { ascending: false }); 
+
+    const sorted = (data || []).sort((a: any, b: any) => {
+      if (a.tx_date !== b.tx_date) {
+        return b.tx_date.localeCompare(a.tx_date);
+      }
+      // Aynı gün içinde Açılış Bakiyesi / Devir kaydı en başta (en eski, azalan sıralamada en altta) olmalı
+      if (a.description === 'Açılış Bakiyesi / Devir') return 1;
+      if (b.description === 'Açılış Bakiyesi / Devir') return -1;
+      return (b.created_at || '').localeCompare(a.created_at || '');
+    });
+
+    setTransactions(sorted) 
+  }
 
   function openAddModal() { 
     setEditingId(null); setBankName(''); setAccountName(''); setIban('TR'); setCurrency('TRY'); 
-    setBankCompanyId('common'); setOpeningBalance(''); setIsInvestment(false); setIsModalOpen(true) 
+    setBankCompanyId('common'); setOpeningBalance(''); setOpeningDate(todayISO); setIsInvestment(false); setIsModalOpen(true) 
   }
 
   async function openEditModal(bank: BankAccount, e: React.MouseEvent) { 
@@ -116,12 +135,14 @@ export default function BankAccountsPage() {
     setIsModalOpen(true);
 
     const { data: txs } = await supabase.from('bank_transactions')
-       .select('amount').eq('bank_account_id', bank.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
+       .select('amount, tx_date').eq('bank_account_id', bank.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
     
     if (txs && txs.length > 0) {
       setOpeningBalance(txs[0].amount.toString());
+      setOpeningDate(txs[0].tx_date || todayISO);
     } else {
       setOpeningBalance('0');
+      setOpeningDate(todayISO);
     }
   }
 
@@ -233,10 +254,13 @@ export default function BankAccountsPage() {
            if (initialBalance === 0) {
               await supabase.from('bank_transactions').delete().eq('id', oldTx.id);
            } else {
-              await supabase.from('bank_transactions').update({ amount: initialBalance }).eq('id', oldTx.id);
+              await supabase.from('bank_transactions').update({ 
+                amount: initialBalance,
+                tx_date: openingDate || oldTx.tx_date || todayISO 
+              }).eq('id', oldTx.id);
            }
         } else if (initialBalance > 0) {
-           const txPayload = { bank_account_id: editingId, company_id: finalCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'in', amount: initialBalance, currency: currency, exchange_rate: 1, is_transfer: false, status: 'completed' }
+           const txPayload = { bank_account_id: editingId, company_id: finalCompId, tx_date: openingDate || todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'in', amount: initialBalance, currency: currency, exchange_rate: 1, is_transfer: false, status: 'completed' }
            await supabase.from('bank_transactions').insert([txPayload]);
         }
 
@@ -256,7 +280,7 @@ export default function BankAccountsPage() {
         await logActivity('bank', 'INSERT', `Yeni banka hesabı açıldı: ${bankName}`, data.id, 0, currency, null, data, finalCompId)
         
         if (initialBalance > 0) {
-           const txPayload = { bank_account_id: data.id, company_id: finalCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'in', amount: initialBalance, currency: currency, exchange_rate: 1, is_transfer: false, status: 'completed' }
+           const txPayload = { bank_account_id: data.id, company_id: finalCompId, tx_date: openingDate || todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'in', amount: initialBalance, currency: currency, exchange_rate: 1, is_transfer: false, status: 'completed' }
            const { data: txData, error: txErr } = await supabase.from('bank_transactions').insert([txPayload]).select().single()
            if (!txErr && txData) {
              await logActivity('bank_tx', 'INSERT', `Açılış Bakiyesi: ${bankName}`, txData.id, initialBalance, currency, null, txData, finalCompId)
@@ -1440,6 +1464,13 @@ export default function BankAccountsPage() {
                   <input type="number" step="0.01" placeholder="0.00" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500 transition-colors" />
                 </div>
               </div>
+
+              {parseFloat(openingBalance) > 0 && (
+                <div className="mb-3 animate-in fade-in duration-200">
+                  <label className="block text-slate-400 mb-1">Açılış / Devir Tarihi</label>
+                  <input type="date" required value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500 transition-colors" />
+                </div>
+              )}
 
               <div><label className="block text-slate-400 mb-1">IBAN No</label><input type="text" value={iban} onChange={(e) => setIban(e.target.value.toUpperCase())} placeholder="TR..." className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none font-mono tracking-wider uppercase transition-colors" /></div>
               <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-800"><button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button><button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded font-medium transition-all active:scale-95 shadow-lg shadow-indigo-900/20">Kaydet</button></div>
