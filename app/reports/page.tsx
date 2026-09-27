@@ -1487,8 +1487,8 @@ export default function AdvancedReportsPage() {
           </div>
         </div>
 
-        {/* FİNANSAL MİZAN TABLOLARI - EKRANDA DİKEY AKAR, BASKIDA MAKSİMUM EKONOMİK 2 SÜTUN OLARAK TEK SAYFAYA SIĞAR */}
-        <div className="space-y-6 print:space-y-0 print:grid print:grid-cols-2 print:gap-2">
+        {/* FİNANSAL MİZAN TABLOLARI - EKRANDA DENGELİ VE DARALTILMIŞ, BASKIDA 2 SÜTUN */}
+        <div className="max-w-4xl xl:max-w-5xl mx-auto w-full space-y-6 print:max-w-none print:w-full print:space-y-0 print:grid print:grid-cols-2 print:gap-2">
           
           {/* BASKI SOL SÜTUN (KAYNAKLAR, KASALAR, BANKALAR, KARTLAR, DEPOLAR) */}
           <div className="space-y-6 print:space-y-1.5 print:col-span-1">
@@ -1553,10 +1553,10 @@ export default function AdvancedReportsPage() {
                   <thead className="bg-[#0a0f1d] border-b border-slate-800/50">
                     <tr>
                       <th className="font-bold font-sans uppercase print-text-black text-left p-2 print:p-1">Kasa Adı</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1">D.Başı</th>
-                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1">Giren (+)</th>
-                      <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1">Çıkan (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
+                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Giren (+)</th>
+                      <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Çıkan (-)</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
@@ -1588,10 +1588,10 @@ export default function AdvancedReportsPage() {
                   <thead className="bg-[#0a0f1d] border-b border-slate-800/50">
                     <tr>
                       <th className="font-bold font-sans uppercase print-text-black text-left p-2 print:p-1">Banka Adı</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1">D.Başı</th>
-                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1">Giren (+)</th>
-                      <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1">Çıkan (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
+                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Giren (+)</th>
+                      <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Çıkan (-)</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
@@ -1621,10 +1621,10 @@ export default function AdvancedReportsPage() {
                   <thead className="bg-[#0a0f1d] border-b border-slate-800/50">
                     <tr>
                       <th className="font-bold font-sans uppercase print-text-black text-left p-2 print:p-1">Kart Adı</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1">D.Başı</th>
-                      <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1">Harcama (+)</th>
-                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1">Ödeme (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
+                      <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Harcama (+)</th>
+                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Ödeme (-)</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
@@ -1654,10 +1654,10 @@ export default function AdvancedReportsPage() {
                   <thead className="bg-[#0a0f1d] border-b border-slate-800/50">
                     <tr>
                       <th className="font-bold font-sans uppercase print-text-black text-left p-2 print:p-1">Depo Adı</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1">D.Başı</th>
-                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1">Giren (+)</th>
-                      <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1">Çıkan (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
+                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Giren (+)</th>
+                      <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Çıkan (-)</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
@@ -1697,10 +1697,10 @@ export default function AdvancedReportsPage() {
                   <thead className="bg-[#0a0f1d] border-b border-slate-800/50">
                     <tr>
                       <th className="font-bold font-sans uppercase print-text-black text-left p-2 print:p-1">Müşteri Adı</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1">D.Başı</th>
-                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1">Satış (+)</th>
-                      <th className="font-bold font-sans uppercase text-blue-400 print:text-black text-right p-2 print:p-1">Tahsilat (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
+                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Satış (+)</th>
+                      <th className="font-bold font-sans uppercase text-blue-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Tahsilat (-)</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
@@ -1708,7 +1708,7 @@ export default function AdvancedReportsPage() {
                       <tr><td colSpan={5} className="text-center font-sans text-slate-500 py-1.5 print:py-1">Bu dönemde müşteri alacağı yok.</td></tr>
                     ) : customerAnalysis.map((c, index) => (
                       <tr key={c.id} className="hover:bg-slate-800/20 transition-colors">
-                        <td className="text-slate-200 print-text-black font-sans font-medium p-2 print:p-1 truncate max-w-[110px]">{c.name}</td>
+                        <td className="text-slate-200 print-text-black font-sans font-medium p-2 print:p-1 truncate max-w-[180px] sm:max-w-[280px] print:max-w-[110px]">{c.name}</td>
                         <td className="text-slate-400 print-text-black text-right p-2 print:p-1">{formatMoney(c.opening, 'TRY').formatted}</td>
                         <td className="text-emerald-400 print-text-black text-right font-bold p-2 print:p-1">{formatMoney(c.debt, 'TRY').formatted}</td>
                         <td className="text-blue-400 print-text-black text-right font-bold p-2 print:p-1">{formatMoney(c.payment, 'TRY').formatted}</td>
@@ -1746,10 +1746,10 @@ export default function AdvancedReportsPage() {
                   <thead className="bg-[#0a0f1d] border-b border-slate-800/50">
                     <tr>
                       <th className="font-bold font-sans uppercase print-text-black text-left p-2 print:p-1">Tedarikçi Adı</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1">D.Başı</th>
-                      <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1">Alış (+)</th>
-                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1">Ödeme (-)</th>
-                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30">D.Sonu</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">D.Başı</th>
+                      <th className="font-bold font-sans uppercase text-rose-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Alış (+)</th>
+                      <th className="font-bold font-sans uppercase text-emerald-400 print:text-black text-right p-2 print:p-1 w-24 sm:w-32 md:w-36">Ödeme (-)</th>
+                      <th className="font-bold font-sans uppercase print-text-black text-right p-2 print:p-1 bg-slate-800/30 w-24 sm:w-32 md:w-36">D.Sonu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/30">
@@ -1757,7 +1757,7 @@ export default function AdvancedReportsPage() {
                       <tr><td colSpan={5} className="text-center font-sans text-slate-500 py-1.5 print:py-1">Bu dönemde tedarikçi borcu yok.</td></tr>
                     ) : supplierAnalysis.map((s, index) => (
                       <tr key={s.id} className="hover:bg-slate-800/20 transition-colors">
-                        <td className="text-slate-200 print-text-black font-sans font-medium p-2 print:p-1 truncate max-w-[110px]">{s.name}</td>
+                        <td className="text-slate-200 print-text-black font-sans font-medium p-2 print:p-1 truncate max-w-[180px] sm:max-w-[280px] print:max-w-[110px]">{s.name}</td>
                         <td className="text-slate-400 print-text-black text-right p-2 print:p-1">{formatMoney(s.opening, 'TRY').formatted}</td>
                         <td className="text-rose-400 print-text-black text-right font-bold p-2 print:p-1">{formatMoney(s.debt, 'TRY').formatted}</td>
                         <td className="text-emerald-400 print-text-black text-right font-bold p-2 print:p-1">{formatMoney(s.payment, 'TRY').formatted}</td>
