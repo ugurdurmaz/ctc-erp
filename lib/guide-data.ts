@@ -1,3 +1,9 @@
+export type GuideMetric = {
+  term: string
+  meaning: string
+  whyItMatters: string
+}
+
 export type GuideTopic = {
   id: string
   title: string
@@ -6,6 +12,7 @@ export type GuideTopic = {
   category: 'daily' | 'service' | 'stock' | 'finance' | 'core'
   routePath?: string
   summary: string
+  metrics?: GuideMetric[]
   steps: {
     number: number
     title: string
@@ -28,6 +35,28 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     category: 'daily',
     routePath: '/',
     summary: 'Sisteme girdiğinde seni karşılayan ana kontrol merkezidir. Bilgisayar Hastanesi\'nin anlık net nakit varlığı, bugünkü ciro ve net kârı ile en önemlisi yaklaşan vadeler ve ortak kart mahsup virmanları bu ekranda toplanır.',
+    metrics: [
+      {
+        term: 'Net Nakit Varlık (Kasa + Banka - Kart Borcu)',
+        meaning: 'Dükkan kasasındaki nakit para ile banka hesabındaki paranın toplamından, kredi kartlarının o anki borçları düşüldükten sonra kalan temiz paradır.',
+        whyItMatters: 'Kasa dolu gözükebilir ama kredi kartının borcu yüksekse kendini zengin sanıp fazla para harcamanı engeller. "Tüm borçlarımı bugün ödesem cebimde net kaç para kalır?" gerçeğini söyler.'
+      },
+      {
+        term: 'Bugünkü Net Kâr',
+        meaning: 'Bugün satılan ürünlerin kâr marjı + teknik servis işçilikleri - dükkandan çıkan harcamalar (giderler).',
+        whyItMatters: 'Ciro (kasaya giren para) yüksek olsa bile dükkan o gün kâr mı etti zarar mı etti net olarak gösterir. Eksiye düşerse gereksiz harcama yapıldığını haber verir.'
+      },
+      {
+        term: 'Vadeler (Gecikmeli / Bugün / Yaklaşıyor)',
+        meaning: 'Ödeme günü geçmiş (kırmızı), günü bugün olan (sarı) veya bu hafta ödenecek kira, fatura, kredi taksiti ve tedarikçi borçlarıdır.',
+        whyItMatters: 'Gecikme faizi yememek, elektriğin/internetin kesilmesini önlemek ve toptancının mal vermeyi durdurmaması için ilk hangi parayı çıkarman gerektiğini önceliklendirir.'
+      },
+      {
+        term: 'Merkeze Virman Bekliyor (Kart Mahsubu)',
+        meaning: 'Merkez veya şirket ortağı (şahsi / ortak kart), Bilgisayar Hastanesi adına vergi veya fatura ödediğinde oluşan transfer borcudur.',
+        whyItMatters: 'Kartın son ödeme gününe kadar bu parayı dükkan kasasından merkeze aktarman gerektiğini hatırlatır. Kâr/zararını ikinci kez düşürmez.'
+      }
+    ],
     steps: [
       {
         number: 1,
@@ -73,6 +102,28 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     category: 'daily',
     routePath: '/retail',
     summary: 'Bilgisayar Hastanesi\'nin günlük çalışma ve Z-defteri ekranıdır. Gün boyunca yapılan aksesuar, yazılım, medya satışları ve anlık dükkan masrafları kategorilerine göre doğrudan bu tablolara işlenir.',
+    metrics: [
+      {
+        term: 'KASA (Anlık Çekmece Tutarı)',
+        meaning: 'Dükkandaki para çekmecesinde o an kuruşu kuruşuna bulunması gereken fiziksel nakit paradır.',
+        whyItMatters: 'Akşam dükkanı kapatırken çekmecedeki parayı saydığında bu rakamla birebir tutmalıdır. Tutmuyorsa eksik fiş veya işlenmemiş harcama vardır.'
+      },
+      {
+        term: 'NAKİT vs K.KARTI (POS) Ayrımı',
+        meaning: 'Müşterilerden elden alınan fiziki kâğıt paralar ile dükkan POS cihazından çekilip bankaya geçen paraların ayrımıdır.',
+        whyItMatters: 'Hangi paranın çekmecede, hangi paranın banka hesabında olduğunu gösterir. Bankaya borç öderken çekmecedeki parayı banka zannetmeni önler.'
+      },
+      {
+        term: 'SERVİS (Günlük Servis Gelir Payı)',
+        meaning: 'Teknik Servis modülünden gün içinde müşteriye teslim edilip tahsilatı yapılan cihazların toplam tutarıdır.',
+        whyItMatters: 'Parça maliyeti çok düşük olan ve dükkana doğrudan net kâr bırakan işçilik kazancını ayrı görmeni sağlar. Dükkanın ana lokomotifidir.'
+      },
+      {
+        term: 'GİDER & MASRAF (Günün Dükkan Masrafları)',
+        meaning: 'Gün içinde kasadan elden ödenen kargo, su, yemek, sarf malzeme gibi küçük harcamalardır.',
+        whyItMatters: 'Hemen yazıldığında çekmecedeki nakit para düşer ve akşam kasasında "100 TL nerede?" sorusunu ortadan kaldırır.'
+      }
+    ],
     steps: [
       {
         number: 1,
@@ -132,6 +183,28 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     category: 'service',
     routePath: '/technical-service',
     summary: 'Bilgisayar Hastanesi\'nin en yoğun çalıştığı modüldür. Arızalı laptop, masaüstü, konsol veya monitör kabulünden başlayıp; arıza tespiti, yedek parça ve format/bakım işçiliği ekleme, servis fişi yazdırma ve teslimata kadar tüm süreç buradan yönetilir.',
+    metrics: [
+      {
+        term: 'Müşteri Onayı Bekliyor',
+        meaning: 'Arıza tespiti yapılmış, gereken parça ve işçilik fiyatı belirlenmiş fakat müşteri henüz "yapın" dememiş durumdur.',
+        whyItMatters: 'Müşteriden teyit almadan pahalı bir çip veya ekran takıp müşterinin "ben bu fiyatı kabul etmiyorum" demesini önler. Riski sıfırlayan emniyet kilididir.'
+      },
+      {
+        term: 'Yedek Parça Bekliyor',
+        meaning: 'Cihaz için gereken SSD, ekran paneli veya klavye dükkanda kalmamış; toptancıdan sipariş edilmiş ve kargosu bekleniyordur.',
+        whyItMatters: 'Cihazın neden masada beklediğini İbrahim\'e ve arayan müşteriye hemen açıklar. "Unuttuk mu?" şüphesini yok eder.'
+      },
+      {
+        term: 'Dış Servis / Konsinye Maliyeti',
+        meaning: 'Dükkanda yapılamayan ileri düzey BGA çip tamiri veya anakart onarımı için cihazın dışarıdaki uzman servise gönderilme maliyetidir.',
+        whyItMatters: 'Dış tamirciye ödenecek para ile müşteriden istenecek fiyat arasındaki farkı net görmeni sağlar; dükkanın zarar etmesini engeller.'
+      },
+      {
+        term: 'Kabul Fişi & Fiziksel Durum Notu',
+        meaning: 'Cihaz teslim alınırken kasadaki çizik, kırık, eksik vida ve teslim alınan şarj aletinin yazılı kaydıdır.',
+        whyItMatters: 'Teslim alırken var olan bir kırığı müşterinin "siz kırdınız" demesini veya "ben çantamı da vermiştim" iddialarını resmi fişle engeller.'
+      }
+    ],
     steps: [
       {
         number: 1,
@@ -203,6 +276,28 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     category: 'stock',
     routePath: '/stocks',
     summary: 'Bilgisayar Hastanesi deposundaki tüm yedek parçaların (SSD, RAM, ekran, fan, adaptör), çevre birimlerinin ve sarf malzemelerin adet, maliyet ve satış fiyatlarının takip edildiği ekrandır.',
+    metrics: [
+      {
+        term: 'Ölü / Uyuyan Stok (Hareketsiz Ürünler)',
+        meaning: 'Rafta aylardır duran, hiç satılmayan veya çok uzun süredir sorulmayan ürünlerdir (Örn: 6 aydır satılmayan eski bir adaptör veya ekran kartı).',
+        whyItMatters: 'Dükkanın parası o rafa gömülüdür ve paslanıyordur. İbrahim bu veriye bakarak: "Bu ürünler satılmıyor, rafta tozlanacağına indirimli satayım ya da toptancıya iade edip yerine peynir ekmek gibi satan hızlı flash bellek, mouse alayım" kararı verir.'
+      },
+      {
+        term: 'Kritik Stok Uyarısı',
+        meaning: 'Stok adedi belirlenen emniyet sınırının (örn: 2 adet) altına inmiş ürünlerdir.',
+        whyItMatters: 'Müşteri dükkana gelip acil kablo veya SSD istediğinde "kalmadı" deyip müşteriyi geri çevirmemek için toptancıya erkenden sipariş vermeni sağlar.'
+      },
+      {
+        term: 'Toplam Stok Maliyet Değeri',
+        meaning: 'Depodaki tüm ürünlerin dükkana geliş (maliyet) fiyatlarının toplam tutarıdır.',
+        whyItMatters: '"Şu an dükkanımın rafında kaç liralık mal yatıyor?" sorusunun kesin cevabıdır. Dükkanın sermaye büyüklüğünü gösterir.'
+      },
+      {
+        term: 'Dövizli Stok (USD / EUR)',
+        meaning: 'Dolar veya Euro üzerinden satın alınan işlemci, RAM, ekran kartı gibi ürünlerin güncel kurla TL maliyetidir.',
+        whyItMatters: 'Dolar kuru arttığında zararına satış yapmanı önler; ürünün güncel TL satış fiyatını piyasaya göre otomatik korur.'
+      }
+    ],
     steps: [
       {
         number: 1,
@@ -251,6 +346,13 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     category: 'service',
     routePath: '/services',
     summary: 'Dükkanda verilen format, termal macun bakımı, kasa toplama, virüs temizliği, ekran montajı gibi standart işçilik kalemlerinin birim fiyat ve KDV oranlarıyla tanımlandığı şablon ekranıdır.',
+    metrics: [
+      {
+        term: 'Hizmet / İşçilik Birim Fiyatı',
+        meaning: 'Bir parça maliyeti olmadan, tamamen teknisyenin emeği ve bilgisi için müşteriden talep edilen standart tutardır.',
+        whyItMatters: 'Her müşteriye farklı fiyat çekmeyi engeller; dükkanda kurumsal ve şeffaf bir servis fiyat politikası oluşturur.'
+      }
+    ],
     steps: [
       {
         number: 1,
@@ -273,6 +375,23 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     category: 'core',
     routePath: '/customers',
     summary: 'Dükkanın müşterilerini, telefonlarını, geçmiş servis/satış hareketlerini ve en önemlisi veresiye borçlarını takip ettiğin ekrandır.',
+    metrics: [
+      {
+        term: 'Kırmızı Bakiye (Müşteri Borcu)',
+        meaning: 'Müşterinin dükkana olan açık hesap / veresiye borcudur. Mal veya hizmet verilmiş ama para henüz tahsil edilmemiştir.',
+        whyItMatters: 'Dükkanın parasının dışarıda kimlerde kaldığını gösterir. Kırmızı rakam ne kadar yüksekse dükkan o kadar alacaklıdır.'
+      },
+      {
+        term: 'Yeşil Bakiye (Müşteri Alacağı / Avans)',
+        meaning: 'Müşterinin henüz yapılmamış bir tamir veya sipariş için dükkana önceden bıraktığı kapora / fazla paradır.',
+        whyItMatters: 'İş bittiğinde müşteriden bu tutar kadar daha az tahsilat yapılacağını hatırlatır.'
+      },
+      {
+        term: 'Cari Ekstre',
+        meaning: 'Müşterinin tarih tarih aldığı ürünler, getirdiği cihazlar ve yaptığı ödemelerin resmi dökümüdür.',
+        whyItMatters: '"Ben ne zaman borçlandım?" diyen müşteriye tek tıkla WhatsApp veya çıktı olarak gösterip tartışmayı bitirir.'
+      }
+    ],
     steps: [
       {
         number: 1,
@@ -313,6 +432,18 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     category: 'core',
     routePath: '/suppliers',
     summary: 'Yedek parça, bilgisayar bileşeni ve aksesuar aldığın toptancıların (Arena, Penta, yerel toptancılar vb.) cari hesapları, alış faturaları ve borç takibidir.',
+    metrics: [
+      {
+        term: 'Tedarikçi Borç Bakiyesi',
+        meaning: 'Parça aldığın toptancıya olan toplam açık hesap borcundur.',
+        whyItMatters: 'Toptancı limitini aşıp sana mal vermeyi kesmeden önce ne kadar ödeme yapman gerektiğini hatırlatır.'
+      },
+      {
+        term: 'Stoğa Otomatik Giriş (Alış Faturası)',
+        meaning: 'Toptancı faturasını girerken "Stoğa Ekle" işaretlendiğinde ürünlerin depoya adet adet otomatik eklenmesidir.',
+        whyItMatters: 'Faturadaki 50 parça ürünü tek tek stoktan elinle girip saatlerce uğraşmanı engeller; tek tuşla hem faturayı hem stoğu işler.'
+      }
+    ],
     steps: [
       {
         number: 1,
@@ -347,6 +478,18 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     category: 'finance',
     routePath: '/cash-registers',
     summary: 'Bilgisayar Hastanesi\'nin fiziksel para çekmecesinin sistemdeki tam karşılığıdır. Mağazadan yapılan nakit satışlar, teknik servis peşin tahsilatları ve dükkan masrafları saniyesine kadar bu ekranda toplanır.',
+    metrics: [
+      {
+        term: 'Kasa Bakiyesi (Sistem Kasası)',
+        meaning: 'Sisteme girilen tüm nakit tahsilatlar ile nakit harcamaların matematiksel net sonucudur.',
+        whyItMatters: 'Çekmecedeki fiziki paranın sağlamasıdır. İkisi eşit değilse aradaki fark ya unutulmuş bir gider ya da fişsiz satıştır.'
+      },
+      {
+        term: 'Kasadan Bankaya Virman (Transfer)',
+        meaning: 'Kasada hırsızlık veya kaybolma riskine karşı fazla nakit parayı alıp dükkanın şirket banka hesabına yatırma hareketidir.',
+        whyItMatters: 'Dükkanın nakit parasını bankaya aktarırken gider veya kâr/zarar gibi görünmesini önler; varlıklar arası yer değiştirme olarak işler.'
+      }
+    ],
     steps: [
       {
         number: 1,
@@ -380,6 +523,13 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     category: 'finance',
     routePath: '/bank-accounts',
     summary: 'Bilgisayar Hastanesi\'ne ait ticari banka hesaplarının ve kredi kartı POS tahsilatlarının takip edildiği ekrandır.',
+    metrics: [
+      {
+        term: 'Banka Mevduat Bakiyesi',
+        meaning: 'Dükkanın banka hesabındaki hazır paradır. POS cihazından çekilen kart ödemeleri ve müşterilerin gönderdiği havaleler burada toplanır.',
+        whyItMatters: 'Kira veya vergi öderken bankada yeterli para olup olmadığını kontrol etmeni sağlar.'
+      }
+    ],
     steps: [
       {
         number: 1,
@@ -402,6 +552,18 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     category: 'finance',
     routePath: '/expenses',
     summary: 'Dükkanın kira, elektrik, kargo, sarf malzeme harcamalarının işlendiği ve merkez ortak kartla ödenen dükkan vergilerinin mahsup virmanının yapıldığı kritik finans ekranıdır.',
+    metrics: [
+      {
+        term: 'Sabit Gider vs Değişken Gider',
+        meaning: 'Kira, internet, aidat, muhasebe gibi her ay kaçınılmaz olarak çıkan giderler SABİTTİR. Çay, şeker, kargo, sarf malzeme gibi dükkan iş yaptıkça çıkan giderler DEĞİŞKENDİR.',
+        whyItMatters: 'Dükkan kapalı olsa bile her ay mutlaka ödenmesi gereken asgari tutarı bilmeni sağlar; işlerin az olduğu aylarda değişken giderleri kısma imkanı verir.'
+      },
+      {
+        term: 'Ortak Kart Mahsup Virmanı (Çok Önemli)',
+        meaning: 'Merkez veya şirket ortağı (şahsi / ortak kart), Bilgisayar Hastanesi adına vergi ödediğinde oluşan transfer hareketidir.',
+        whyItMatters: 'Vergi zaten dükkan gideri olarak işlenmiştir; dükkan kasasından karta virman yapıldığında bu işlem TRANSFER (is_transfer: true) sayılır ve dükkan kârını ikinci kez asla düşürmez!'
+      }
+    ],
     steps: [
       {
         number: 1,

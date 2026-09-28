@@ -27,9 +27,9 @@ function mdToHtml(md) {
     .replace(/\`(.*?)\`/g, '<code>$1</code>')
     // Yatay Çizgi
     .replace(/^---$/gim, '<hr class="divider"/>')
-    // Listeler
-    .replace(/^\* (.*$)/gim, '<li>$1</li>')
-    .replace(/^[0-9]+\. (.*$)/gim, '<li class="num-li">$1</li>')
+    // Listeler (girintili maddeler dahil)
+    .replace(/^\s*\* (.*$)/gim, '<li>$1</li>')
+    .replace(/^\s*[0-9]+\. (.*$)/gim, '<li class="num-li">$1</li>')
 
   // Paragraflar
   const lines = html.split('\n')
@@ -165,9 +165,7 @@ const fullHtml = `<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <div class="header-box">
-    ${bodyHtml}
-  </div>
+  ${bodyHtml}
 </body>
 </html>`
 
@@ -183,6 +181,11 @@ execSync(cmd)
 if (fs.existsSync(pdfPath)) {
   const stats = fs.statSync(pdfPath)
   console.log(`BAŞARILI: PDF oluşturuldu! Boyut: ${stats.size} bayt, Konum: ${pdfPath}`)
+  
+  // Public klasörüne de kopyala
+  const publicPdf = path.resolve('c:/Coding Projects/ctc-erp/public/IBRAHIM-KULLANIM-KILAVUZU.pdf')
+  fs.copyFileSync(pdfPath, publicPdf)
+  console.log(`Web indirme kopyası güncellendi: ${publicPdf}`)
 } else {
   console.error('HATA: PDF oluşturulamadı.')
 }

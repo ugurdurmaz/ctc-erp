@@ -7,7 +7,8 @@ import Link from 'next/link'
 import { 
   HelpCircle, X, ExternalLink, Lightbulb, AlertTriangle, 
   CheckCircle2, ArrowRight, BookOpen, Search, Store, Wrench, 
-  Package, ArrowUpRight, ArrowDownLeft, Wallet, Receipt, LayoutDashboard
+  Package, ArrowUpRight, ArrowDownLeft, Wallet, Receipt, LayoutDashboard,
+  BarChart3
 } from 'lucide-react'
 import { GUIDE_TOPICS, ROUTE_TO_GUIDE_MAP, GuideTopic } from '@/lib/guide-data'
 
@@ -163,6 +164,36 @@ export default function ContextualHelpDrawer() {
               </div>
             ))}
           </div>
+
+          {/* EKRANDAKİ DEĞERLER VE VERİLERİN İZAHI (NE İŞE YARAR?) */}
+          {currentTopic.metrics && currentTopic.metrics.length > 0 && (
+            <div className="space-y-2.5 pt-3 border-t border-slate-800">
+              <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                <BarChart3 size={13} className="text-amber-400" /> Ekranda Görünen Değerler Ne Anlama Gelir?
+              </h3>
+              <div className="space-y-2">
+                {currentTopic.metrics.map((m, mIdx) => (
+                  <div key={mIdx} className="p-3 rounded-xl bg-[#0e1424] border border-slate-800 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                      <span className="font-bold text-white text-[12px]">{m.term}</span>
+                    </div>
+                    <div className="text-slate-300 text-[11px] leading-relaxed">
+                      <strong className="text-slate-400 font-semibold">Anlamı: </strong>
+                      {m.meaning}
+                    </div>
+                    <div className="p-2 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-200 text-[10.5px] leading-relaxed">
+                      <div className="font-bold text-amber-300 mb-0.5 flex items-center gap-1">
+                        <Lightbulb size={12} className="inline shrink-0" />
+                        Bu Veri Ne İşine Yarar? / Esnaf Kararı:
+                      </div>
+                      {m.whyItMatters}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* SIKÇA SORULAN SORULAR */}
           {currentTopic.faqs && currentTopic.faqs.length > 0 && (

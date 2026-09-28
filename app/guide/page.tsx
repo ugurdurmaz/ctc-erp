@@ -7,7 +7,8 @@ import {
   CheckCircle2, ArrowRight, Store, Wrench, Package, 
   ArrowUpRight, ArrowDownLeft, Wallet, Receipt, LayoutDashboard,
   Layers, Sparkles, Check, ChevronDown, ChevronUp, FileText,
-  Clock, ShieldAlert, ArrowRightLeft, HelpCircle, Download
+  Clock, ShieldAlert, ArrowRightLeft, HelpCircle, Download,
+  BarChart3
 } from 'lucide-react'
 import { GUIDE_TOPICS, GuideTopic } from '@/lib/guide-data'
 
@@ -271,6 +272,44 @@ export default function GuidePage() {
                       </div>
                     ))}
                   </div>
+
+                  {/* EKRANDAKİ DEĞERLER VE VERİLERİN İZAHI (ESNAF KARAR REHBERİ) */}
+                  {topic.metrics && topic.metrics.length > 0 && (
+                    <div className="pt-4 border-t border-slate-800/80 space-y-3 print:border-slate-300">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2 print:text-black">
+                          <BarChart3 size={15} className="text-amber-400" />
+                          Ekranda Gözüken Değerler ve Veriler Ne Anlama Gelir?
+                        </h3>
+                        <span className="text-[11px] text-slate-500 font-medium print:hidden">Esnaf Karar Rehberi</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {topic.metrics.map((metric, mIdx) => (
+                          <div 
+                            key={mIdx}
+                            className="p-3.5 rounded-xl bg-[#070b14]/90 border border-slate-800/90 hover:border-amber-500/40 transition-all space-y-2 print:bg-white print:border-slate-200"
+                          >
+                            <div className="flex items-center gap-2 border-b border-slate-800/60 pb-2 print:border-slate-200">
+                              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" />
+                              <h4 className="font-bold text-white text-xs print:text-black">{metric.term}</h4>
+                            </div>
+                            <p className="text-slate-300 text-xs leading-relaxed print:text-slate-700">
+                              <strong className="text-slate-400">Nedir: </strong>
+                              {metric.meaning}
+                            </p>
+                            <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] leading-relaxed print:bg-amber-50 print:text-amber-900 print:border-amber-200">
+                              <strong className="font-semibold text-amber-200 print:text-amber-950 flex items-center gap-1 mb-1">
+                                <Lightbulb size={12} className="inline shrink-0" />
+                                Bu Veri Ne İşine Yarar? / Esnaf Kararı:
+                              </strong>
+                              {metric.whyItMatters}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* SIKÇA SORULAN SORULAR */}
                   {topic.faqs && topic.faqs.length > 0 && (

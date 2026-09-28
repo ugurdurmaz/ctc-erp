@@ -212,7 +212,160 @@ Dükkanın kapısını kilitlemeden önce şu 5 adımlık kontrolü mutlaka yap:
 
 ---
 
-## 4. ALTIN KURALLAR & "ASLA YAPMAMAN GEREKENLER"
+## 4. EKRANDA GÖRDÜĞÜNÜZ DEĞERLER VE VERİLER NE ANLAMA GELİR?
+### (Muhasebe Bilgisi Olmayanlar İçin Esnaf Karar ve Yönetim Rehberi)
+
+Ekranda gördüğün hiçbir sayı rastgele değildir. Her kutucuk, her renkli rozet ve her bakiye, dükkanı yönetirken sana **"ne yapman gerektiğini"** söyler. Aşağıda sayfa sayfa ekrandaki verilerin anlamları ve bu verilere bakarak alman gereken dükkan kararları izah edilmiştir:
+
+---
+
+### A. GENEL DURUM (DASHBOARD) EKRANINDAKİ VERİLER
+
+* **Net Nakit Varlık (Kasa + Banka - Kredi Kartı Borcu):**
+  * **Nedir:** Çekmecendeki nakit para ile bankadaki paranı toplar, varsa dükkanın kredi kartı borçlarını bundan düşer.
+  * **Ne İşine Yarar / Esnaf Kararı:** Kasada 20.000 TL nakit görebilirsin; ama 15.000 TL kredi kartı borcun varsa aslında harcayabileceğin net para sadece 5.000 TL'dir. "Param var" deyip toptancıya gereksiz sipariş vermeni engeller, dükkanın gerçek can suyunu gösterir.
+
+* **Toplam Müşteri Alacağı (Dışarıdaki Veresiyeler):**
+  * **Nedir:** Müşterilere yaptığın tamir veya verdiğin mallardan henüz tahsil edemediğin, piyasadan toplayacağın toplam para.
+  * **Ne İşine Yarar / Esnaf Kararı:** Bu rakam çok büyüdüyse dükkanın parası sokakta kalmış demektir. Hemen "Müşteriler" sekmesine gidip borcunu geciktirenleri araman veya yeni gelen müşterilere veresiye vermeyi kısıtlaman gerekir.
+
+* **Tedarikçilere Borçlar (Ödenecek Faturalar):**
+  * **Nedir:** Toptancılardan aldığın parça, ekran, kablo vb. ürünler için henüz ödemediğin toplam fatura borcu.
+  * **Ne İşine Yarar / Esnaf Kararı:** Önümüzdeki günlerde kasandan ya da bankandan ne kadar para çıkacağını önceden bilmeni sağlar. Kasanı toptancı gününe hazırlarsın.
+
+* **Yaklaşan ve Ay Sonu Vadeleri (Sarı & Kırmızı Uyarılar):**
+  * **Nedir:** Günü bugün gelmiş veya yaklaşan dükkan kirası, elektrik, internet faturası, toptancı senedi ya da merkeze virmanlanacak kart borçları.
+  * **Ne İşine Yarar / Esnaf Kararı:** Günlük yapılacaklar listendir. Sabah işe geldiğinde buraya bakar, "Bugün hangi ödemeler var?" diye görür ve ona göre hazırlık yaparsın.
+
+* **⚠️ Merkeze Virman Bekliyor Rozeti:**
+  * **Nedir:** Şirket ortağı veya merkezin ortak kredi kartıyla senin dükkanının bir vergisini/faturasını ödediğini ve kart kesiminde senin bu parayı dükkan kasasından merkeze aktarman gerektiğini belirtir.
+  * **Ne İşine Yarar / Esnaf Kararı:** Rozetin yanındaki **[Merkeze Virmanla →]** butonuna basıp ödemeyi kapatırsın. Dükkanın borcu kalmaz ve kâr/zararın çift düşmeden tertemiz kalır.
+
+---
+
+### B. MAĞAZA (GÜNLÜK PERAKENDE DEFTERİ) EKRANINDAKİ VERİLER
+
+* **KASA Kutucuğu:**
+  * **Nedir:** Sabah açılışta devreden para + gün boyu elden giren nakit - gün içinde yapılan ufak harcamalar.
+  * **Ne İşine Yarar / Esnaf Kararı:** O an çekmecede fiziksel olarak kaç TL kâğıt/madeni para olması gerektiğini söyler. Akşam çekmeceyi saydığında bu kutudaki tutarla birebir tutmalıdır.
+
+* **NAKİT Sütunu:**
+  * **Nedir:** Müşterinin elden kâğıt para ile ödediği tutardır.
+  * **Ne İşine Yarar / Esnaf Kararı:** Kasandaki fiziksel nakit artışını temsil eder. Gün sonu çekmecesinde sayacağın paranın kaynağıdır.
+
+* **K.KARTI (POS) Sütunu:**
+  * **Nedir:** Müşterinin dükkandaki POS cihazından kart çektirerek ödediği tutardır.
+  * **Ne İşine Yarar / Esnaf Kararı:** Bu para çekmeceye girmez, banka hesabına yansır. Çekmecede nakit arayıp "para nerede" paniği yaşamamanı ve banka POS slipleriyle mutabakat yapmanı sağlar.
+
+* **SERVİS Kutusu & Günün Servis Fişleri:**
+  * **Nedir:** Teknik serviste tamiri bitip o gün müşteriye teslim edilen cihazların toplam geliridir.
+  * **Ne İşine Yarar / Esnaf Kararı:** Günlük kazancının ne kadarının hazır ürün satışından (aksesuar vb.), ne kadarının el emeği ve teknik servisten geldiğini ayrıştırmanı sağlar.
+
+* **GİDER & MASRAF Kutusu:**
+  * **Nedir:** Dükkan için o gün anlık olarak harcanan nakit (çay, yemek, kargo, ampul vb.).
+  * **Ne İşine Yarar / Esnaf Kararı:** Kasandaki eksilmenin nereye gittiğini belgeler. Akşam kasayı sayarken "150 TL eksik çıktı, nereye gitti bu para?" demeni önler.
+
+---
+
+### C. TEKNİK SERVİS EKRANINDAKİ VERİLER
+
+* **"Müşteri Onayı Bekliyor" Durumu (Sarı Rozet):**
+  * **Nedir:** Arıza tespiti yapılmış, fiyat çıkarılmış ama müşteri henüz "Tamam yapın" dememiş cihazları gösterir.
+  * **Ne İşine Yarar / Esnaf Kararı:** **Dükkanın emniyet kilididir!** Onay almadan cihaza pahalı parça takıp sonradan müşterinin "Ben bu fiyata yaptırmam, sökün parçamı" demesini ve dükkanın zarara uğramasını engeller.
+
+* **Parça Maliyeti vs İşçilik Tutarı:**
+  * **Nedir:** Cihaza taktığın parçanın toptancı alış fiyatı ile senin talep ettiğin tamir işçiliğini ayrı ayrı gösterir.
+  * **Ne İşine Yarar / Esnaf Kararı:** Yaptığın işten net ne kazandığını gösterir. Parçayı zararına satmadığından ve dükkana yeterli işçilik kârı bıraktığından emin olursun.
+
+* **"Hazır (Onarım Tamamlandı)" Durumu (Yeşil Rozet):**
+  * **Nedir:** Tamiri bitmiş, testleri yapılmış, rafta müşterisini bekleyen cihazları gösterir.
+  * **Ne İşine Yarar / Esnaf Kararı:** Hemen yanındaki yeşil **WhatsApp** butonuna basarak müşteriye "Cihazınız hazır, teslim alabilirsiniz" mesajını tek tıkla atarsın. Dükkanda gereksiz cihaz kalabalığını önler, paranın hızlı tahsil edilmesini sağlar.
+
+* **Garanti Süresi (30 Gün / 90 Gün / 6 Ay):**
+  * **Nedir:** Yapılan tamire veya takılan parçaya verilen servis garanti süresidir.
+  * **Ne İşine Yarar / Esnaf Kararı:** Müşteri 2 hafta sonra "Yine bozuldu" diye geldiğinde ücretsiz mi bakılacağını yoksa kullanıcı hatası mı olduğunu takip etmeni sağlar.
+
+---
+
+### D. STOK YÖNETİMİ EKRANINDAKİ VERİLER
+
+* **Ölü / Uyuyan Stok (Hareketsiz Ürünler):**
+  * **Nedir:** Rafta veya depoda **son 60, 90 veya 180 gündür hiç satılmamış**, hareketsiz bekleyen ürünlerin listesi ve toplam maliyetidir.
+  * **Ne İşine Yarar / Esnaf Kararı:** 
+    * Rafta duran mal aslında senin **bağlanmış ve paslanan parandır**.
+    * Bu ürünleri gördüğünde: İndirim kampanyası yapıp elden çıkartabilirsin, vitrinin ön tarafına koyup satabilirsin veya toptancıyla anlaşıp hızlı giden ürünlerle (flash bellek, mouse vb.) takas edebilirsin. Böylece dükkanın sermayesi rafta çürümez!
+
+* **Kritik Seviyedeki Stoklar (Kırmızı Alarm):**
+  * **Nedir:** Belirlediğin emniyet sınırının (örn: 2 adedin) altına düşmüş parçalardır (SSD, RAM, şarj aleti vb.).
+  * **Ne İşine Yarar / Esnaf Kararı:** Müşteri geldiğinde "Elimizde kalmadı, yarın gelin" deyip müşteriyi kaçırmamanı sağlar. Rakam kırmızıya döndüğü an toptancıya hemen sipariş geçersin.
+
+* **Envanter Değeri (Alış ve Satış Fiyatıyla):**
+  * **Nedir:** Dükkanın rafındaki ve deposundaki tüm malların sana maliyeti ve satıldığında getireceği toplam ciro.
+  * **Ne İşine Yarar / Esnaf Kararı:** Dükkanda ne kadarlık mal yattığını bilirsin. Sigorta veya güvenlik tedbirleri alırken dükkanın mal varlığını net görürsün.
+
+---
+
+### E. MÜŞTERİLER (ALACAK TAKİBİ) EKRANINDAKİ VERİLER
+
+* **Toplam Bakiye (Kırmızı Borçlu Tutarlar):**
+  * **Nedir:** Müşterilerin dükkana olan toplam borç miktarıdır.
+  * **Ne İşine Yarar / Esnaf Kararı:** Kimin dükkana ne kadar borcu olduğunu kuruşu kuruşuna bilirsin. Dükkana gelip yeni cihaz bırakan birinin eski borcu varsa, yeni işe başlamadan önce eski borcunu kapatmasını istersin.
+
+* **Vadesi Geçmiş Alacak (Gecikmiş Veresiyeler):**
+  * **Nedir:** Ödeme sözü verdiği tarihi aşmış, borcunu gününde getirmeyen müşterilerdir.
+  * **Ne İşine Yarar / Esnaf Kararı:** İlk aranacak müşterilerdir. Kartındaki **WhatsApp** butonuna basarak nazikçe borç ekstresi gönderir ve paranı tahsil edersin.
+
+---
+
+### F. SATICILAR (TOPTANCILAR) EKRANINDAKİ VERİLER
+
+* **Toplam Tedarikçi Borcu:**
+  * **Nedir:** Toptancılara (parçacılara) olan toplam borcun.
+  * **Ne İşine Yarar / Esnaf Kararı:** Toptancı dükkana mal getirdiğinde veya hesap kestiğinde aranızda anlaşmazlık çıkmasını önler. Sistemdeki borç ile toptancının kestiği hesap ekstresini karşılaştırıp teyit edersin.
+
+* **Vadesi Gelen / Geciken Toptancı Ödemeleri:**
+  * **Nedir:** Ödeme vadesi gelmiş toptancı faturalarıdır.
+  * **Ne İşine Yarar / Esnaf Kararı:** Toptancıya mahcup olmamak ve parça sevkiyatının durmasını engellemek için parayı hazırlamanı sağlar.
+
+---
+
+### G. NAKİT KASA EKRANINDAKİ VERİLER
+
+* **Kasa Bakiyesi:**
+  * **Nedir:** Dükkanın para çekmecesinde o an bulunması gereken fiziki net nakit tutarıdır.
+  * **Ne İşine Yarar / Esnaf Kararı:** Dükkanın kalbidir. Akşam çekmecedeki parayı saydığında bu sayıyla eşit olmak zorundadır. Eşit değilse gün içinde bir işlem unutulmuş demektir.
+
+* **Günlük Giriş / Çıkış:**
+  * **Nedir:** O gün kasaya kaç TL elden para girdiği ve dükkan ihtiyaçları için kaç TL çıktığıdır.
+  * **Ne İşine Yarar / Esnaf Kararı:** Dükkanın o günkü nakit akış hızını gösterir.
+
+---
+
+### H. BANKA HESAPLARI VE POS EKRANINDAKİ VERİLER
+
+* **Banka Bakiyesi:**
+  * **Nedir:** Şirketin banka hesabındaki güncel paradır.
+  * **Ne İşine Yarar / Esnaf Kararı:** Toptancıya havale/EFT yaparken veya kira/vergi öderken bankada yeterli bakiye olup olmadığını gösterir.
+
+* **POS Bloke / Valör Süresi:**
+  * **Nedir:** Müşterinin kredi kartıyla ödediği paranın banka tarafından kaç gün sonra hesaba yatırılacağıdır (Örn: Ertesi gün veya 28 gün).
+  * **Ne İşine Yarar / Esnaf Kararı:** Kredi kartı sliplerinin hemen nakde dönüşmediğini, paranın ne zaman hesaba geçeceğini bilerek nakit planı yapmanı sağlar.
+
+---
+
+### I. GENEL GİDERLER EKRANINDAKİ VERİLER
+
+* **Sabit Giderler (Kira, İnternet, Aidat, Muhasebe):**
+  * **Nedir:** Dükkan hiç satış yapmasa bile her ay tıkır tıkır ödenmesi gereken zorunlu dükkan masrafları.
+  * **Ne İşine Yarar / Esnaf Kararı:** Dükkanın her ay sadece kapısını açık tutabilmek için kaç TL para kazanması gerektiğini (başabaş noktasını) gösterir.
+
+* **Değişken Giderler (Kargo, Çay/Şeker, Temizlik, Tamir Malzemesi):**
+  * **Nedir:** İş hacmine göre değişen günlük ufak dükkan harcamaları.
+  * **Ne İşine Yarar / Esnaf Kararı:** Gereksiz masrafları kısmanı ve dükkanın parasının nereye gittiğini denetlemeni sağlar.
+
+---
+
+## 5. ALTIN KURALLAR & "ASLA YAPMAMAN GEREKENLER"
 
 1. **"Sonra Yazarım" Deme:** Bir müşteri ürün aldığında veya para verdiğinde anında sisteme gir. Akşama bırakılan işlemler mutlaka unutulur.
 2. **Kafana Göre Kayıt Silme:** Bir faturayı veya gideri yanlış girdiysen rastgele silmek yerine nedenini kontrol et. Sistem her silinen işlemin arkasında log (denetim izi) bırakır.
@@ -223,3 +376,4 @@ Dükkanın kapısını kilitlemeden önce şu 5 adımlık kontrolü mutlaka yap:
 ---
 
 *İyi çalışmalar dileriz! Sistemle ilgili takıldığın her an ekranın sağ üst köşesindeki **`[?]`** butonuna basabilirsin.*
+
