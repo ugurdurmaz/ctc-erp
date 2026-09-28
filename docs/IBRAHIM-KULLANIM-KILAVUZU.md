@@ -31,24 +31,28 @@ Hoş geldin İbrahim! Bu kılavuz, Bilgisayar Hastanesi'ndeki günlük satışla
 
 ---
 
-### SENARYO 1: HIZLI PERAKENDE SATIŞ (MAĞAZA KASASI)
-> **Örnek Olay:** Dükkana bir müşteri geldi; raftan bir flash bellek ve bir HDMI kablo aldı.
+### SENARYO 1: GÜNLÜK MAĞAZA KASASI (PERAKENDE SATIŞ DEFTERİ)
+> **Örnek Olay:** Dükkana gelen bir müşteri flash bellek satın aldı (250 TL nakit), başka bir müşteri ise oyun yükletti ve kredi kartıyla ödedi (400 TL POS).
 
-1. Sol menüden **Mağaza (Hızlı Satış)** sekmesine tıkla.
-2. **Ürün Ekleme:**
-   * Eğer barkod okuyucun varsa barkodu okut; ürün otomatik sepete eklenir.
-   * Barkod yoksa arama kutusuna ürün adını yazıp listeden tıkla.
-   * Adet değiştirmek istersen sepetteki `+` / `-` butonlarını kullan.
-3. **Müşteri Seçimi:**
-   * Ayaküstü tanımadığın perakende müşteri ise müşteri seçimi yapmana gerek yoktur (Varsayılan olarak "Perakende Müşteri" seçilidir).
-   * Eğer tanıdık bir cari müşteri ise "Müşteri Seç" kutusundan adını seç.
-4. **Tahsilat Türü:**
-   * **Nakit:** Müşteri nakit verdiyse `Nakit` seçeneğine tıkla. Para anında dükkan kasana işlenir.
-   * **Kredi Kartı / POS:** Dükkandaki POS cihazından çektirdiysen `Banka / POS` seçeneğini ve ilgili şirket banka hesabını seç.
-   * **Veresiye (Açık Hesap):** Müşteri "Sonra vereceğim" dediyse, **mutlaka müşteriyi seçip** `Açık Hesap (Veresiye)` butonuna tıkla. Bu işlem müşterinin cari hesabına borç olarak yansır, kasana para girmez.
-5. **Satışı Tamamla & Fiş Yazdır:**
-   * `Satışı Tamamla` butonuna bas.
-   * İstersen küçük termal fiş çıktısı ver. Ürünler depodan anında düşer.
+1. Sol menüden **Mağaza** sekmesine tıkla. Bu ekran senin günlük perakende satış defterindir.
+2. **Üst Finans Şeridini Kontrol Et:**
+   * Sayfanın tepesinde **KASA**, **NAKİT**, **K.KARTI**, **SERVİS** ve **GİDER** kutucuklarını göreceksin. Burada gün boyu yapılan tüm tahsilatların anlık canlı toplamı tutulur.
+3. **Satışı İlgili Kategori Kutusuna Yaz:**
+   * Ekrandaki kategori kutularından uygun olanına gel:
+     * **Aksesuar & Sarf Malzeme:** Flash bellek, kablo, adaptör, mouse, klavye vb.
+     * **Oyun & Prog Yükleme:** Yazılım ve oyun yükleme işlemleri.
+     * **DVD & Hariciye:** Medya, film, müzik satışları.
+     * **Orjinal Film & Oyun:** Orijinal kutulu ürünler.
+     * **Diğer:** Muhtelif perakende satışlar.
+4. **Satır Doldurma (Açıklama, Adet, Tahsilat):**
+   * Boş satırdaki *"Açıklama veya Ürün Seç..."* alanına tıkla. İstersen klavyeyle doğrudan yaz (örn: "Kingston 32GB USB"), istersen açılan listeden depodaki stok kartını seç (stok kartından seçtiğin ürün dükkan deposundan otomatik düşer).
+   * **Adet:** Satılan miktarı yaz (örn: 1).
+   * **Nakit / K.Kartı Ayrımı:** Müşteri elden nakit ödediyse tutarı **NAKİT** sütununa (örn: 250), dükkanın POS cihazından kart çektirdiysen **K.KARTI** sütununa (örn: 400) yaz!
+   * *Not:* Müşteri parçalı ödeme yaptıysa aynı satırda her iki sütuna bölerek yazabilirsin.
+5. **Günün Ufak Masraflarını Yaz (Gider & Masraf):**
+   * Dükkana su, çay/şeker aldıysan veya ufak bir kargo ödediysen sağ üstteki turuncu **Gider & Masraf** tablosuna satır açıp tutarı gir. Bu tutar anında dükkan kasandan düşülür.
+6. **Banka & Servis Takibi:**
+   * Sağ taraftaki **"Günün Teslim Edilen Servis Fişleri"** tablosunda Teknik Servis'ten o gün teslim edilen cihazların gelirleri otomatik olarak listelenir ve kasana eklenir.
 
 ---
 

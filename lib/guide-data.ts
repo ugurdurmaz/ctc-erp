@@ -61,45 +61,60 @@ export const GUIDE_TOPICS: GuideTopic[] = [
   },
   {
     id: 'retail',
-    title: 'Mağaza (Hızlı Perakende Satış)',
-    subtitle: 'Barkod okutma, peşin/kart satış ve anında fiş kesme',
+    title: 'Mağaza (Günlük Kasa & Perakende Defteri)',
+    subtitle: 'Kategori bazlı günlük satış, nakit/pos ayrımı ve kasa takibi',
     iconName: 'Store',
     category: 'daily',
     routePath: '/retail',
-    summary: 'Dükkana gelen müşterilere raf ürünlerinin (flash bellek, kablo, mouse vb.) hızlıca satıldığı ve tahsilatının yapıldığı ekrandır.',
+    summary: 'Bilgisayar Hastanesi\'nin günlük çalışma ve Z-defteri ekranıdır. Gün boyunca yapılan aksesuar, yazılım, medya satışları ve anlık dükkan masrafları kategorilerine göre doğrudan bu tablolara işlenir.',
     steps: [
       {
         number: 1,
-        title: 'Ürünleri Sepete Ekle',
-        description: 'Barkod okuyucuyla ürünün barkodunu okut veya ekrandaki arama kutusuna ürün adını yazıp tıkla. Miktar değiştirmek için sepet üzerindeki butonları kullan.',
-        tip: 'Barkodlu ürünler doğrudan sepete eklenir ve satır adetleri otomatik artar.'
+        title: 'Üst Kasa ve Gelir Şeridini Takip Et',
+        description: 'Ekranın en üstünde KASA (çekmecedeki toplam nakit), NAKİT (günün nakit satışları), K.KARTI (günün POS çekimleri), SERVİS (teknik servisten gelen tahsilatlar) ve GİDER (dükkan harcamaları) anlık olarak toplanır.',
+        tip: 'Bu şerit gün boyunca dükkanın canlı finansal nabzını gösterir.'
       },
       {
         number: 2,
-        title: 'Müşteri Türünü Belirle',
-        description: 'Ayaküstü perakende müşteri için bir şey seçmene gerek yoktur (varsayılan Perakende Müşteri kalır). Tanıdık bir cari ise listeden müşteriyi seç.',
-        warning: 'Eğer satış veresiye olacaksa mutlaka müşteri seçilmelidir!'
+        title: 'Satışı İlgili Kategori Kutusuna Yaz',
+        description: 'Satılan ürün veya hizmet hangi gruba giriyorsa o kutudaki boş satıra tıkla: Aksesuar & Sarf Malzeme, Oyun & Prog Yükleme, DVD & Hariciye, Orjinal Film & Oyun veya Diğer.',
+        tip: 'Her kategorinin kendi tablosu vardır; böylece gün sonunda hangi alandan ne kadar kazandığını net görürsün.'
       },
       {
         number: 3,
-        title: 'Ödeme Türünü Seç',
-        description: 'Nakit, Kredi Kartı (POS) veya Açık Hesap (Veresiye) seçeneklerinden uygun olanına tıkla.',
-        tip: 'Nakit seçilirse para anında dükkan kasana girer. Kart seçilirse banka hesabına yansır.'
+        title: 'Ürün Seçimi / Açıklama ve Adet Gir',
+        description: '"Açıklama veya Ürün Seç..." alanına klavyeyle serbestçe yazabilir veya depodaki tanımlı stok kartlarından birini seçebilirsin.',
+        tip: 'Stok kartından seçtiğin ürünler otomatik olarak dükkan deposundaki stok miktarından düşülür.'
       },
       {
         number: 4,
-        title: 'Satışı Tamamla ve Fiş Çıkar',
-        description: '"Satışı Tamamla" butonuna bas. Ürünler dükkan stoğundan anında düşer ve istersen termal satış fişi yazdırılır.'
+        title: 'Tahsilat Türünü Belirle (Nakit mi, Kredi Kartı mı?)',
+        description: 'Müşteri elden nakit verdiyse tutarı NAKİT sütununa yaz. Dükkandaki POS cihazından kart çektiysen tutarı K.KARTI sütununa yaz.',
+        warning: 'Müşteri kısmi ödeme yaptıysa (örn: 200 TL nakit, 300 TL kart) aynı satırda her iki sütuna bölerek yazabilirsin.'
+      },
+      {
+        number: 5,
+        title: 'Günün Masraflarını (Gider & Masraf) Ekle',
+        description: 'Sağ üstteki turuncu "Gider & Masraf" tablosuna gün içinde dükkan için yapılan ufak harcamaları (kargo, su, yemek vb.) yaz. Bu tutarlar anlık olarak çekmecedeki nakit paradan düşülür.'
+      },
+      {
+        number: 6,
+        title: 'Sağ Paneller (Banka Hareketleri & Servis Fişleri)',
+        description: '"Günün Banka Hareketleri" alanından kasadan bankaya yatırılan veya çekilen paraları takip edebilir, "Günün Teslim Edilen Servis Fişleri" bölümünden o gün teslim edilen cihazların özetini görebilirsin.'
       }
     ],
     faqs: [
       {
-        question: 'Müşteri sonra ödeyeceğini söyledi, nasıl yapmalıyım?',
-        answer: 'Önce müşteriyi seç, ardından ödeme türü olarak "Açık Hesap (Veresiye)" butonuna bas. Bu işlem müşterinin cari hesabına borç olarak yansır.'
+        question: 'Müşteri hem nakit hem kartla ödedi, nasıl girmeliyim?',
+        answer: 'Aynı satırda nakit alınan kısmı NAKİT sütununa, POS ile çekilen kısmı K.KARTI sütununa yazabilirsin. Sistem her iki toplamı ayrı ayrı hesaplar.'
       },
       {
-        question: 'Yanlış ürünü sepete ekledim, nasıl silerim?',
-        answer: 'Sepet listesinde ürünün yanındaki çöp kutusu simgesine tıklayarak kaldırabilirsin.'
+        question: 'Satışı girdim ama depodaki stoktan düşmedi?',
+        answer: 'Sadece açıklama yazmak yerine arama listesinde çıkan depodaki ürün kartına tıklayarak seçmelisin. Seçilen stok kartlarının yanında depo simgesi görünür ve stoktan düşer.'
+      },
+      {
+        question: 'Teknik servis gelirleri buraya nasıl yansıyor?',
+        answer: 'Teknik Servis sayfasında teslim edilen ve kapatılan cihazların tahsilatları üst şeritteki "SERVİS" alanına ve dükkan kasasına otomatik olarak eklenir.'
       }
     ]
   },
