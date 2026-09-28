@@ -79,14 +79,14 @@ export default function GuidePage() {
               Sistem Kullanım Kılavuzu & Günlük İşleyiş Rehberi
             </h1>
             <p className="text-xs text-slate-400 mt-1.5 max-w-2xl leading-relaxed print:text-slate-700">
-              Bu kılavuz; dükkan açılışından akşam kasa sayımına, perakende hızlı satıştan teknik servis cihaz kabulüne ve ortak kart mahsup virmanlarına kadar tüm adımları sana öğretmek için hazırlandı.
+              Bu kılavuz; dükkan açılışından akşam kasa sayımına, perakende hızlı satıştan teknik servis cihaz kabulüne ve ortak kart mahsup virmanlarına kadar tüm adımlarda rehberlik etmek için hazırlandı.
             </p>
           </div>
 
           <div className="flex items-center gap-2 shrink-0 print:hidden">
             <a
-              href="/IBRAHIM-KULLANIM-KILAVUZU.pdf"
-              download="IBRAHIM-KULLANIM-KILAVUZU.pdf"
+              href="/KULLANIM-KILAVUZU.pdf"
+              download="KULLANIM-KILAVUZU.pdf"
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition-all shadow-lg shadow-amber-900/20 active:scale-95 cursor-pointer"
             >
               <Download size={15} />

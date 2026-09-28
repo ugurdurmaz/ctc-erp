@@ -2,9 +2,9 @@ const fs = require('fs')
 const path = require('path')
 const { execSync } = require('child_process')
 
-const mdPath = path.resolve('c:/Coding Projects/ctc-erp/docs/IBRAHIM-KULLANIM-KILAVUZU.md')
-const htmlPath = path.resolve('c:/Coding Projects/ctc-erp/docs/IBRAHIM-KULLANIM-KILAVUZU.html')
-const pdfPath = path.resolve('c:/Coding Projects/ctc-erp/docs/IBRAHIM-KULLANIM-KILAVUZU.pdf')
+const mdPath = path.resolve('c:/Coding Projects/ctc-erp/docs/KULLANIM-KILAVUZU.md')
+const htmlPath = path.resolve('c:/Coding Projects/ctc-erp/docs/KULLANIM-KILAVUZU.html')
+const pdfPath = path.resolve('c:/Coding Projects/ctc-erp/docs/KULLANIM-KILAVUZU.pdf')
 
 const mdContent = fs.readFileSync(mdPath, 'utf8')
 
@@ -182,8 +182,8 @@ if (fs.existsSync(pdfPath)) {
   const stats = fs.statSync(pdfPath)
   console.log(`BAŞARILI: PDF oluşturuldu! Boyut: ${stats.size} bayt, Konum: ${pdfPath}`)
   
-  // Public klasörüne de kopyala
-  const publicPdf = path.resolve('c:/Coding Projects/ctc-erp/public/IBRAHIM-KULLANIM-KILAVUZU.pdf')
+  // Public klasörüne de kopyala (Kullanıcılar webden doğrudan indirsin)
+  const publicPdf = path.resolve('c:/Coding Projects/ctc-erp/public/KULLANIM-KILAVUZU.pdf')
   fs.copyFileSync(pdfPath, publicPdf)
   console.log(`Web indirme kopyası güncellendi: ${publicPdf}`)
 } else {

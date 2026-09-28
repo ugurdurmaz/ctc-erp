@@ -192,7 +192,7 @@ export const GUIDE_TOPICS: GuideTopic[] = [
       {
         term: 'Yedek Parça Bekliyor',
         meaning: 'Cihaz için gereken SSD, ekran paneli veya klavye dükkanda kalmamış; toptancıdan sipariş edilmiş ve kargosu bekleniyordur.',
-        whyItMatters: 'Cihazın neden masada beklediğini İbrahim\'e ve arayan müşteriye hemen açıklar. "Unuttuk mu?" şüphesini yok eder.'
+        whyItMatters: 'Cihazın neden masada beklediğini teknik personele ve arayan müşteriye hemen açıklar. "Unuttuk mu?" şüphesini yok eder.'
       },
       {
         term: 'Dış Servis / Konsinye Maliyeti',
@@ -280,7 +280,7 @@ export const GUIDE_TOPICS: GuideTopic[] = [
       {
         term: 'Ölü / Uyuyan Stok (Hareketsiz Ürünler)',
         meaning: 'Rafta aylardır duran, hiç satılmayan veya çok uzun süredir sorulmayan ürünlerdir (Örn: 6 aydır satılmayan eski bir adaptör veya ekran kartı).',
-        whyItMatters: 'Dükkanın parası o rafa gömülüdür ve paslanıyordur. İbrahim bu veriye bakarak: "Bu ürünler satılmıyor, rafta tozlanacağına indirimli satayım ya da toptancıya iade edip yerine peynir ekmek gibi satan hızlı flash bellek, mouse alayım" kararı verir.'
+        whyItMatters: 'Dükkanın parası o rafa gömülüdür ve paslanıyordur. Mağaza sorumlusu bu veriye bakarak: "Bu ürünler satılmıyor, rafta tozlanacağına indirimli satayım ya da toptancıya iade edip yerine hızlı satan flash bellek, mouse alayım" kararı verir.'
       },
       {
         term: 'Kritik Stok Uyarısı',

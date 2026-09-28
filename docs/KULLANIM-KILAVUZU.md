@@ -1,13 +1,13 @@
 # BİLGİSAYAR HASTANESİ — CTC MASTER LEDGER KULLANIM KILAVUZU
 **Hazırlayan:** Sistem Yönetimi  
-**Kullanıcı:** İbrahim (Mağaza & Teknik Servis Sorumlusu)  
+**Kullanıcı Profili:** Mağaza Sorumlusu, Teknik Servis Personeli, Ön Muhasebe  
 **Kapsam:** Bilgisayar Hastanesi Günlük Dükkan, Kasa, Servis ve Finans İşleyişi  
 
 ---
 
 ## 1. GİRİŞ VE SİSTEMİN TEMEL ÇALIŞMA MANTIĞI
 
-Hoş geldin İbrahim! Bu kılavuz, Bilgisayar Hastanesi'ndeki günlük satışları, teknik servis süreçlerini, parça girişlerini, kasa hareketlerini ve dükkan giderlerini hatasız bir şekilde takip edebilmen için adım adım hazırlanmıştır.
+Hoş geldiniz! Bu kılavuz, Bilgisayar Hastanesi'ndeki günlük satışları, teknik servis süreçlerini, parça girişlerini, kasa hareketlerini ve dükkan giderlerini hatasız bir şekilde takip edebilmeniz için adım adım hazırlanmıştır.
 
 ### Sistemin Temel İlkesi: "Her Gerçek İşlem, Sistemde de Yapılır"
 * Dükkana giren **her 1 TL nakit** veya **her 1 adet yedek parça**, sistemde de karşılık bulmalıdır.
@@ -375,5 +375,4 @@ Ekranda gördüğün hiçbir sayı rastgele değildir. Her kutucuk, her renkli r
 
 ---
 
-*İyi çalışmalar dileriz! Sistemle ilgili takıldığın her an ekranın sağ üst köşesindeki **`[?]`** butonuna basabilirsin.*
-
+*İyi çalışmalar dileriz! Sistemle ilgili takıldığınız her an ekranın sağ üst köşesindeki **`[?]`** butonuna basabilirsiniz.*
