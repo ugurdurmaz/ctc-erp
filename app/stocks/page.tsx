@@ -47,12 +47,199 @@ type StockTransaction = {
 
 type ExchangeRates = { USD: number; EUR: number }
 
-const THEME_COLORS = [
-  { label: 'Gece Mavisi', value: 'from-[#1b253b] to-[#121a2a]' },
-  { label: 'Koyu Grafit', value: 'from-[#27272a] to-[#18181b]' },
-  { label: 'Derin Mor', value: 'from-[#3b1f48] to-[#1a0f24]' },
-  { label: 'Zümrüt Yeşili', value: 'from-[#133e30] to-[#0a221b]' },
+export interface WarehouseTheme {
+  label: string
+  value: string
+  hex: string
+  border: string
+  ring: string
+  text: string
+  dot: string
+  glow: string
+}
+
+export const WAREHOUSE_THEMES: WarehouseTheme[] = [
+  {
+    label: 'Gece Mavisi',
+    value: 'from-[#1b253b] to-[#121a2a]',
+    hex: '#3b82f6',
+    border: 'border-blue-500/80',
+    ring: 'ring-blue-500/40',
+    text: 'text-blue-400',
+    dot: 'bg-blue-400',
+    glow: 'shadow-blue-950/60',
+  },
+  {
+    label: 'Koyu Grafit',
+    value: 'from-[#27272a] to-[#18181b]',
+    hex: '#a1a1aa',
+    border: 'border-zinc-400/80',
+    ring: 'ring-zinc-400/40',
+    text: 'text-zinc-300',
+    dot: 'bg-zinc-400',
+    glow: 'shadow-zinc-950/60',
+  },
+  {
+    label: 'Derin Mor',
+    value: 'from-[#3b1f48] to-[#1a0f24]',
+    hex: '#a855f7',
+    border: 'border-purple-500/80',
+    ring: 'ring-purple-500/40',
+    text: 'text-purple-400',
+    dot: 'bg-purple-400',
+    glow: 'shadow-purple-950/60',
+  },
+  {
+    label: 'Zümrüt Yeşili',
+    value: 'from-[#133e30] to-[#0a221b]',
+    hex: '#10b981',
+    border: 'border-emerald-500/80',
+    ring: 'ring-emerald-500/40',
+    text: 'text-emerald-400',
+    dot: 'bg-emerald-400',
+    glow: 'shadow-emerald-950/60',
+  },
+  {
+    label: 'Koyu Bordo',
+    value: 'from-[#4a1c1c] to-[#240d0d]',
+    hex: '#f43f5e',
+    border: 'border-rose-500/80',
+    ring: 'ring-rose-500/40',
+    text: 'text-rose-400',
+    dot: 'bg-rose-400',
+    glow: 'shadow-rose-950/60',
+  },
+  {
+    label: 'Okyanus Laciverti',
+    value: 'from-[#1e3a8a] to-[#0f172a]',
+    hex: '#0284c7',
+    border: 'border-sky-500/80',
+    ring: 'ring-sky-500/40',
+    text: 'text-sky-400',
+    dot: 'bg-sky-400',
+    glow: 'shadow-sky-950/60',
+  },
+  {
+    label: 'Metalik Titanyum',
+    value: 'from-[#334155] to-[#0f172a]',
+    hex: '#94a3b8',
+    border: 'border-slate-400/80',
+    ring: 'ring-slate-400/40',
+    text: 'text-slate-300',
+    dot: 'bg-slate-400',
+    glow: 'shadow-slate-900/60',
+  },
+  {
+    label: 'Bronz Kehribar',
+    value: 'from-[#451a03] to-[#1c0a00]',
+    hex: '#d97706',
+    border: 'border-amber-600/80',
+    ring: 'ring-amber-600/40',
+    text: 'text-amber-400',
+    dot: 'bg-amber-500',
+    glow: 'shadow-amber-950/60',
+  },
+  {
+    label: 'Neon Gece',
+    value: 'from-[#0f172a] to-[#312e81]',
+    hex: '#6366f1',
+    border: 'border-indigo-500/80',
+    ring: 'ring-indigo-500/40',
+    text: 'text-indigo-400',
+    dot: 'bg-indigo-400',
+    glow: 'shadow-indigo-950/60',
+  },
+  {
+    label: 'Kömür Siyahı',
+    value: 'from-[#18181b] to-[#09090b]',
+    hex: '#71717a',
+    border: 'border-zinc-500/80',
+    ring: 'ring-zinc-500/40',
+    text: 'text-zinc-400',
+    dot: 'bg-zinc-400',
+    glow: 'shadow-zinc-950/60',
+  },
+  {
+    label: 'Turkuaz / Cyan',
+    value: 'from-[#0e4348] to-[#062427]',
+    hex: '#06b6d4',
+    border: 'border-cyan-500/80',
+    ring: 'ring-cyan-500/40',
+    text: 'text-cyan-400',
+    dot: 'bg-cyan-400',
+    glow: 'shadow-cyan-950/60',
+  },
+  {
+    label: 'Ateş Turuncusu',
+    value: 'from-[#4d230f] to-[#251006]',
+    hex: '#f97316',
+    border: 'border-orange-500/80',
+    ring: 'ring-orange-500/40',
+    text: 'text-orange-400',
+    dot: 'bg-orange-400',
+    glow: 'shadow-orange-950/60',
+  },
+  {
+    label: 'Fuşya Pembe',
+    value: 'from-[#4a044e] to-[#240226]',
+    hex: '#d946ef',
+    border: 'border-fuchsia-500/80',
+    ring: 'ring-fuchsia-500/40',
+    text: 'text-fuchsia-400',
+    dot: 'bg-fuchsia-400',
+    glow: 'shadow-fuchsia-950/60',
+  },
+  {
+    label: 'Deniz Yeşili (Teal)',
+    value: 'from-[#0f3d3e] to-[#072021]',
+    hex: '#14b8a6',
+    border: 'border-teal-500/80',
+    ring: 'ring-teal-500/40',
+    text: 'text-teal-400',
+    dot: 'bg-teal-400',
+    glow: 'shadow-teal-950/60',
+  },
+  {
+    label: 'Koyu Yakut',
+    value: 'from-[#5c0e0e] to-[#2b0505]',
+    hex: '#ef4444',
+    border: 'border-red-500/80',
+    ring: 'ring-red-500/40',
+    text: 'text-red-400',
+    dot: 'bg-red-400',
+    glow: 'shadow-red-950/60',
+  },
+  {
+    label: 'Fıstık Yeşili (Lime)',
+    value: 'from-[#253900] to-[#121c00]',
+    hex: '#84cc16',
+    border: 'border-lime-500/80',
+    ring: 'ring-lime-500/40',
+    text: 'text-lime-400',
+    dot: 'bg-lime-400',
+    glow: 'shadow-lime-950/60',
+  },
 ]
+
+export const THEME_COLORS = WAREHOUSE_THEMES
+
+export function getWarehouseTheme(colorValue?: string | null): WarehouseTheme {
+  if (!colorValue) return WAREHOUSE_THEMES[0]
+  const exact = WAREHOUSE_THEMES.find(t => t.value === colorValue)
+  if (exact) return exact
+  const trimmed = colorValue.trim()
+  const partial = WAREHOUSE_THEMES.find(t => t.value.includes(trimmed) || trimmed.includes(t.value))
+  if (partial) return partial
+  if (trimmed.includes('#1e3a8a')) return WAREHOUSE_THEMES[5] // Okyanus Laciverti
+  if (trimmed.includes('#334155')) return WAREHOUSE_THEMES[6] // Metalik Titanyum
+  if (trimmed.includes('#451a03')) return WAREHOUSE_THEMES[7] // Bronz Kehribar
+  if (trimmed.includes('#312e81')) return WAREHOUSE_THEMES[8] // Neon Gece
+  if (trimmed.includes('#18181b')) return WAREHOUSE_THEMES[9] // Kömür Siyahı
+  if (trimmed.includes('#064e3b')) return WAREHOUSE_THEMES[3] // Zümrüt Yeşili
+  if (trimmed.includes('#581c87')) return WAREHOUSE_THEMES[2] // Derin Mor
+  if (trimmed.includes('#881337')) return WAREHOUSE_THEMES[4] // Koyu Bordo
+  return WAREHOUSE_THEMES[0]
+}
 
 function getLocalTodayISO() {
   const now = new Date()
@@ -1223,11 +1410,11 @@ export default function StocksPage() {
     })
   }
 
-  function openAddWh() { setEditingWhId(null); setWhName(''); setWhColor(THEME_COLORS[0].value); setWhCompanyId('common'); setIsWarehouseModalOpen(true) }
+  function openAddWh() { setEditingWhId(null); setWhName(''); setWhColor(WAREHOUSE_THEMES[0].value); setWhCompanyId('common'); setIsWarehouseModalOpen(true) }
   
   function openEditWh(wh: Warehouse, e: React.MouseEvent) {
     e.stopPropagation()
-    setEditingWhId(wh.id); setWhName(wh.name); setWhColor(wh.color); setWhCompanyId(wh.company_id || 'common'); setIsWarehouseModalOpen(true)
+    setEditingWhId(wh.id); setWhName(wh.name); setWhColor(wh.color ? getWarehouseTheme(wh.color).value : WAREHOUSE_THEMES[0].value); setWhCompanyId(wh.company_id || 'common'); setIsWarehouseModalOpen(true)
   }
 
   function openAddStock() {
@@ -1471,6 +1658,7 @@ export default function StocksPage() {
             {warehouses.map((wh, index) => {
               const totals = getWarehouseTotals(wh.id)
               const isSelected = selectedWarehouseId === wh.id
+              const theme = getWarehouseTheme(wh.color)
               return (
                 <div 
                   key={wh.id} 
@@ -1478,24 +1666,32 @@ export default function StocksPage() {
                     setSelectedWarehouseId(wh.id);
                     try { localStorage.setItem('ctc_stock_selected_warehouse', wh.id); } catch {}
                   }} 
-                  style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.05 + (index * 0.04)}s` }}
-                  className={`flex flex-col px-3 py-1 rounded-lg cursor-pointer transition-all border whitespace-nowrap group select-none shrink-0 ${
+                  style={{ 
+                    animation: 'fadeInUp 0.3s both', 
+                    animationDelay: `${0.05 + (index * 0.04)}s`,
+                    borderLeftColor: !isSelected ? theme.hex : undefined,
+                  }}
+                  className={`flex flex-col px-3 py-1.5 rounded-lg cursor-pointer transition-all border whitespace-nowrap group select-none shrink-0 ${
                     isSelected 
-                      ? 'bg-gradient-to-r from-indigo-950/70 to-slate-900 border-indigo-500/80 shadow-md shadow-indigo-950/40 ring-1 ring-indigo-500/30' 
-                      : 'bg-slate-900/40 border-slate-800/80 opacity-60 hover:opacity-100 hover:border-slate-700 hover:bg-slate-800/40'
+                      ? `bg-gradient-to-r ${theme.value} ${theme.border} shadow-md ${theme.glow} ring-1 ${theme.ring}` 
+                      : `bg-slate-900/50 border-slate-800/80 border-l-[3px] opacity-70 hover:opacity-100 hover:border-slate-700 hover:bg-slate-800/50`
                   }`}
                   title={`${wh.name} deposunu seç (${formatMoney(totals.totalTry, 'TRY').formatted})`}
                 >
                   <div className="flex items-center justify-between gap-2.5">
                     <div className="flex items-center gap-1.5">
+                      <span 
+                        className={`w-2 h-2 rounded-full shrink-0 ${isSelected ? 'animate-pulse' : ''}`}
+                        style={{ backgroundColor: theme.hex }}
+                      />
                       {wh.company ? (
                         wh.company.is_personal 
-                          ? <Home size={11} className={isSelected ? 'text-indigo-400' : 'text-slate-500'} />
-                          : <Building size={11} className={isSelected ? 'text-indigo-400' : 'text-slate-500'} />
+                          ? <Home size={11} className={isSelected ? theme.text : 'text-slate-400'} />
+                          : <Building size={11} className={isSelected ? theme.text : 'text-slate-400'} />
                       ) : (
-                        <Globe size={11} className={isSelected ? 'text-indigo-400' : 'text-slate-500'} />
+                        <Globe size={11} className={isSelected ? theme.text : 'text-slate-400'} />
                       )}
-                      <span className={`text-xs font-bold ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                      <span className={`text-xs font-bold ${isSelected ? 'text-white' : 'text-slate-200'}`}>
                         {wh.name}
                       </span>
                       {wh.company && (
@@ -1504,17 +1700,17 @@ export default function StocksPage() {
                     </div>
                     {isSelected && (
                       <div className="flex items-center gap-1 bg-black/40 px-1 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={(e) => openEditWh(wh, e)} className="text-slate-300 hover:text-indigo-400 p-0.5" title="Depoyu Düzenle"><Edit3 size={10} /></button>
+                        <button onClick={(e) => openEditWh(wh, e)} className="text-slate-300 hover:text-white p-0.5" title="Depoyu Düzenle"><Edit3 size={10} /></button>
                         <button onClick={(e) => handleDeleteWarehouse(wh.id, e)} className="text-slate-300 hover:text-rose-400 p-0.5" title="Depoyu Sil"><Trash2 size={10} /></button>
                       </div>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 text-[10px] font-mono mt-0.5">
-                    <span className={`${isSelected ? 'text-slate-200 font-semibold' : 'text-slate-400'}`}>
+                    <span className={`${isSelected ? 'text-white font-bold' : 'text-slate-300'}`}>
                       {formatMoney(totals.totalTry, 'TRY').formatted}
                     </span>
                     <span className="text-slate-600 font-sans">/</span>
-                    <span className="text-indigo-300/80">
+                    <span className={isSelected ? theme.text : 'text-slate-400'}>
                       {formatMoney(totals.totalUsd, 'USD').formatted}
                     </span>
                   </div>
@@ -3241,10 +3437,57 @@ export default function StocksPage() {
                 <input type="text" required placeholder="Örn: Ana Depo, Şube" value={whName} onChange={(e) => setWhName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" />
               </div>
               <div>
-                <label className="block text-slate-400 mb-1 font-medium">Tema Rengi</label>
-                <select value={whColor} onChange={(e) => setWhColor(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors">
-                  {THEME_COLORS.map((col) => <option key={col.value} value={col.value}>{col.label}</option>)}
-                </select>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-slate-400 font-medium">Tema Rengi ({WAREHOUSE_THEMES.length} Renk)</label>
+                  {(() => {
+                    const currentTheme = getWarehouseTheme(whColor)
+                    return (
+                      <span className="text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: currentTheme.hex }} />
+                        {currentTheme.label}
+                      </span>
+                    )
+                  })()}
+                </div>
+                
+                {/* 16 Renkli Görsel Swatch Grid */}
+                <div className="grid grid-cols-8 gap-2 p-2.5 bg-[#070b14] border border-slate-800 rounded-lg">
+                  {WAREHOUSE_THEMES.map((col) => {
+                    const isColSelected = whColor === col.value
+                    return (
+                      <button
+                        key={col.value}
+                        type="button"
+                        onClick={() => setWhColor(col.value)}
+                        title={col.label}
+                        className={`w-7 h-7 rounded-full flex items-center justify-center transition-all relative ${
+                          isColSelected 
+                            ? 'scale-110 ring-2 ring-white ring-offset-2 ring-offset-[#070b14] shadow-lg shadow-black/50 z-10' 
+                            : 'hover:scale-105 opacity-75 hover:opacity-100'
+                        }`}
+                        style={{ backgroundColor: col.hex }}
+                      >
+                        {isColSelected && <Check size={13} className="text-white drop-shadow stroke-[3]" />}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Canlı Önizleme */}
+                {(() => {
+                  const currentTheme = getWarehouseTheme(whColor)
+                  return (
+                    <div className="mt-2.5 p-2 rounded-lg bg-black/40 border border-slate-800/80 flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-slate-400 uppercase tracking-wider">Sekme Önizlemesi:</span>
+                      <div className={`px-2.5 py-1 rounded-lg border bg-gradient-to-r ${currentTheme.value} ${currentTheme.border} shadow-sm ${currentTheme.glow} flex items-center gap-2`}>
+                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: currentTheme.hex }} />
+                        <Package size={12} className={currentTheme.text} />
+                        <span className="text-xs font-bold text-white max-w-[140px] truncate">{whName || 'Örnek Depo'}</span>
+                        <span className={`text-[10px] font-mono font-bold ${currentTheme.text}`}>125.000 ₺</span>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button type="button" onClick={() => setIsWarehouseModalOpen(false)} className="px-4 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
