@@ -12,7 +12,7 @@ type ExchangeRates = { USD: number | null, EUR: number | null }
 type BankDetail = { id: string; bank_name: string; account_name: string; balance: number; currency: any; company_id: string | null }
 type CashDetail = { id: string; name: string; balance: number; currency: any; company_id: string | null }
 type CardDetail = { id: string; name: string; current_debt: number; card_limit: number; company_id: string | null }
-type LoanDetail = { id: string; loan_name: string; bank_name: string; principal_amount: number; remaining_principal: number; monthly_installment: number; company_id: string | null; status: string; installments_plan: any[] }
+type LoanDetail = { id: string; loan_name: string; bank_name: string; principal_amount: number; remaining_principal: number; monthly_installment: number; currency?: string; company_id: string | null; status: string; installments_plan: any[] }
 type CustomerDetail = { id: string; name: string; balance: number; currency: string }
 type SupplierDetail = { id: string; company_name: string; balance: number; currency: string }
 type RawStock = { quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
@@ -114,6 +114,7 @@ export default function Home() {
 
   // Sabit Gider Şablonları ve Vadeler State'leri
   const [recurringTemplates, setRecurringTemplates] = useState<RecurringTemplate[]>([])
+  const [duesTypeFilter, setDuesTypeFilter] = useState<'all' | 'loan' | 'recurring'>('all')
 
   // Alt Alan Son İşlemler Arama & Filtre State'leri
   const [recentSearch, setRecentSearch] = useState<string>('')
@@ -171,7 +172,7 @@ export default function Home() {
       setCards(cardData || [])
 
       try {
-        const { data: loanData, error: loanErr } = await supabase.from('bank_loans').select('id, loan_name, bank_name, principal_amount, remaining_principal, monthly_installment, company_id, status, installments_plan')
+        const { data: loanData, error: loanErr } = await supabase.from('bank_loans').select('id, loan_name, bank_name, principal_amount, remaining_principal, monthly_installment, currency, company_id, status, installments_plan')
         if (!loanErr && loanData) {
           setLoans(loanData)
         } else {
@@ -879,12 +880,13 @@ export default function Home() {
   }, [cariTab, customerComparisonList, supplierComparisonList, cariSearch])
 
   // =====================================================================
-  // --- SABİT GİDER TAKİBİ, AY SONU VADELERİ & GEÇMİŞ DÖNEM TESPİTİ ---
+  // --- SABİT GİDERLER & KREDİ TAKSİTLERİ VADE VE GEÇMİŞ DÖNEM TESPİTİ ---
   // =====================================================================
   const currentMonthDate = useMemo(() => new Date(), [])
   const currentYearMonth = `${currentMonthDate.getFullYear()}-${String(currentMonthDate.getMonth() + 1).padStart(2, '0')}`
   const currentMonthName = currentMonthDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
   const currentDay = currentMonthDate.getDate()
+  const todayMidnight = useMemo(() => new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth(), currentMonthDate.getDate()), [currentMonthDate])
 
   const getEffectiveDueDay = (dueDay: number, date: Date = currentMonthDate): number => {
     const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
@@ -894,11 +896,31 @@ export default function Home() {
     return Math.min(dueDay, lastDay)
   }
 
-  // Bu ayın sabit giderleri durumu
-  const currentMonthRecurringStatus = useMemo(() => {
-    const matchedTemplates = recurringTemplates.filter(t => isMatch(t.company_id))
+  // 1. Bu ayın tüm vadeleri (Sabit Giderler + Kredi Taksitleri)
+  const currentMonthDuesList = useMemo(() => {
+    type DueItem = {
+      id: string
+      type: 'recurring' | 'loan'
+      title: string
+      subtitle: string
+      companyId: string | null
+      effectiveDueDay: number
+      diffDays: number
+      amount: number
+      currency: string
+      amountTRY: number
+      isPaid: boolean
+      paidDate?: string | null
+      linkUrl: string
+      linkText: string
+      badgeLabel?: string
+    }
 
-    return matchedTemplates.map(tmpl => {
+    const items: DueItem[] = []
+
+    // A) Sabit Gider Şablonları
+    const matchedTemplates = recurringTemplates.filter(t => isMatch(t.company_id))
+    matchedTemplates.forEach(tmpl => {
       const matchedExpense = expenses.find(e => {
         const txD = e.tx_date || e.created_at?.substring(0, 10)
         if (!txD || !txD.startsWith(currentYearMonth)) return false
@@ -914,38 +936,85 @@ export default function Home() {
       const diffDays = effectiveDueDay - currentDay
       const amountTRY = getTryEquivalent(tmpl.amount, tmpl.currency)
 
-      return {
-        template: tmpl,
-        isPaid,
-        matchedExpense,
+      items.push({
+        id: `rec_${tmpl.id}`,
+        type: 'recurring',
+        title: tmpl.title,
+        subtitle: tmpl.note || 'Sabit Gider',
+        companyId: tmpl.company_id,
         effectiveDueDay,
         diffDays,
-        amountTRY
-      }
-    }).sort((a, b) => {
+        amount: tmpl.amount,
+        currency: tmpl.currency,
+        amountTRY,
+        isPaid,
+        paidDate: matchedExpense?.tx_date || matchedExpense?.created_at || null,
+        linkUrl: '/expenses',
+        linkText: isPaid ? 'İncele →' : 'Öde →'
+      })
+    })
+
+    // B) Kredi Taksitleri (Aktif kredilerin bu aya ait taksitleri)
+    filteredLoans.forEach(l => {
+      if (!l.installments_plan || !Array.isArray(l.installments_plan)) return
+      l.installments_plan.forEach((inst: any) => {
+        if (!inst.due_date || !inst.due_date.startsWith(currentYearMonth)) return
+        const [y, m, d] = inst.due_date.split('-').map(Number)
+        const instDate = new Date(y, m - 1, d)
+        const diffDays = Math.round((instDate.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24))
+        const isPaid = inst.status === 'paid'
+        const amount = Number(inst.total_amount || 0)
+        const amountTRY = getTryEquivalent(amount, l.currency || 'TRY')
+
+        items.push({
+          id: `loan_${l.id}_${inst.installment_no}`,
+          type: 'loan',
+          title: `${l.bank_name} - ${l.loan_name}`,
+          subtitle: `Taksit ${inst.installment_no}/${l.installments_plan.length} • Anapara: ${formatMoney(inst.principal_amount).formatted}`,
+          companyId: l.company_id,
+          effectiveDueDay: d,
+          diffDays,
+          amount,
+          currency: l.currency || 'TRY',
+          amountTRY,
+          isPaid,
+          paidDate: inst.payment_date || null,
+          linkUrl: '/bank-loans',
+          linkText: isPaid ? 'İncele →' : 'Taksit Öde →',
+          badgeLabel: `Taksit ${inst.installment_no}`
+        })
+      })
+    })
+
+    return items.sort((a, b) => {
       if (a.isPaid && !b.isPaid) return 1
       if (!a.isPaid && b.isPaid) return -1
       return a.diffDays - b.diffDays
     })
-  }, [recurringTemplates, expenses, currentYearMonth, currentDay, currentMonthDate, isMatch, rates])
+  }, [recurringTemplates, expenses, filteredLoans, currentYearMonth, currentDay, currentMonthDate, todayMidnight, isMatch, rates])
 
-  // Geçmiş aylardan ödenmemiş kalan sabit giderler (Backlog)
-  const pastUnpaidRecurringList = useMemo(() => {
-    const list: Array<{
-      template: RecurringTemplate
-      monthKey: string
+  // 2. Geçmiş aylardan sarkan ödenmemişler (Sabit Giderler + Kredi Taksitleri)
+  const pastUnpaidDuesList = useMemo(() => {
+    type PastDueItem = {
+      id: string
+      type: 'recurring' | 'loan'
+      title: string
+      subtitle: string
       monthLabel: string
       amount: number
       currency: string
       amountTRY: number
-      effectiveDueDay: number
       daysOverdue: number
-    }> = []
+      companyId: string | null
+      linkUrl: string
+      linkText: string
+    }
 
-    const matchedTemplates = recurringTemplates.filter(t => isMatch(t.company_id))
+    const list: PastDueItem[] = []
     const now = new Date()
 
-    // Son 3 geçmiş ayı kontrol et (Ağustos, Temmuz, vb.)
+    // A) Sabit Giderler Geçmiş Ay Kontrolü
+    const matchedTemplates = recurringTemplates.filter(t => isMatch(t.company_id))
     for (let i = 1; i <= 3; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
       const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -953,10 +1022,7 @@ export default function Home() {
       const lastDayOfPastMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
 
       matchedTemplates.forEach(tmpl => {
-        // Eğer şablonda özel başlangıç ayı tanımlıysa ve mKey < start_month ise kontrol etme
         if (tmpl.start_month && mKey < tmpl.start_month) return
-
-        // Eğer start_month yoksa, oluşturulma ayından öncesini atla
         const createdMonth = tmpl.created_at ? tmpl.created_at.substring(0, 7) : currentYearMonth
         if (!tmpl.start_month && mKey < createdMonth) return
 
@@ -977,28 +1043,70 @@ export default function Home() {
           const daysOverdue = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
 
           list.push({
-            template: tmpl,
-            monthKey: mKey,
+            id: `past_rec_${tmpl.id}_${mKey}`,
+            type: 'recurring',
+            title: tmpl.title,
+            subtitle: tmpl.note || 'Sabit Gider',
             monthLabel: mLabel,
             amount: tmpl.amount,
             currency: tmpl.currency,
             amountTRY: getTryEquivalent(tmpl.amount, tmpl.currency),
-            effectiveDueDay: effDueDay,
-            daysOverdue
+            daysOverdue,
+            companyId: tmpl.company_id,
+            linkUrl: '/expenses',
+            linkText: 'Hızlı Öde →'
           })
         }
       })
     }
 
-    return list
-  }, [recurringTemplates, expenses, currentYearMonth, isMatch, rates])
+    // B) Kredi Taksitleri Geçmiş Ay Kontrolü
+    filteredLoans.forEach(l => {
+      if (!l.installments_plan || !Array.isArray(l.installments_plan)) return
+      l.installments_plan.forEach((inst: any) => {
+        if (!inst.due_date || inst.status === 'paid') return
+        if (inst.due_date < `${currentYearMonth}-01`) {
+          const [y, m, d] = inst.due_date.split('-').map(Number)
+          const instDate = new Date(y, m - 1, d)
+          const diffMs = now.getTime() - instDate.getTime()
+          const daysOverdue = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
+          const mLabel = instDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
 
-  const recurringTotalBudget = currentMonthRecurringStatus.reduce((acc, r) => acc + r.amountTRY, 0)
-  const recurringPaidTotal = currentMonthRecurringStatus.filter(r => r.isPaid).reduce((acc, r) => acc + r.amountTRY, 0)
-  const recurringPendingTotal = recurringTotalBudget - recurringPaidTotal
-  const recurringPaidCount = currentMonthRecurringStatus.filter(r => r.isPaid).length
-  const recurringTotalCount = currentMonthRecurringStatus.length
-  const pastUnpaidTotalTRY = pastUnpaidRecurringList.reduce((acc, p) => acc + p.amountTRY, 0)
+          list.push({
+            id: `past_loan_${l.id}_${inst.installment_no}`,
+            type: 'loan',
+            title: `${l.bank_name} - ${l.loan_name}`,
+            subtitle: `Taksit ${inst.installment_no}/${l.installments_plan.length}`,
+            monthLabel: mLabel,
+            amount: Number(inst.total_amount || 0),
+            currency: l.currency || 'TRY',
+            amountTRY: getTryEquivalent(Number(inst.total_amount || 0), l.currency || 'TRY'),
+            daysOverdue,
+            companyId: l.company_id,
+            linkUrl: '/bank-loans',
+            linkText: 'Taksit Öde →'
+          })
+        }
+      })
+    })
+
+    return list.sort((a, b) => b.daysOverdue - a.daysOverdue)
+  }, [recurringTemplates, expenses, filteredLoans, currentYearMonth, isMatch, rates])
+
+  const filteredCurrentMonthDues = useMemo(() => {
+    if (duesTypeFilter === 'all') return currentMonthDuesList
+    return currentMonthDuesList.filter(d => d.type === duesTypeFilter)
+  }, [currentMonthDuesList, duesTypeFilter])
+
+  const duesTotalBudgetTRY = currentMonthDuesList.reduce((acc, r) => acc + r.amountTRY, 0)
+  const duesPaidTotalTRY = currentMonthDuesList.filter(r => r.isPaid).reduce((acc, r) => acc + r.amountTRY, 0)
+  const duesPendingTotalTRY = duesTotalBudgetTRY - duesPaidTotalTRY
+  const duesPaidCount = currentMonthDuesList.filter(r => r.isPaid).length
+  const duesTotalCount = currentMonthDuesList.length
+  const pastUnpaidTotalTRY = pastUnpaidDuesList.reduce((acc, p) => acc + p.amountTRY, 0)
+
+  const loanDuesCount = currentMonthDuesList.filter(d => d.type === 'loan').length
+  const recurringDuesCount = currentMonthDuesList.filter(d => d.type === 'recurring').length
 
   // Alt Alan: Son İşlemler Filtrelenmiş Liste
   const filteredRecentTransactions = useMemo(() => {
@@ -1282,7 +1390,7 @@ export default function Home() {
           {/* SAĞ KOLON: 1. YAKLAŞAN VE AY SONU VADELERİ + 2. CARİ BORÇ & ALACAK KIYASLAMA */}
           <div className="flex flex-col gap-4 lg:col-span-1">
              
-             {/* 1. YAKLAŞAN VE AY SONU VADELERİ (SABİT GİDER TAKİBİ) */}
+             {/* 1. YAKLAŞAN VE AY SONU VADELERİ (SABİT GİDERLER & KREDİ TAKSİTLERİ) */}
              <div style={{ animation: 'fadeInUp 0.5s both 0.25s' }} className="bg-[#0d1322] border border-slate-800/80 rounded-xl shadow-xl overflow-hidden flex flex-col h-[270px]">
                 {/* Kart Başlığı & Ay Bilgisi */}
                 <div className="p-2.5 bg-[#0a0f1d] border-b border-slate-800/80 flex items-center justify-between shrink-0">
@@ -1295,107 +1403,153 @@ export default function Home() {
                    <div className="flex items-center gap-1.5 shrink-0">
                      <span className="text-[9px] text-slate-400 font-mono capitalize">{currentMonthName}</span>
                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
-                       recurringPaidCount === recurringTotalCount && recurringTotalCount > 0
+                       duesPaidCount === duesTotalCount && duesTotalCount > 0
                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                      }`}>
-                       {recurringPaidCount}/{recurringTotalCount} Ödendi
+                       {duesPaidCount}/{duesTotalCount} Ödendi
                      </span>
                    </div>
                 </div>
 
-                {/* Mini Bütçe & Kalan Şeridi */}
-                <div className="px-3 py-1.5 bg-[#070b14]/70 border-b border-slate-800/60 flex items-center justify-between text-[9px] shrink-0 font-mono">
-                  <div>
-                    <span className="text-slate-500 block font-sans text-[8px] uppercase tracking-wider">Kalan Sabit Borç</span>
-                    <span className="text-xs font-black text-amber-400">{formatMoney(recurringPendingTotal, 'TRY').formatted}</span>
+                {/* Mini Bütçe, Filtreler & Kalan Şeridi */}
+                <div className="px-2.5 py-1.5 bg-[#070b14]/70 border-b border-slate-800/60 flex items-center justify-between gap-1 text-[9px] shrink-0 font-mono">
+                  <div className="flex items-center gap-2">
+                    <div>
+                      <span className="text-slate-500 block font-sans text-[7.5px] uppercase tracking-wider">Kalan Borç</span>
+                      <span className="text-xs font-black text-amber-400">{formatMoney(duesPendingTotalTRY, 'TRY').formatted}</span>
+                    </div>
+
+                    {/* Filtre Butonları: Tümü / Krediler / Sabit */}
+                    <div className="flex items-center bg-[#0d1322] border border-slate-800 rounded p-0.5 text-[8.5px] font-sans font-bold ml-1">
+                      <button
+                        onClick={() => setDuesTypeFilter('all')}
+                        className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                          duesTypeFilter === 'all' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Tümü ({duesTotalCount})
+                      </button>
+                      <button
+                        onClick={() => setDuesTypeFilter('loan')}
+                        className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 ${
+                          duesTypeFilter === 'loan' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Banka Kredisi Taksitleri"
+                      >
+                        <BadgePercent size={10} />
+                        <span>Kredi ({loanDuesCount})</span>
+                      </button>
+                      <button
+                        onClick={() => setDuesTypeFilter('recurring')}
+                        className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                          duesTypeFilter === 'recurring' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Sabit Giderler"
+                      >
+                        Sabit ({recurringDuesCount})
+                      </button>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <Link href="/expenses" className="text-indigo-400 hover:text-indigo-300 font-sans font-bold flex items-center gap-1 hover:underline">
-                      Tümünü Yönet <ArrowUpRight size={11} />
+
+                  <div className="text-right shrink-0">
+                    <Link
+                      href={duesTypeFilter === 'loan' ? '/bank-loans' : '/expenses'}
+                      className="text-indigo-400 hover:text-indigo-300 font-sans font-bold flex items-center gap-0.5 hover:underline text-[8.5px]"
+                    >
+                      {duesTypeFilter === 'loan' ? 'Krediler' : 'Giderler'} <ArrowUpRight size={10} />
                     </Link>
                   </div>
                 </div>
 
                 {/* Geçmiş Aylardan Ödenmemiş Uyarısı (Varsa) */}
-                {pastUnpaidRecurringList.length > 0 && (
+                {pastUnpaidDuesList.length > 0 && (
                   <div className="px-2.5 py-1 bg-rose-950/30 border-b border-rose-500/30 flex items-center justify-between text-[9px] shrink-0">
                     <span className="text-rose-400 font-bold flex items-center gap-1 truncate">
                       <AlertTriangle size={11} className="shrink-0 animate-pulse" />
-                      Geçmişten {pastUnpaidRecurringList.length} ödenmemiş borç!
+                      Geçmişten {pastUnpaidDuesList.length} vadesi geçmiş taksit/borç!
                     </span>
-                    <Link href="/expenses" className="text-rose-300 hover:text-white font-mono font-bold underline shrink-0">
+                    <span className="text-rose-300 font-mono font-bold shrink-0">
                       +{formatMoney(pastUnpaidTotalTRY, 'TRY').formatted}
-                    </Link>
+                    </span>
                   </div>
                 )}
 
                 {/* Vadeler Listesi */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5">
                   {/* Geçmiş dönemden sarkanlar varsa en tepede kırmızı uyarıyla listelenir */}
-                  {pastUnpaidRecurringList.map((p) => {
-                    const comp = companies.find(c => c.id === p.template.company_id)
-                    return (
-                      <div
-                        key={`past_${p.template.id}_${p.monthKey}`}
-                        className="flex justify-between items-center p-1.5 rounded-lg bg-rose-950/20 border border-rose-500/40 hover:border-rose-500 transition-colors"
-                      >
-                        <div className="flex items-start gap-1.5 min-w-0 pr-2">
-                          <div className="p-1 rounded bg-rose-500/10 text-rose-400 shrink-0">
-                            <AlertTriangle size={11} />
+                  {pastUnpaidDuesList
+                    .filter(p => duesTypeFilter === 'all' || p.type === duesTypeFilter)
+                    .map((p) => {
+                      const comp = companies.find(c => c.id === p.companyId)
+                      return (
+                        <div
+                          key={p.id}
+                          className="flex justify-between items-center p-1.5 rounded-lg bg-rose-950/20 border border-rose-500/40 hover:border-rose-500 transition-colors"
+                        >
+                          <div className="flex items-start gap-1.5 min-w-0 pr-2">
+                            <div className="p-1 rounded bg-rose-500/10 text-rose-400 shrink-0">
+                              {p.type === 'loan' ? <BadgePercent size={11} /> : <AlertTriangle size={11} />}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] font-bold text-slate-200 truncate">{p.title}</span>
+                                <span className={`text-[8px] px-1 rounded font-bold shrink-0 ${
+                                  p.type === 'loan' ? 'bg-indigo-500/30 text-indigo-200' : 'bg-rose-500/20 text-rose-300'
+                                }`}>
+                                  {p.type === 'loan' ? 'Kredi' : p.monthLabel}
+                                </span>
+                              </div>
+                              <div className="text-[8px] text-rose-400 font-mono truncate">
+                                {p.daysOverdue} gün gecikti • {p.subtitle} • {comp?.name || 'Merkez'}
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex flex-col min-w-0">
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10px] font-bold text-slate-200 truncate">{p.template.title}</span>
-                              <span className="text-[8px] bg-rose-500/20 text-rose-300 px-1 rounded font-bold shrink-0">
-                                {p.monthLabel}
-                              </span>
+                          <div className="text-right shrink-0">
+                            <div className="text-[10px] font-mono font-bold text-rose-400">
+                              {formatMoney(p.amount, p.currency).formatted}
                             </div>
-                            <div className="text-[8px] text-rose-400 font-mono">
-                              {p.daysOverdue} gün gecikti • {comp?.name || 'Merkez'}
-                            </div>
+                            <Link
+                              href={p.linkUrl}
+                              className="text-[8px] text-indigo-400 hover:text-indigo-300 font-bold block hover:underline"
+                            >
+                              {p.linkText}
+                            </Link>
                           </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <div className="text-[10px] font-mono font-bold text-rose-400">
-                            {formatMoney(p.amount, p.currency).formatted}
-                          </div>
-                          <Link
-                            href="/expenses"
-                            className="text-[8px] text-indigo-400 hover:text-indigo-300 font-bold block hover:underline"
-                          >
-                            Hızlı Öde →
-                          </Link>
-                        </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
 
                   {/* Bu ayın vadeleri */}
-                  {currentMonthRecurringStatus.length === 0 ? (
+                  {filteredCurrentMonthDues.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center p-4 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner m-1">
                       <Clock size={20} className="mb-2 opacity-70 text-amber-400 animate-bounce" />
-                      <span className="text-[10px] font-bold text-slate-400">Tanımlı Sabit Gider Yok</span>
-                      <Link href="/expenses" className="text-[9px] text-indigo-400 hover:underline mt-1 font-bold">
-                        Genel Giderlerden Şablon Ekle →
+                      <span className="text-[10px] font-bold text-slate-400">
+                        {duesTypeFilter === 'loan' ? 'Bu Ay Ödenecek Kredi Taksiti Yok' : duesTypeFilter === 'recurring' ? 'Tanımlı Sabit Gider Yok' : 'Bu Ay Vadesi Gelen Ödeme Yok'}
+                      </span>
+                      <Link
+                        href={duesTypeFilter === 'loan' ? '/bank-loans' : '/expenses'}
+                        className="text-[9px] text-indigo-400 hover:underline mt-1 font-bold"
+                      >
+                        {duesTypeFilter === 'loan' ? 'Kredileri Görüntüle →' : 'Gider ve Şablonları Yönet →'}
                       </Link>
                     </div>
                   ) : (
-                    currentMonthRecurringStatus.map((item, idx) => {
-                      const comp = companies.find(c => c.id === item.template.company_id)
+                    filteredCurrentMonthDues.map((item, idx) => {
+                      const comp = companies.find(c => c.id === item.companyId)
                       let badgeColor = 'bg-slate-800 text-slate-300 border-slate-700'
                       let badgeText = `${item.diffDays} gün kaldı`
 
                       if (item.isPaid) {
                         badgeColor = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                        badgeText = `Ödendi (${formatDateTR(item.matchedExpense?.tx_date || '')})`
+                        badgeText = `Ödendi ${item.paidDate ? `(${formatDateTR(item.paidDate)})` : ''}`
                       } else if (item.diffDays < 0) {
                         badgeColor = 'bg-rose-500/15 text-rose-400 border-rose-500/30 font-bold'
                         badgeText = `${Math.abs(item.diffDays)} gün gecikti!`
                       } else if (item.diffDays === 0) {
                         badgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse font-bold'
                         badgeText = 'Bugün son gün!'
-                      } else if (item.template.due_day === 0) {
+                      } else if (item.type === 'recurring' && item.effectiveDueDay === 0) {
                         badgeColor = 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
                         badgeText = `Ay Sonu (${item.effectiveDueDay}. gün)`
                       } else {
@@ -1404,7 +1558,7 @@ export default function Home() {
 
                       return (
                         <div
-                          key={item.template.id}
+                          key={item.id}
                           style={{ animation: 'fadeSlideRight 0.3s both', animationDelay: `${0.1 + (idx * 0.03)}s` }}
                           className={`flex justify-between items-center p-1.5 rounded-lg border transition-colors ${
                             item.isPaid
@@ -1416,37 +1570,45 @@ export default function Home() {
                         >
                           <div className="flex items-start gap-1.5 min-w-0 pr-2">
                             <div className={`p-1 rounded shrink-0 ${
-                              item.isPaid ? 'bg-emerald-500/10 text-emerald-400' : item.diffDays < 0 ? 'bg-rose-500/10 text-rose-400' : 'bg-slate-800/50 text-slate-400'
+                              item.isPaid
+                                ? 'bg-emerald-500/10 text-emerald-400'
+                                : item.diffDays < 0
+                                ? 'bg-rose-500/10 text-rose-400'
+                                : item.type === 'loan'
+                                ? 'bg-indigo-500/20 text-indigo-400'
+                                : 'bg-slate-800/50 text-slate-400'
                             }`}>
-                              {item.isPaid ? <CheckCircle2 size={11} /> : <Calendar size={11} />}
+                              {item.isPaid ? <CheckCircle2 size={11} /> : item.type === 'loan' ? <BadgePercent size={11} /> : <Calendar size={11} />}
                             </div>
                             <div className="flex flex-col min-w-0">
                               <div className="flex items-center gap-1.5">
                                 <span className={`text-[10px] font-bold truncate ${item.isPaid ? 'line-through text-slate-400' : 'text-slate-200'}`}>
-                                  {item.template.title}
+                                  {item.title}
                                 </span>
+                                {item.type === 'loan' && (
+                                  <span className="text-[7.5px] px-1 py-0.2 rounded font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">
+                                    Kredi
+                                  </span>
+                                )}
                                 <span className={`text-[8px] px-1 py-0.2 rounded border font-mono shrink-0 ${badgeColor}`}>
                                   {badgeText}
                                 </span>
                               </div>
                               <div className="text-[8px] text-slate-500 font-sans truncate">
-                                {comp?.name || 'Merkez'}
-                                {item.template.note ? ` • ${item.template.note}` : ''}
+                                {comp?.name || 'Merkez'} • {item.subtitle}
                               </div>
                             </div>
                           </div>
                           <div className="text-right shrink-0">
                             <div className={`text-[10px] font-mono font-bold ${item.isPaid ? 'text-slate-500' : 'text-slate-200'}`}>
-                              {formatMoney(item.template.amount, item.template.currency).formatted}
+                              {formatMoney(item.amount, item.currency).formatted}
                             </div>
-                            {!item.isPaid && (
-                              <Link
-                                href="/expenses"
-                                className="text-[8px] text-indigo-400 hover:text-indigo-300 font-bold block hover:underline"
-                              >
-                                Öde →
-                              </Link>
-                            )}
+                            <Link
+                              href={item.linkUrl}
+                              className="text-[8px] text-indigo-400 hover:text-indigo-300 font-bold block hover:underline"
+                            >
+                              {item.linkText}
+                            </Link>
                           </div>
                         </div>
                       )
