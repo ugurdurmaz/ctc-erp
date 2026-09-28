@@ -921,6 +921,14 @@ export default function Home() {
     // A) Sabit Gider Şablonları
     const matchedTemplates = recurringTemplates.filter(t => isMatch(t.company_id))
     matchedTemplates.forEach(tmpl => {
+      // Takip başlangıç ayı kontrolü: Eğer şablonda başlangıç ayı tanımlıysa ve bu aydan sonraysa (örn: 2026-10 > 2026-09), bu ay takibi yapılmaz
+      const startMonthKey = tmpl.start_month ? tmpl.start_month.substring(0, 7) : null
+      if (startMonthKey && startMonthKey > currentYearMonth) return
+
+      // Başlangıç ayı tanımlı değilse ve oluşturulma ayı bu aydan sonraysa atla
+      const createdMonth = tmpl.created_at ? tmpl.created_at.substring(0, 7) : currentYearMonth
+      if (!startMonthKey && createdMonth > currentYearMonth) return
+
       const matchedExpense = expenses.find(e => {
         const txD = e.tx_date || e.created_at?.substring(0, 10)
         if (!txD || !txD.startsWith(currentYearMonth)) return false
@@ -1022,9 +1030,10 @@ export default function Home() {
       const lastDayOfPastMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
 
       matchedTemplates.forEach(tmpl => {
-        if (tmpl.start_month && mKey < tmpl.start_month) return
+        const startMonthKey = tmpl.start_month ? tmpl.start_month.substring(0, 7) : null
+        if (startMonthKey && mKey < startMonthKey) return
         const createdMonth = tmpl.created_at ? tmpl.created_at.substring(0, 7) : currentYearMonth
-        if (!tmpl.start_month && mKey < createdMonth) return
+        if (!startMonthKey && mKey < createdMonth) return
 
         const isPaidInPastMonth = expenses.some(e => {
           const txD = e.tx_date || e.created_at?.substring(0, 10)

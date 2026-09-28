@@ -1023,6 +1023,11 @@ export default function ExpensesPage() {
   const recurringStatusList = useMemo(() => {
     const targetTemplates = recurringTemplates.filter(t => {
       if (isRestricted && (!t.company_id || !profile?.allowed_companies?.includes(t.company_id))) return false
+      // Takip başlangıç ayı kontrolü: Eğer şablonda başlangıç ayı tanımlıysa ve bu aydan sonraysa (örn: 2026-10 > 2026-09), bu ay takibi yapılmaz
+      const startMonthKey = t.start_month ? t.start_month.substring(0, 7) : null
+      if (startMonthKey && startMonthKey > currentYearMonth) return false
+      const createdMonth = t.created_at ? t.created_at.substring(0, 7) : currentYearMonth
+      if (!startMonthKey && createdMonth > currentYearMonth) return false
       return selectedCompanyFilter === 'all' || t.company_id === selectedCompanyFilter
     })
 
@@ -1076,12 +1081,13 @@ export default function ExpensesPage() {
       const lastDayOfPastMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
 
       targetTemplates.forEach(tmpl => {
+        const startMonthKey = tmpl.start_month ? tmpl.start_month.substring(0, 7) : null
         // Eğer şablonda özel başlangıç ayı tanımlıysa ve mKey < start_month ise atla
-        if (tmpl.start_month && mKey < tmpl.start_month) return
+        if (startMonthKey && mKey < startMonthKey) return
 
         // Eğer başlangıç ayı tanımlı değilse, şablonun oluşturulma ayından öncesini atla
         const createdMonth = tmpl.created_at ? tmpl.created_at.substring(0, 7) : currentYearMonth
-        if (!tmpl.start_month && mKey < createdMonth) return
+        if (!startMonthKey && mKey < createdMonth) return
 
         // Bu geçmiş ay için ödeme var mı?
         const isPaid = expenses.some(e => {
@@ -1360,6 +1366,11 @@ export default function ExpensesPage() {
                                 <span className="text-[9px] text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded font-mono">
                                   {tmpl.due_day === 0 ? '⭐ Her Ay Sonu' : `Her ayın ${tmpl.due_day}. günü`}
                                 </span>
+                                {tmpl.start_month && tmpl.start_month.substring(0, 7) > currentYearMonth && (
+                                  <span className="text-[9px] text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded font-medium flex items-center gap-1">
+                                    <Clock size={9} /> {tmpl.start_month.substring(0, 7)} Başlayacak
+                                  </span>
+                                )}
                               </div>
                               <h4 className="text-[11px] font-bold text-slate-200 truncate">{tmpl.title}</h4>
                             </div>
