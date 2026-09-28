@@ -5,19 +5,27 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney } from '@/lib/utils'
-import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, TrendingUp, ChevronDown, ChevronUp, Building, Home as HomeIcon, Filter, BarChart4, ArrowUpRightFromSquare, ArrowDownRightFromSquare, Sparkles, Activity, FileText, Scale, Users, Building2, Search, X, Lock, Wrench, Calendar, Clock, AlertTriangle, CheckCircle2, Zap, BadgePercent } from 'lucide-react'
+import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, TrendingUp, ChevronDown, ChevronUp, Building, Home as HomeIcon, Filter, BarChart4, ArrowUpRightFromSquare, ArrowDownRightFromSquare, Sparkles, Activity, FileText, Scale, Users, Building2, Search, X, Lock, Wrench, Calendar, Clock, AlertTriangle, CheckCircle2, Zap, BadgePercent, ArrowRightLeft } from 'lucide-react'
+import toast, { Toaster } from 'react-hot-toast'
+import { logActivity } from '@/lib/audit'
+
+function getLocalTodayISO() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
 
 type ExchangeRates = { USD: number | null, EUR: number | null }
 
 type BankDetail = { id: string; bank_name: string; account_name: string; balance: number; currency: any; company_id: string | null }
 type CashDetail = { id: string; name: string; balance: number; currency: any; company_id: string | null }
-type CardDetail = { id: string; name: string; current_debt: number; card_limit: number; company_id: string | null }
+type CardDetail = { id: string; name: string; current_debt: number; card_limit: number; company_id: string | null; cutoff_day?: number }
+type CardTx = { id: string; card_id: string; company_id?: string | null; tx_date: string; description?: string; tx_type: string; amount: number; transfer_id?: string | null }
 type LoanDetail = { id: string; loan_name: string; bank_name: string; principal_amount: number; remaining_principal: number; monthly_installment: number; currency?: string; company_id: string | null; status: string; installments_plan: any[] }
 type CustomerDetail = { id: string; name: string; balance: number; currency: string }
 type SupplierDetail = { id: string; company_name: string; balance: number; currency: string }
 type RawStock = { quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
 type Warehouse = { id: string; name: string; company_id: string | null }
-type ExpenseTransaction = { id: string; amount: number; exchange_rate: number; company_id: string | null; tx_date: string; description?: string; created_at: string; transfer_id?: string | null; category_id?: string | null; category?: any }
+type ExpenseTransaction = { id: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; tx_date: string; description?: string; created_at: string; transfer_id?: string | null; category_id?: string | null; payment_source_type?: string | null; payment_source_id?: string | null; category?: any }
 type Company = { id: string; name: string; is_personal: boolean }
 
 type CustTx = { id: string; tx_date: string; description: string; customer_id: string; tx_type: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; invoice_lines?: any[]; created_at: string }
@@ -114,7 +122,16 @@ export default function Home() {
 
   // Sabit Gider Şablonları ve Vadeler State'leri
   const [recurringTemplates, setRecurringTemplates] = useState<RecurringTemplate[]>([])
-  const [duesTypeFilter, setDuesTypeFilter] = useState<'all' | 'loan' | 'recurring'>('all')
+  const [cardTxs, setCardTxs] = useState<CardTx[]>([])
+  const [duesTypeFilter, setDuesTypeFilter] = useState<'all' | 'loan' | 'recurring' | 'settlement'>('all')
+
+  // Ortak Kart Mahsup Virman Modalı State'leri
+  const [settleModalOpen, setSettleModalOpen] = useState(false)
+  const [settlingItem, setSettlingItem] = useState<any | null>(null)
+  const [settleSourceType, setSettleSourceType] = useState<'cash' | 'bank'>('cash')
+  const [settleSourceId, setSettleSourceId] = useState<string>('')
+  const [settleDate, setSettleDate] = useState<string>(getLocalTodayISO())
+  const [settleLoading, setSettleLoading] = useState(false)
 
   // Alt Alan Son İşlemler Arama & Filtre State'leri
   const [recentSearch, setRecentSearch] = useState<string>('')
@@ -168,8 +185,11 @@ export default function Home() {
       const { data: cashData } = await supabase.from('cash_registers').select('id, name, balance, currency, company_id')
       setCashes(cashData || [])
 
-      const { data: cardData } = await supabase.from('credit_cards').select('id, name, current_debt, card_limit, company_id')
+      const { data: cardData } = await supabase.from('credit_cards').select('id, name, current_debt, card_limit, company_id, cutoff_day')
       setCards(cardData || [])
+
+      const { data: cTxData } = await supabase.from('card_transactions').select('id, card_id, company_id, tx_date, description, tx_type, amount, transfer_id')
+      setCardTxs(cTxData || [])
 
       try {
         const { data: loanData, error: loanErr } = await supabase.from('bank_loans').select('id, loan_name, bank_name, principal_amount, remaining_principal, monthly_installment, currency, company_id, status, installments_plan')
@@ -190,7 +210,7 @@ export default function Home() {
       const { data: stockData } = await supabase.from('stocks').select('quantity, unit_price, vat_rate, currency, warehouse_id')
       setRawStocks(stockData || [])
 
-      const { data: expData } = await supabase.from('expense_transactions').select('id, amount, exchange_rate, company_id, tx_date, description, created_at, transfer_id, category_id, category:expense_categories(name)')
+      const { data: expData } = await supabase.from('expense_transactions').select('id, amount, currency, exchange_rate, company_id, tx_date, description, created_at, transfer_id, category_id, payment_source_type, payment_source_id, category:expense_categories(name)')
       setExpenses(expData || [])
 
       const { data: compData } = await supabase.from('companies').select('id, name, is_personal')
@@ -240,6 +260,130 @@ export default function Home() {
       console.error(err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // --- MUTLAK BAKİYE HESAPLAMA YARDIMCILARI ---
+  async function recalculateAbsoluteCashBalance(cashId: string) {
+    const { data: txs } = await supabase.from('cash_transactions').select('amount, tx_type').eq('cash_register_id', cashId)
+    let absoluteBal = 0
+    txs?.forEach(t => { absoluteBal += t.tx_type === 'in' ? Number(t.amount) : -Number(t.amount) })
+    await supabase.from('cash_registers').update({ balance: absoluteBal }).eq('id', cashId)
+  }
+
+  async function recalculateAbsoluteBankBalance(bankId: string) {
+    const { data: txs } = await supabase.from('bank_transactions').select('amount, tx_type, status').eq('bank_account_id', bankId)
+    let absoluteBal = 0
+    txs?.forEach(t => {
+      if (t.status === 'completed') {
+        absoluteBal += t.tx_type === 'in' ? Number(t.amount) : -Number(t.amount)
+      }
+    })
+    await supabase.from('bank_accounts').update({ balance: absoluteBal }).eq('id', bankId)
+  }
+
+  async function recalculateAbsoluteCardDebt(cardId: string) {
+    const { data: txs } = await supabase.from('card_transactions').select('amount, tx_type').eq('card_id', cardId)
+    let absoluteDebt = 0
+    txs?.forEach(t => {
+      if (t.tx_type === 'expense') absoluteDebt += Number(t.amount)
+      else absoluteDebt -= Number(t.amount)
+    })
+    await supabase.from('credit_cards').update({ current_debt: absoluteDebt }).eq('id', cardId)
+  }
+
+  function openSettlementModal(item: any) {
+    setSettlingItem(item)
+    const companyCashes = cashes.filter(c => c.company_id === item.companyId)
+    const companyBanks = banks.filter(b => b.company_id === item.companyId)
+    if (companyCashes.length > 0) {
+      setSettleSourceType('cash')
+      setSettleSourceId(companyCashes[0].id)
+    } else if (companyBanks.length > 0) {
+      setSettleSourceType('bank')
+      setSettleSourceId(companyBanks[0].id)
+    } else {
+      setSettleSourceType('cash')
+      setSettleSourceId('')
+    }
+    setSettleDate(getLocalTodayISO())
+    setSettleModalOpen(true)
+  }
+
+  async function handleExecuteSettlement(e: React.FormEvent) {
+    e.preventDefault()
+    if (!settlingItem || !settleSourceId) {
+      toast.error('Lütfen ödemenin çıkacağı kasa veya bankayı seçin.')
+      return
+    }
+    setSettleLoading(true)
+    try {
+      const trfId = `EXP-SETTLE-${settlingItem.expenseId}`
+      const finalCompId = settlingItem.companyId
+      const amount = settlingItem.amount
+      const curr = settlingItem.currency || 'TRY'
+      const desc = `Ortak Karta Mahsup Virmanı: ${settlingItem.title}`
+
+      // 1. Kasa veya Bankadan Para Çıkışı (is_transfer: true, kâr/zarara etki etmez!)
+      if (settleSourceType === 'cash') {
+        const cashPayload = {
+          cash_register_id: settleSourceId,
+          company_id: finalCompId,
+          tx_date: settleDate,
+          description: desc,
+          amount,
+          currency: curr,
+          exchange_rate: 1,
+          is_transfer: true,
+          transfer_id: trfId,
+          tx_type: 'out'
+        }
+        const { error: cErr } = await supabase.from('cash_transactions').insert([cashPayload])
+        if (cErr) throw cErr
+        await recalculateAbsoluteCashBalance(settleSourceId)
+      } else {
+        const bankPayload = {
+          bank_account_id: settleSourceId,
+          company_id: finalCompId,
+          tx_date: settleDate,
+          description: desc,
+          amount,
+          currency: curr,
+          exchange_rate: 1,
+          is_transfer: true,
+          transfer_id: trfId,
+          status: 'completed',
+          tx_type: 'out'
+        }
+        const { error: bErr } = await supabase.from('bank_transactions').insert([bankPayload])
+        if (bErr) throw bErr
+        await recalculateAbsoluteBankBalance(settleSourceId)
+      }
+
+      // 2. Kredi Kartına Ödeme Hareketi (payment, kart borcunu düşürür!)
+      const cardPayload = {
+        card_id: settlingItem.cardId,
+        company_id: finalCompId,
+        tx_date: settleDate,
+        description: `Şirket Mahsup Ödemesi [${companies.find(c => c.id === finalCompId)?.name || 'Şirket'}] - ${settlingItem.title}`,
+        amount,
+        tx_type: 'payment',
+        transfer_id: trfId
+      }
+      const { error: cardErr } = await supabase.from('card_transactions').insert([cardPayload])
+      if (cardErr) throw cardErr
+      await recalculateAbsoluteCardDebt(settlingItem.cardId)
+
+      // 3. Log
+      await logActivity('card_tx', 'INSERT', `Ortak Karta Mahsup Ödemesi: ${settlingItem.title} (${amount} ${curr})`, settlingItem.cardId, amount, curr, null, cardPayload, finalCompId)
+
+      toast.success('Mahsup virmanı başarıyla gerçekleştirildi. Şirket nakdinden düşüldü ve kart borcu kapatıldı.')
+      setSettleModalOpen(false)
+      fetchDashboardData()
+    } catch (err: any) {
+      toast.error('İşlem başarısız: ' + err.message)
+    } finally {
+      setSettleLoading(false)
     }
   }
 
@@ -900,7 +1044,7 @@ export default function Home() {
   const currentMonthDuesList = useMemo(() => {
     type DueItem = {
       id: string
-      type: 'recurring' | 'loan'
+      type: 'recurring' | 'loan' | 'settlement'
       title: string
       subtitle: string
       companyId: string | null
@@ -914,6 +1058,9 @@ export default function Home() {
       linkUrl: string
       linkText: string
       badgeLabel?: string
+      expenseId?: string
+      cardId?: string
+      cardName?: string
     }
 
     const items: DueItem[] = []
@@ -994,18 +1141,67 @@ export default function Home() {
       })
     })
 
+    // C) Ortak / Başka Kartla Ödenen Şirket Giderleri (Mahsup / Merkeze Virman Bekleyenler)
+    expenses.forEach(exp => {
+      if (!exp.company_id) return
+      if (!isMatch(exp.company_id)) return
+      if (exp.payment_source_type !== 'card' || !exp.payment_source_id) return
+
+      const card = cards.find(c => c.id === exp.payment_source_id)
+      if (!card) return
+      const isCrossEntity = !card.company_id || card.company_id !== exp.company_id
+      if (!isCrossEntity) return
+
+      const settlementTx = cardTxs.find(tx => tx.transfer_id === `EXP-SETTLE-${exp.id}` && tx.tx_type === 'payment')
+      const isPaid = !!settlementTx
+
+      const cardCutoff = card.cutoff_day || 1
+      const effectiveDueDay = getEffectiveDueDay(cardCutoff, currentMonthDate)
+      const diffDays = effectiveDueDay - currentDay
+      const amount = Number(exp.amount) || 0
+      const curr = exp.currency || 'TRY'
+      const amountTRY = getTryEquivalent(amount, curr)
+      const comp = companies.find(c => c.id === exp.company_id)
+
+      const expDate = exp.tx_date || exp.created_at?.substring(0, 10)
+      const isCurrentMonthExp = expDate?.startsWith(currentYearMonth)
+
+      if (isCurrentMonthExp || isPaid) {
+        items.push({
+          id: `settle_${exp.id}`,
+          type: 'settlement',
+          title: `Kart Mahsubu: ${exp.description || 'Gider / Vergi'}`,
+          subtitle: `${comp?.name || 'Şirket'} • ${card.name} ile ödendi • ${isPaid ? 'Merkeze Virmanlandı' : 'Merkeze Virman Bekliyor'}`,
+          companyId: exp.company_id,
+          effectiveDueDay,
+          diffDays,
+          amount,
+          currency: curr,
+          amountTRY,
+          isPaid,
+          paidDate: settlementTx?.tx_date || null,
+          linkUrl: '#',
+          linkText: isPaid ? 'Ödendi ✓' : 'Merkeze Virmanla →',
+          badgeLabel: 'Kart Mahsubu',
+          expenseId: exp.id,
+          cardId: card.id,
+          cardName: card.name
+        })
+      }
+    })
+
     return items.sort((a, b) => {
       if (a.isPaid && !b.isPaid) return 1
       if (!a.isPaid && b.isPaid) return -1
       return a.diffDays - b.diffDays
     })
-  }, [recurringTemplates, expenses, filteredLoans, currentYearMonth, currentDay, currentMonthDate, todayMidnight, isMatch, rates])
+  }, [recurringTemplates, expenses, filteredLoans, cards, cardTxs, currentYearMonth, currentDay, currentMonthDate, todayMidnight, isMatch, rates])
 
   // 2. Geçmiş aylardan sarkan ödenmemişler (Sabit Giderler + Kredi Taksitleri)
   const pastUnpaidDuesList = useMemo(() => {
     type PastDueItem = {
       id: string
-      type: 'recurring' | 'loan'
+      type: 'recurring' | 'loan' | 'settlement'
       title: string
       subtitle: string
       monthLabel: string
@@ -1016,6 +1212,9 @@ export default function Home() {
       companyId: string | null
       linkUrl: string
       linkText: string
+      expenseId?: string
+      cardId?: string
+      cardName?: string
     }
 
     const list: PastDueItem[] = []
@@ -1099,8 +1298,53 @@ export default function Home() {
       })
     })
 
+    // C) Geçmiş Dönemden Kalan Ortak Kart Mahsupları
+    expenses.forEach(exp => {
+      if (!exp.company_id) return
+      if (!isMatch(exp.company_id)) return
+      if (exp.payment_source_type !== 'card' || !exp.payment_source_id) return
+
+      const card = cards.find(c => c.id === exp.payment_source_id)
+      if (!card) return
+      const isCrossEntity = !card.company_id || card.company_id !== exp.company_id
+      if (!isCrossEntity) return
+
+      const expDate = exp.tx_date || exp.created_at?.substring(0, 10)
+      if (!expDate || expDate >= `${currentYearMonth}-01`) return
+
+      const settlementTx = cardTxs.find(tx => tx.transfer_id === `EXP-SETTLE-${exp.id}` && tx.tx_type === 'payment')
+      if (settlementTx) return
+
+      const [y, m, d] = expDate.split('-').map(Number)
+      const eDate = new Date(y, m - 1, d)
+      const diffMs = now.getTime() - eDate.getTime()
+      const daysOverdue = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
+      const mLabel = eDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
+      const comp = companies.find(c => c.id === exp.company_id)
+      const amount = Number(exp.amount) || 0
+      const curr = exp.currency || 'TRY'
+
+      list.push({
+        id: `past_settle_${exp.id}`,
+        type: 'settlement',
+        title: `Kart Mahsubu: ${exp.description || 'Gider / Vergi'}`,
+        subtitle: `${comp?.name || 'Şirket'} • ${card.name} ile ödendi • Merkeze Virman Bekliyor`,
+        monthLabel: mLabel,
+        amount,
+        currency: curr,
+        amountTRY: getTryEquivalent(amount, curr),
+        daysOverdue,
+        companyId: exp.company_id,
+        linkUrl: '#',
+        linkText: 'Merkeze Virmanla →',
+        expenseId: exp.id,
+        cardId: card.id,
+        cardName: card.name
+      })
+    })
+
     return list.sort((a, b) => b.daysOverdue - a.daysOverdue)
-  }, [recurringTemplates, expenses, filteredLoans, currentYearMonth, isMatch, rates])
+  }, [recurringTemplates, expenses, filteredLoans, cards, cardTxs, currentYearMonth, isMatch, rates])
 
   const filteredCurrentMonthDues = useMemo(() => {
     if (duesTypeFilter === 'all') return currentMonthDuesList
@@ -1116,6 +1360,7 @@ export default function Home() {
 
   const loanDuesCount = currentMonthDuesList.filter(d => d.type === 'loan').length
   const recurringDuesCount = currentMonthDuesList.filter(d => d.type === 'recurring').length
+  const settlementDuesCount = currentMonthDuesList.filter(d => d.type === 'settlement').length
 
   // Alt Alan: Son İşlemler Filtrelenmiş Liste
   const filteredRecentTransactions = useMemo(() => {
@@ -1458,6 +1703,16 @@ export default function Home() {
                       >
                         Sabit ({recurringDuesCount})
                       </button>
+                      <button
+                        onClick={() => setDuesTypeFilter('settlement')}
+                        className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 ${
+                          duesTypeFilter === 'settlement' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Ortak Kredi Kartı Mahsup ve Merkeze Virmanlar"
+                      >
+                        <CreditCard size={10} />
+                        <span>Kart Mahsubu ({settlementDuesCount})</span>
+                      </button>
                     </div>
                   </div>
 
@@ -1518,12 +1773,21 @@ export default function Home() {
                             <div className="text-[10px] font-mono font-bold text-rose-400">
                               {formatMoney(p.amount, p.currency).formatted}
                             </div>
-                            <Link
-                              href={p.linkUrl}
-                              className="text-[8px] text-indigo-400 hover:text-indigo-300 font-bold block hover:underline"
-                            >
-                              {p.linkText}
-                            </Link>
+                            {p.type === 'settlement' ? (
+                              <button
+                                onClick={() => openSettlementModal(p)}
+                                className="text-[8px] text-amber-400 hover:text-amber-300 font-bold block hover:underline cursor-pointer"
+                              >
+                                {p.linkText}
+                              </button>
+                            ) : (
+                              <Link
+                                href={p.linkUrl}
+                                className="text-[8px] text-indigo-400 hover:text-indigo-300 font-bold block hover:underline"
+                              >
+                                {p.linkText}
+                              </Link>
+                            )}
                           </div>
                         </div>
                       )
@@ -1585,9 +1849,11 @@ export default function Home() {
                                 ? 'bg-rose-500/10 text-rose-400'
                                 : item.type === 'loan'
                                 ? 'bg-indigo-500/20 text-indigo-400'
+                                : item.type === 'settlement'
+                                ? 'bg-amber-500/20 text-amber-400'
                                 : 'bg-slate-800/50 text-slate-400'
                             }`}>
-                              {item.isPaid ? <CheckCircle2 size={11} /> : item.type === 'loan' ? <BadgePercent size={11} /> : <Calendar size={11} />}
+                              {item.isPaid ? <CheckCircle2 size={11} /> : item.type === 'loan' ? <BadgePercent size={11} /> : item.type === 'settlement' ? <CreditCard size={11} /> : <Calendar size={11} />}
                             </div>
                             <div className="flex flex-col min-w-0">
                               <div className="flex items-center gap-1.5">
@@ -1597,6 +1863,11 @@ export default function Home() {
                                 {item.type === 'loan' && (
                                   <span className="text-[7.5px] px-1 py-0.2 rounded font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shrink-0">
                                     Kredi
+                                  </span>
+                                )}
+                                {item.type === 'settlement' && (
+                                  <span className="text-[7.5px] px-1 py-0.2 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                                    Kart Mahsubu
                                   </span>
                                 )}
                                 <span className={`text-[8px] px-1 py-0.2 rounded border font-mono shrink-0 ${badgeColor}`}>
@@ -1612,12 +1883,25 @@ export default function Home() {
                             <div className={`text-[10px] font-mono font-bold ${item.isPaid ? 'text-slate-500' : 'text-slate-200'}`}>
                               {formatMoney(item.amount, item.currency).formatted}
                             </div>
-                            <Link
-                              href={item.linkUrl}
-                              className="text-[8px] text-indigo-400 hover:text-indigo-300 font-bold block hover:underline"
-                            >
-                              {item.linkText}
-                            </Link>
+                            {item.type === 'settlement' && !item.isPaid ? (
+                              <button
+                                onClick={() => openSettlementModal(item)}
+                                className="text-[8px] text-amber-400 hover:text-amber-300 font-bold block hover:underline cursor-pointer"
+                              >
+                                {item.linkText}
+                              </button>
+                            ) : item.linkUrl === '#' ? (
+                              <span className="text-[8px] text-emerald-400 font-bold block">
+                                {item.linkText}
+                              </span>
+                            ) : (
+                              <Link
+                                href={item.linkUrl}
+                                className="text-[8px] text-indigo-400 hover:text-indigo-300 font-bold block hover:underline"
+                              >
+                                {item.linkText}
+                              </Link>
+                            )}
                           </div>
                         </div>
                       )
@@ -2266,6 +2550,133 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {/* ORTAK KART MAHSUP VİRMAN MODALI */}
+      {settleModalOpen && settlingItem && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[99999] animate-in fade-in duration-200">
+          <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-md p-5 shadow-2xl animate-in zoom-in-95 duration-200 text-xs">
+            <div className="flex justify-between items-center mb-3 pb-3 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <ArrowRightLeft size={16} className="text-amber-400" /> Ortak Kart Mahsup Virmanı
+              </h3>
+              <button onClick={() => setSettleModalOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="bg-amber-950/20 border border-amber-500/30 rounded-lg p-3 mb-4 space-y-1.5">
+              <div className="flex items-center justify-between text-amber-200 font-bold">
+                <span className="truncate max-w-[260px]">{settlingItem.title}</span>
+                <span className="font-mono text-sm">{formatMoney(settlingItem.amount, settlingItem.currency).formatted}</span>
+              </div>
+              <div className="text-[11px] text-amber-400/80">
+                Bu tutar ortak/merkez kredi kartı (<span className="text-white font-semibold">{settlingItem.cardName}</span>) ile ödenmiştir. 
+                Şirket kasasından veya şirket banka hesabından karta mahsup aktarımı yaparak borcu kapatabilirsiniz.
+              </div>
+            </div>
+
+            <form onSubmit={handleExecuteSettlement} className="space-y-3.5">
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Ödemenin Çıkacağı Hesap Türü</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettleSourceType('cash')
+                      const c = cashes.filter(x => x.company_id === settlingItem.companyId)
+                      setSettleSourceId(c[0]?.id || '')
+                    }}
+                    className={`p-2 rounded-lg border font-bold flex items-center justify-center gap-1.5 transition-all ${
+                      settleSourceType === 'cash' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Wallet size={13} /> Mağaza / Şirket Kasası
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettleSourceType('bank')
+                      const b = banks.filter(x => x.company_id === settlingItem.companyId)
+                      setSettleSourceId(b[0]?.id || '')
+                    }}
+                    className={`p-2 rounded-lg border font-bold flex items-center justify-center gap-1.5 transition-all ${
+                      settleSourceType === 'bank' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Landmark size={13} /> Şirket Banka Hesabı
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">
+                  {settleSourceType === 'cash' ? 'Çıkış Yapılacak Kasa' : 'Çıkış Yapılacak Banka Hesabı'}
+                </label>
+                <select
+                  value={settleSourceId}
+                  onChange={(e) => setSettleSourceId(e.target.value)}
+                  required
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">Seçiniz...</option>
+                  {settleSourceType === 'cash' ? (
+                    cashes
+                      .filter(c => c.company_id === settlingItem.companyId)
+                      .map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} (Bakiye: {formatMoney(c.balance, c.currency).formatted})
+                        </option>
+                      ))
+                  ) : (
+                    banks
+                      .filter(b => b.company_id === settlingItem.companyId)
+                      .map(b => (
+                        <option key={b.id} value={b.id}>
+                          {b.bank_name} - {b.account_name} (Bakiye: {formatMoney(b.balance, b.currency).formatted})
+                        </option>
+                      ))
+                  )}
+                </select>
+                {((settleSourceType === 'cash' && cashes.filter(c => c.company_id === settlingItem.companyId).length === 0) ||
+                  (settleSourceType === 'bank' && banks.filter(b => b.company_id === settlingItem.companyId).length === 0)) && (
+                  <p className="text-[10px] text-rose-400 mt-1">Bu şirkete ait tanımlı {settleSourceType === 'cash' ? 'kasa' : 'banka hesabı'} bulunamadı.</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">İşlem Tarihi</label>
+                <input
+                  type="date"
+                  value={settleDate}
+                  onChange={(e) => setSettleDate(e.target.value)}
+                  required
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setSettleModalOpen(false)}
+                  disabled={settleLoading}
+                  className="px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 transition-colors"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={settleLoading || !settleSourceId}
+                  className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-5 py-2 rounded-lg font-bold transition-all shadow-lg shadow-amber-900/20 flex items-center gap-1.5"
+                >
+                  {settleLoading ? 'İşleniyor...' : 'Virmanı Onayla ve Kapat'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <Toaster position="bottom-right" />
 
       <style jsx global>{`
         @keyframes fadeInUp {

@@ -8,7 +8,7 @@ import {
   Receipt, Plus, Trash2, Edit3, Search, Tags, Landmark, Wallet, CreditCard, 
   PieChart, Building, Home, AlertTriangle, RefreshCw, Calendar, CheckCircle2, 
   Clock, Zap, ArrowRight, X, ChevronRight, Filter, Sparkles, Layers, DollarSign,
-  AlertCircle, Check, ArrowUpRight, List, LayoutGrid
+  AlertCircle, Check, ArrowUpRight, List, LayoutGrid, ArrowRightLeft
 } from 'lucide-react'
 import { logActivity } from '@/lib/audit'
 import { useAuth } from '@/lib/auth-context'
@@ -150,7 +150,26 @@ export default function ExpensesPage() {
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [cashes, setCashes] = useState<CashRegister[]>([])
   const [cards, setCards] = useState<CreditCardItem[]>([])
+  const [allCards, setAllCards] = useState<CreditCardItem[]>([])
+  const [cardTxs, setCardTxs] = useState<{ id: string; card_id: string; amount: number; tx_type: string; transfer_id?: string; tx_date: string }[]>([])
   const [rates, setRates] = useState<{ USD: number; EUR: number }>({ USD: 34.25, EUR: 37.80 })
+
+  // Ortak Kart Mahsup Virman Modalı State
+  const [settleModalOpen, setSettleModalOpen] = useState(false)
+  const [settlingExpense, setSettlingExpense] = useState<{
+    id: string
+    title: string
+    amount: number
+    currency: string
+    companyId: string
+    companyName: string
+    cardId: string
+    cardName: string
+  } | null>(null)
+  const [settleSourceType, setSettleSourceType] = useState<'cash' | 'bank'>('cash')
+  const [settleSourceId, setSettleSourceId] = useState('')
+  const [settleDate, setSettleDate] = useState(getLocalTodayISO())
+  const [settleLoading, setSettleLoading] = useState(false)
 
   // Sol Panel Sekmesi: 'templates' (Sabit Şablonlar) veya 'categories' (Gider Kategorileri)
   const [activeLeftTab, setActiveLeftTab] = useState<'templates' | 'categories'>('templates')
@@ -215,6 +234,7 @@ export default function ExpensesPage() {
     fetchCategories()
     fetchCompanies()
     fetchPaymentSources()
+    fetchCardTransactions()
     fetchExpenses() 
   }, [isRestricted, profile?.allowed_companies])
 
@@ -303,6 +323,8 @@ export default function ExpensesPage() {
     let cList = cData || []
     let cdList = cdData || []
 
+    setAllCards(cdList)
+
     if (isRestricted) {
       // Sadece izinli şirkete ait hesaplar, kasalar ve kartlar
       bList = bList.filter(b => b.company_id && profile?.allowed_companies?.includes(b.company_id))
@@ -313,6 +335,11 @@ export default function ExpensesPage() {
     setBanks(bList)
     setCashes(cList)
     setCards(cdList)
+  }
+
+  async function fetchCardTransactions() {
+    const { data } = await supabase.from('card_transactions').select('id, card_id, amount, tx_type, transfer_id, tx_date')
+    setCardTxs(data || [])
   }
 
   async function fetchExpenses() {
@@ -430,7 +457,8 @@ export default function ExpensesPage() {
             tx_date: dateStr,
             description: `Gider Ödemesi [${compName || 'Ortak İşlem'}] - ${expDesc} [EXP-${relatedTxId}]`,
             amount: convertedAmount,
-            tx_type: 'expense'
+            tx_type: 'expense',
+            transfer_id: `EXP-${relatedTxId}`
           }
           await supabase.from('card_transactions').insert([cardPayload])
         } else {
@@ -451,7 +479,7 @@ export default function ExpensesPage() {
         }
       } else if (action === 'reverse') {
         if (sourceType === 'card') {
-          await supabase.from('card_transactions').delete().like('description', `%[EXP-${relatedTxId}]%`)
+          await supabase.from('card_transactions').delete().or(`transfer_id.eq.EXP-${relatedTxId},description.like.%[EXP-${relatedTxId}]%`)
         } else {
           await supabase.from(txTable).delete().eq('transfer_id', `EXP-${relatedTxId}`)
         }
@@ -893,6 +921,33 @@ export default function ExpensesPage() {
             )
           }
 
+          // Varsa bu gidere ait yapılmış mahsup virmanlarını temizle ve bakiyelerini güncelle
+          const settleTransferKey = `EXP-SETTLE-${txId}`
+          
+          const { data: relatedCardTxs } = await supabase.from('card_transactions').select('card_id').eq('transfer_id', settleTransferKey)
+          if (relatedCardTxs && relatedCardTxs.length > 0) {
+            await supabase.from('card_transactions').delete().eq('transfer_id', settleTransferKey)
+            for (const rc of relatedCardTxs) {
+              await recalculateAbsoluteCardDebt(rc.card_id)
+            }
+          }
+
+          const { data: relatedCashTxs } = await supabase.from('cash_transactions').select('cash_register_id').eq('transfer_id', settleTransferKey)
+          if (relatedCashTxs && relatedCashTxs.length > 0) {
+            await supabase.from('cash_transactions').delete().eq('transfer_id', settleTransferKey)
+            for (const rc of relatedCashTxs) {
+              await recalculateAbsoluteCashBalance(rc.cash_register_id)
+            }
+          }
+
+          const { data: relatedBankTxs } = await supabase.from('bank_transactions').select('bank_account_id').eq('transfer_id', settleTransferKey)
+          if (relatedBankTxs && relatedBankTxs.length > 0) {
+            await supabase.from('bank_transactions').delete().eq('transfer_id', settleTransferKey)
+            for (const rb of relatedBankTxs) {
+              await recalculateAbsoluteBankBalance(rb.bank_account_id)
+            }
+          }
+
           await supabase.from('expense_transactions').delete().eq('id', txId)
           
           await logActivity('expense', 'DELETE', `Gider silindi ve iade edildi: ${oldTx.description}`, txId, oldTx.amount, oldTx.currency || 'TRY', oldTx, null, oldTx.company_id)
@@ -900,11 +955,131 @@ export default function ExpensesPage() {
           toast.success('Gider silindi ve tutar hesaba iade edildi.')
           fetchExpenses()
           fetchPaymentSources()
+          fetchCardTransactions()
         } catch (err: any) { 
           toast.error("Silme Hatası: " + err.message) 
         }
       }
     })
+  }
+
+  // Ortak Kart Mahsup Virmanı Açma
+  function handleOpenSettlement(expense: ExpenseTransaction, card: CreditCardItem) {
+    const compName = expense.company?.name || companies.find(c => c.id === expense.company_id)?.name || 'Şirket'
+    setSettlingExpense({
+      id: expense.id,
+      title: expense.description || 'Gider Mahsubu',
+      amount: expense.amount,
+      currency: expense.currency || 'TRY',
+      companyId: expense.company_id,
+      companyName: compName,
+      cardId: card.id,
+      cardName: card.name
+    })
+
+    const companyCashes = cashes.filter(c => c.company_id === expense.company_id)
+    if (companyCashes.length > 0) {
+      setSettleSourceType('cash')
+      setSettleSourceId(companyCashes[0].id)
+    } else {
+      const companyBanks = banks.filter(b => b.company_id === expense.company_id)
+      setSettleSourceType('bank')
+      setSettleSourceId(companyBanks[0]?.id || '')
+    }
+
+    setSettleDate(getLocalTodayISO())
+    setSettleModalOpen(true)
+  }
+
+  // Ortak Kart Mahsup Virmanı Gerçekleştirme
+  async function handleExecuteSettlement(e: React.FormEvent) {
+    e.preventDefault()
+    if (!settlingExpense || !settleSourceId) return
+    setSettleLoading(true)
+
+    try {
+      const transferKey = `EXP-SETTLE-${settlingExpense.id}`
+      const amount = settlingExpense.amount
+      const curr = settlingExpense.currency || 'TRY'
+
+      // 1. Şirket Kasa veya Bankasından Çıkış
+      if (settleSourceType === 'cash') {
+        const { error: cashErr } = await supabase.from('cash_transactions').insert([{
+          cash_register_id: settleSourceId,
+          company_id: settlingExpense.companyId,
+          amount: amount,
+          currency: curr,
+          exchange_rate: 1,
+          tx_type: 'out',
+          is_transfer: true,
+          transfer_id: transferKey,
+          tx_date: settleDate,
+          description: `[Mahsup Virmanı] ${settlingExpense.title} - Ortak Kart (${settlingExpense.cardName}) borcu için merkeze aktarıldı`
+        }])
+        if (cashErr) throw cashErr
+        await recalculateAbsoluteCashBalance(settleSourceId)
+      } else {
+        const { error: bankErr } = await supabase.from('bank_transactions').insert([{
+          bank_account_id: settleSourceId,
+          company_id: settlingExpense.companyId,
+          amount: amount,
+          currency: curr,
+          exchange_rate: 1,
+          tx_type: 'out',
+          is_transfer: true,
+          status: 'completed',
+          transfer_id: transferKey,
+          tx_date: settleDate,
+          description: `[Mahsup Virmanı] ${settlingExpense.title} - Ortak Kart (${settlingExpense.cardName}) borcu için merkeze aktarıldı`
+        }])
+        if (bankErr) throw bankErr
+        await recalculateAbsoluteBankBalance(settleSourceId)
+      }
+
+      // 2. Ortak Kredi Kartına Ödeme / Tahsilat
+      const { error: cardErr } = await supabase.from('card_transactions').insert([{
+        card_id: settlingExpense.cardId,
+        company_id: null,
+        amount: amount,
+        tx_type: 'payment',
+        is_transfer: true,
+        transfer_id: transferKey,
+        tx_date: settleDate,
+        description: `[Mahsup Virmanı] ${settlingExpense.companyName} tarafından ${settleSourceType === 'cash' ? 'kasa' : 'banka'} virmanıyla ödendi (${settlingExpense.title})`
+      }])
+      if (cardErr) throw cardErr
+      await recalculateAbsoluteCardDebt(settlingExpense.cardId)
+
+      // 3. Denetim Günlüğü (Audit Log)
+      await logActivity(
+        'financial_action',
+        'CREATE',
+        `Ortak Kart Mahsubu Virmanlandı: ${settlingExpense.title} (${amount} ${curr}) -> ${settlingExpense.cardName}`,
+        settlingExpense.id,
+        amount,
+        curr,
+        null,
+        {
+          source_type: settleSourceType,
+          source_id: settleSourceId,
+          card_id: settlingExpense.cardId,
+          transfer_key: transferKey
+        },
+        settlingExpense.companyId
+      )
+
+      toast.success('Ortak kart mahsup virmanı başarıyla tamamlandı. Borç kapatıldı.')
+      setSettleModalOpen(false)
+      setSettlingExpense(null)
+      fetchPaymentSources()
+      fetchCardTransactions()
+      fetchExpenses()
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Virman işlemi sırasında hata oluştu: ' + (err.message || 'Bilinmeyen hata'))
+    } finally {
+      setSettleLoading(false)
+    }
   }
 
   // Şablondan Formu Hızlı Doldurma
@@ -978,7 +1153,7 @@ export default function ExpensesPage() {
       if (!b) return 'Banka'
       return b.account_name ? `${b.bank_name} - ${b.account_name} (${b.currency})` : `${b.bank_name} (${b.currency})`
     }
-    if (type === 'card') return cards.find(c => c.id === id)?.name || 'Kredi Kartı'
+    if (type === 'card') return allCards.find(c => c.id === id)?.name || cards.find(c => c.id === id)?.name || 'Kredi Kartı'
     return ''
   }
 
@@ -2074,12 +2249,42 @@ export default function ExpensesPage() {
                         </td>
                         <td className="p-2.5 text-slate-200 font-sans align-top">
                           <div className="mb-1 font-medium">{t.description}</div>
-                          {t.payment_source_type && t.payment_source_id && (
-                            <div className="text-[9px] text-slate-500 flex items-center gap-1">
-                              {t.payment_source_type === 'cash' ? <Wallet size={10} className="text-emerald-400"/> : t.payment_source_type === 'bank' ? <Landmark size={10} className="text-blue-400"/> : <CreditCard size={10} className="text-amber-400"/>} 
-                              Çıkış: <strong className="text-slate-400">{getPaymentSourceName(t.payment_source_type, t.payment_source_id)}</strong>
-                            </div>
-                          )}
+                          {t.payment_source_type && t.payment_source_id && (() => {
+                            const card = t.payment_source_type === 'card' ? (allCards.find(c => c.id === t.payment_source_id) || cards.find(c => c.id === t.payment_source_id)) : null
+                            const isCommonCard = t.payment_source_type === 'card' && !!t.company_id && !!card && (!card.company_id || card.company_id !== t.company_id)
+                            const isSettled = isCommonCard ? cardTxs.some(ctx => ctx.transfer_id === `EXP-SETTLE-${t.id}` && ctx.tx_type === 'payment') : false
+
+                            return (
+                              <div className="flex flex-col gap-0.5">
+                                <div className="text-[9px] text-slate-500 flex items-center gap-1">
+                                  {t.payment_source_type === 'cash' ? <Wallet size={10} className="text-emerald-400"/> : t.payment_source_type === 'bank' ? <Landmark size={10} className="text-blue-400"/> : <CreditCard size={10} className="text-amber-400"/>} 
+                                  Çıkış: <strong className="text-slate-400">{getPaymentSourceName(t.payment_source_type, t.payment_source_id)}</strong>
+                                </div>
+                                {isCommonCard && (
+                                  <div className="flex items-center gap-2 mt-1">
+                                    {isSettled ? (
+                                      <span className="inline-flex items-center gap-1 text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded font-medium">
+                                        <CheckCircle2 size={10} /> Mahsup Kapatıldı
+                                      </span>
+                                    ) : (
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="inline-flex items-center gap-1 text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded font-semibold">
+                                          <AlertTriangle size={10} className="text-amber-400" /> Merkeze Virman Bekliyor
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenSettlement(t, card!)}
+                                          className="text-[9px] bg-amber-600 hover:bg-amber-500 text-white font-bold px-2 py-0.5 rounded transition-all shadow-sm flex items-center gap-1 cursor-pointer"
+                                        >
+                                          Virmanla →
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </td>
                         <td className="p-2.5 text-right text-rose-400 font-bold align-top leading-tight bg-slate-800/10">
                           <div className="flex flex-col">
@@ -2777,6 +2982,131 @@ export default function ExpensesPage() {
                 {confirmDialog.confirmText}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ORTAK KART MAHSUP VİRMAN MODALI */}
+      {settleModalOpen && settlingExpense && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[99999] animate-in fade-in duration-200">
+          <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-md p-5 shadow-2xl animate-in zoom-in-95 duration-200 text-xs">
+            <div className="flex justify-between items-center mb-3 pb-3 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <ArrowRightLeft size={16} className="text-amber-400" /> Ortak Kart Mahsup Virmanı
+              </h3>
+              <button onClick={() => setSettleModalOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="bg-amber-950/20 border border-amber-500/30 rounded-lg p-3 mb-4 space-y-1.5">
+              <div className="flex items-center justify-between text-amber-200 font-bold">
+                <span className="truncate max-w-[260px]">{settlingExpense.title}</span>
+                <span className="font-mono text-sm">{formatMoney(settlingExpense.amount, settlingExpense.currency).formatted}</span>
+              </div>
+              <div className="text-[11px] text-amber-400/80">
+                Bu tutar ortak/merkez kredi kartı (<span className="text-white font-semibold">{settlingExpense.cardName}</span>) ile ödenmiştir. 
+                Şirket kasasından veya şirket banka hesabından karta mahsup virmanı yaparak borcu kapatabilirsiniz.
+              </div>
+            </div>
+
+            <form onSubmit={handleExecuteSettlement} className="space-y-3.5">
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Ödemenin Çıkacağı Hesap Türü</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettleSourceType('cash')
+                      const c = cashes.filter(x => x.company_id === settlingExpense.companyId)
+                      setSettleSourceId(c[0]?.id || '')
+                    }}
+                    className={`p-2 rounded-lg border font-bold flex items-center justify-center gap-1.5 transition-all ${
+                      settleSourceType === 'cash' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Wallet size={13} /> Mağaza / Şirket Kasası
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettleSourceType('bank')
+                      const b = banks.filter(x => x.company_id === settlingExpense.companyId)
+                      setSettleSourceId(b[0]?.id || '')
+                    }}
+                    className={`p-2 rounded-lg border font-bold flex items-center justify-center gap-1.5 transition-all ${
+                      settleSourceType === 'bank' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Landmark size={13} /> Şirket Banka Hesabı
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">
+                  {settleSourceType === 'cash' ? 'Çıkış Yapılacak Kasa' : 'Çıkış Yapılacak Banka Hesabı'}
+                </label>
+                <select
+                  value={settleSourceId}
+                  onChange={(e) => setSettleSourceId(e.target.value)}
+                  required
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">Seçiniz...</option>
+                  {settleSourceType === 'cash' ? (
+                    cashes
+                      .filter(c => c.company_id === settlingExpense.companyId)
+                      .map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} (Bakiye: {formatMoney(c.balance, c.currency).formatted})
+                        </option>
+                      ))
+                  ) : (
+                    banks
+                      .filter(b => b.company_id === settlingExpense.companyId)
+                      .map(b => (
+                        <option key={b.id} value={b.id}>
+                          {b.bank_name} - {b.account_name} (Bakiye: {formatMoney(b.balance, b.currency).formatted})
+                        </option>
+                      ))
+                  )}
+                </select>
+                {((settleSourceType === 'cash' && cashes.filter(c => c.company_id === settlingExpense.companyId).length === 0) ||
+                  (settleSourceType === 'bank' && banks.filter(b => b.company_id === settlingExpense.companyId).length === 0)) && (
+                  <p className="text-[10px] text-rose-400 mt-1">Bu şirkete ait tanımlı {settleSourceType === 'cash' ? 'kasa' : 'banka hesabı'} bulunamadı.</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">İşlem Tarihi</label>
+                <input
+                  type="date"
+                  value={settleDate}
+                  onChange={(e) => setSettleDate(e.target.value)}
+                  required
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setSettleModalOpen(false)}
+                  disabled={settleLoading}
+                  className="px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 transition-colors"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={settleLoading || !settleSourceId}
+                  className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-5 py-2 rounded-lg font-bold transition-all shadow-lg shadow-amber-900/20 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {settleLoading ? 'İşleniyor...' : 'Virmanı Onayla ve Kapat'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
