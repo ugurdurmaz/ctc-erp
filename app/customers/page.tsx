@@ -430,13 +430,14 @@ export default function CustomersPage() {
     setIsModalOpen(true)
 
     const { data: txs } = await supabase.from('customer_transactions')
-       .select('amount, company_id').eq('customer_id', cust.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
+       .select('amount, tx_type, company_id').eq('customer_id', cust.id).ilike('description', 'Açılış Bakiyesi / Devir%').limit(1);
     
     if (txs && txs.length > 0) {
-      setOpeningBalance(txs[0].amount.toString())
-      setOpeningCompanyId(txs[0].company_id || 'common')
+      const sign = txs[0].tx_type === 'payment' ? -1 : 1;
+      setOpeningBalance((Number(txs[0].amount) * sign).toString());
+      setOpeningCompanyId(txs[0].company_id || 'common');
     } else {
-      setOpeningBalance('0')
+      setOpeningBalance('0');
     }
   }
 
@@ -466,18 +467,42 @@ export default function CustomersPage() {
         const oldCustomer = customers.find(c => c.id === editingId)
         
         const { data: oldTxs } = await supabase.from('customer_transactions')
-           .select('*').eq('customer_id', editingId).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
+           .select('*').eq('customer_id', editingId).ilike('description', 'Açılış Bakiyesi / Devir%').limit(1);
         
         const oldTx = oldTxs && oldTxs.length > 0 ? oldTxs[0] : null;
 
         if (oldTx) {
+           const targetTxType = initialBalance < 0 ? 'payment' : 'debt';
+           const targetAmount = Math.abs(initialBalance);
+           const targetDesc = initialBalance < 0 ? 'Açılış Bakiyesi / Devir (Avans / Fazla Ödeme)' : 'Açılış Bakiyesi / Devir';
            const compChanged = oldTx.company_id !== initialCompId;
-           if ((initialBalance - oldTx.amount) !== 0 || compChanged) {
-              if (initialBalance === 0) await supabase.from('customer_transactions').delete().eq('id', oldTx.id);
-              else await supabase.from('customer_transactions').update({ amount: initialBalance, company_id: initialCompId }).eq('id', oldTx.id);
+           const amountChanged = Math.abs(targetAmount - Number(oldTx.amount)) > 0.001;
+           const typeChanged = oldTx.tx_type !== targetTxType;
+
+           if (initialBalance === 0) {
+              await supabase.from('customer_transactions').delete().eq('id', oldTx.id);
+           } else if (amountChanged || compChanged || typeChanged) {
+              await supabase.from('customer_transactions').update({ 
+                amount: targetAmount, 
+                tx_type: targetTxType,
+                description: targetDesc,
+                company_id: initialCompId 
+              }).eq('id', oldTx.id);
            }
-        } else if (initialBalance > 0) {
-           const txPayload = { customer_id: editingId, company_id: initialCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'debt', amount: initialBalance, currency: 'TRY', exchange_rate: 1 }
+        } else if (initialBalance !== 0) {
+           const targetTxType = initialBalance < 0 ? 'payment' : 'debt';
+           const targetAmount = Math.abs(initialBalance);
+           const targetDesc = initialBalance < 0 ? 'Açılış Bakiyesi / Devir (Avans / Fazla Ödeme)' : 'Açılış Bakiyesi / Devir';
+           const txPayload = { 
+             customer_id: editingId, 
+             company_id: initialCompId, 
+             tx_date: todayISO, 
+             description: targetDesc, 
+             tx_type: targetTxType, 
+             amount: targetAmount, 
+             currency: 'TRY', 
+             exchange_rate: 1 
+           };
            await supabase.from('customer_transactions').insert([txPayload]);
         }
 
@@ -499,11 +524,23 @@ export default function CustomersPage() {
         
         await logActivity('customer', 'INSERT', `Yeni müşteri açıldı: ${customerName}`, data.id, 0, 'TRY', null, data)
         
-        if (initialBalance > 0) {
-           const txPayload = { customer_id: data.id, company_id: initialCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'debt', amount: initialBalance, currency: 'TRY', exchange_rate: 1 }
-           const { data: txData, error: txErr } = await supabase.from('customer_transactions').insert([txPayload]).select().single()
+        if (initialBalance !== 0) {
+           const targetTxType = initialBalance < 0 ? 'payment' : 'debt';
+           const targetAmount = Math.abs(initialBalance);
+           const targetDesc = initialBalance < 0 ? 'Açılış Bakiyesi / Devir (Avans / Fazla Ödeme)' : 'Açılış Bakiyesi / Devir';
+           const txPayload = { 
+             customer_id: data.id, 
+             company_id: initialCompId, 
+             tx_date: todayISO, 
+             description: targetDesc, 
+             tx_type: targetTxType, 
+             amount: targetAmount, 
+             currency: 'TRY', 
+             exchange_rate: 1 
+           };
+           const { data: txData, error: txErr } = await supabase.from('customer_transactions').insert([txPayload]).select().single();
            if (!txErr && txData) {
-             await logActivity('customer_tx', 'INSERT', `Açılış Bakiyesi (Müşteri): ${customerName}`, txData.id, initialBalance, 'TRY', null, txData, initialCompId)
+             await logActivity('customer_tx', 'INSERT', `Açılış Bakiyesi (Müşteri): ${customerName}`, txData.id, targetAmount, 'TRY', null, txData, initialCompId);
            }
         }
 
@@ -1373,13 +1410,43 @@ export default function CustomersPage() {
               
               <div className="col-span-2 mt-2 pt-3 border-t border-slate-800">
                 <label className="block text-slate-400 font-bold mb-2">
-                  {editingId ? 'Devir / Açılış Bakiyesini Düzenle' : 'Devir / Açılış Bakiyesi (Bize olan borçları)'}
+                  {editingId ? 'Devir / Açılış Bakiyesini Düzenle' : 'Devir / Açılış Bakiyesi'}
                 </label>
                 <div className="flex gap-2">
                   <div className="flex-1">
-                    <input type="number" step="0.01" placeholder="0.00" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-1.5 text-white focus:outline-none focus:border-blue-500 font-mono transition-colors" />
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      placeholder="0.00 (Müşteri fazla peşin ödemesi/avans için: -5000)" 
+                      value={openingBalance} 
+                      onChange={(e) => setOpeningBalance(e.target.value)} 
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-1.5 text-white focus:outline-none focus:border-blue-500 font-mono transition-colors" 
+                    />
                   </div>
                 </div>
+
+                {/* Dinamik Bilgilendirme Rozeti (Pozitif vs Negatif) */}
+                {openingBalance && !isNaN(parseFloat(openingBalance)) && parseFloat(openingBalance) !== 0 && (
+                  <div className={`mt-2 py-1.5 px-3 rounded border text-[10.5px] flex items-center justify-between ${
+                    parseFloat(openingBalance) < 0 
+                      ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300' 
+                      : 'bg-blue-950/30 border-blue-500/40 text-blue-300'
+                  }`}>
+                    <span className="flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${parseFloat(openingBalance) < 0 ? 'bg-emerald-400' : 'bg-blue-400'} animate-pulse`}></span>
+                      <span>
+                        {parseFloat(openingBalance) < 0 ? (
+                          <>Müşteri Fazla Peşin Ödeme / Avans: <strong>{formatMoney(Math.abs(parseFloat(openingBalance)), 'TRY').formatted}</strong> müşteriye borçlu (avans) olarak başlanacak.</>
+                        ) : (
+                          <>Müşteri Devir Borcu: <strong>{formatMoney(parseFloat(openingBalance), 'TRY').formatted}</strong> müşteriden alacaklı olarak başlanacak.</>
+                        )}
+                      </span>
+                    </span>
+                    <span className="font-mono text-[9px] opacity-80 px-1.5 py-0.5 rounded bg-black/40">
+                      {parseFloat(openingBalance) < 0 ? 'Tahsilat (-)' : 'Alacak (+)'}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="col-span-2 flex justify-end gap-2 mt-3 pt-3 border-t border-slate-800">
