@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
-import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, Receipt, Building2, Briefcase, Key, History, PieChart, Store, ChevronLeft, ChevronRight, Users, Wrench, BadgePercent } from 'lucide-react'
+import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, Receipt, Building2, Briefcase, Key, History, PieChart, Store, ChevronLeft, ChevronRight, Users, Wrench, BadgePercent, BookOpen } from 'lucide-react'
 
 const allMenuItems = [
   { label: 'Genel Durum', href: '/', icon: LayoutDashboard, moduleKey: 'dashboard' },
@@ -90,6 +90,27 @@ export default function Sidebar() {
           )
         })}
       </nav>
+
+      {/* KULLANIM KILAVUZU (Rehber - Tüm Kullanıcılar) */}
+      <div className={`p-2 border-t border-slate-800/80 shrink-0 ${isCollapsed ? 'px-3' : 'px-4'}`}>
+        <Link
+          href="/guide"
+          title={isCollapsed ? "Kullanım Kılavuzu" : undefined}
+          className={`relative flex items-center py-2.5 rounded-xl text-xs font-semibold transition-all ${
+            isCollapsed ? 'justify-center px-0' : 'gap-3 px-3.5'
+          } ${
+            pathname === '/guide'
+              ? 'bg-amber-600 text-white shadow-lg shadow-amber-900/20'
+              : 'text-amber-400/90 hover:bg-amber-500/10 hover:text-amber-300 border border-amber-500/20'
+          }`}
+        >
+          <BookOpen size={18} className="shrink-0 text-amber-400" />
+          
+          <span className={`transition-all duration-300 whitespace-nowrap overflow-hidden ${isCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+            Kullanım Kılavuzu
+          </span>
+        </Link>
+      </div>
 
       {/* SİSTEM DENETİM GÜNLÜĞÜ (Yetkisi varsa görünür) */}
       {canViewActivity && (

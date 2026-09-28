@@ -6,7 +6,8 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { ROLE_LABELS } from '@/types/auth'
-import { Bell, Search, User, TrendingUp, DollarSign, Euro, AlertCircle, Clock, CheckCircle2, X, LogOut, Users, Shield, ChevronDown } from 'lucide-react'
+import { Bell, Search, User, TrendingUp, DollarSign, Euro, AlertCircle, Clock, CheckCircle2, X, LogOut, Users, Shield, ChevronDown, BookOpen } from 'lucide-react'
+import ContextualHelpDrawer from './ContextualHelpDrawer'
 
 // Sayfa yollarına göre başlıkları eşleştiriyoruz
 const routeNames: Record<string, string> = {
@@ -27,6 +28,7 @@ const routeNames: Record<string, string> = {
   '/companies': 'Şirketler / Merkezler',
   '/activity': 'İşlem Geçmişi (Log)',
   '/users': 'Kullanıcılar & Yetkiler',
+  '/guide': 'Kullanım Kılavuzu & Yardım',
 }
 
 type Notification = {
@@ -202,6 +204,9 @@ export default function TopBar() {
         {/* BİLDİRİM VE PROFİL */}
         <div className="flex items-center gap-3">
           
+          {/* SAYFAYA ÖZEL AKILLI YARDIM ÇEKMECESİ */}
+          <ContextualHelpDrawer />
+
           {/* BİLDİRİM ZİLİ */}
           <div className="relative" ref={notifRef}>
             <button 
@@ -306,6 +311,15 @@ export default function TopBar() {
                     </Link>
                   )}
                   
+                  <Link
+                    href="/guide"
+                    onClick={() => setIsProfileOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition-colors"
+                  >
+                    <BookOpen size={15} className="text-amber-400" />
+                    <span>Kullanım Kılavuzu</span>
+                  </Link>
+
                   <Link
                     href="/activity"
                     onClick={() => setIsProfileOpen(false)}
