@@ -9,6 +9,7 @@ import Link from 'next/link'
 // URL yolunu modül anahtarına eşle
 function getModuleKeyFromPath(pathname: string): string | null {
   if (pathname === '/') return 'dashboard'
+  if (pathname === '/guide') return null // Kılavuz tüm kullanıcılara açıktır
   const segment = pathname.split('/')[1]
   return segment || null
 }
@@ -45,6 +46,11 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   // Oturum yoksa boş döner (useEffect /login'e yönlendirene kadar)
   if (!session) {
     return null
+  }
+
+  // Kılavuz sayfası tüm oturum açmış kullanıcılara açıktır
+  if (pathname === '/guide') {
+    return <>{children}</>
   }
 
   // Modül bazlı erişim denetimi (Admin her zaman tüm modüllere erişir)
