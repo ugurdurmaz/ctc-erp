@@ -22,40 +22,46 @@ export type GuideTopic = {
 export const GUIDE_TOPICS: GuideTopic[] = [
   {
     id: 'dashboard',
-    title: 'Genel Durum (Dashboard)',
-    subtitle: 'Dükkanın anlık kârı, kasaları ve yaklaşan vadeleri',
+    title: 'Genel Durum (Dashboard & Vadeler)',
+    subtitle: 'Canlı kasa/banka varlıkları, kâr durumu ve yaklaşan ödemeler',
     iconName: 'LayoutDashboard',
     category: 'daily',
     routePath: '/',
-    summary: 'Sisteme girdiğinde seni karşılayan ana ekrandır. Bilgisayar Hastanesi\'nin bugünkü cirosu, net kârı ve en önemlisi ödenmesi gereken vadeleri burada toplanır.',
+    summary: 'Sisteme girdiğinde seni karşılayan ana kontrol merkezidir. Bilgisayar Hastanesi\'nin anlık net nakit varlığı, bugünkü ciro ve net kârı ile en önemlisi yaklaşan vadeler ve ortak kart mahsup virmanları bu ekranda toplanır.',
     steps: [
       {
         number: 1,
-        title: 'Günlük Kâr ve Kasa Toplamını İncele',
-        description: 'Üst kartlarda dükkanın bugünkü net kârını, kasadaki nakit miktarını ve bankadaki toplam paranı görürsün.',
-        tip: 'Bu rakamlar sadece Bilgisayar Hastanesi\'ne aittir; diğer şirketlerin rakamları burada yer almaz.'
+        title: 'Üst Finans Kartlarını Kontrol Et',
+        description: 'Net Nakit Durumu (Kasa + Banka - Kart Borcu), Bugünkü Gelir/Gider/Net Kâr kutularını incele. Bu rakamlar tamamen dükkanın o günkü performansını yansıtır.',
+        tip: 'Kısıtlı yetkin sayesinde bu ekranda sadece Bilgisayar Hastanesi\'nin rakamları yer alır; merkezin şahsi hesapları filtrelenir.'
       },
       {
         number: 2,
-        title: 'Yaklaşan ve Ay Sonu Vadelerini Kontrol Et',
-        description: 'Ekranın alt kısmındaki vadeler tablosunda dükkanın ödemesi gereken sabit giderler, tedarikçi vadeleri ve kart mahsupları listelenir.',
-        warning: 'Günü geçmiş kırmızı kalemler varsa bunları öncelikli olarak kapatmalısın.'
+        title: 'Kasa & Banka Dağılımını İncele',
+        description: 'Sayfanın ortasındaki kartlardan dükkan kasasındaki nakit para ile şirket banka hesabındaki güncel bakiyeyi ayrı ayrı görürsün.',
+        tip: 'Çekmecedeki fiziksel parayla ekrandaki kasa rakamının kuruşu kuruşuna tutması gerekir.'
       },
       {
         number: 3,
-        title: 'Ortak Kart Mahsup Virmanlarını Gör ve Kapat',
-        description: 'Merkez ortak kartla dükkanın vergi veya faturasını ödediyse, vadeler listesinde "⚠️ Merkeze Virman Bekliyor" uyarısı çıkar. "[Merkeze Virmanla →]" butonuna basarak dükkan kasandan ödemesini yapabilirsin.',
-        tip: 'Virman filtresi için "Kart Mahsubu" butonuna basarak sadece bu işlemleri listeleyebilirsin.'
+        title: 'Yaklaşan ve Ay Sonu Vadelerini Takip Et',
+        description: 'Ekranın altındaki tabloda dükkanın yaklaşan sabit giderleri, kredi taksitleri ve tedarikçi ödemeleri listelenir. Vadeleri "Tümü", "Kredi Taksitleri", "Sabit Giderler" veya "Kart Mahsubu" butonlarıyla filtreleyebilirsin.',
+        warning: 'Kırmızı renkli "Gecikmeli" veya sarı renkli "Bugün" rozetli kalemler acil ödeme bekleyen işlemlerdir.'
+      },
+      {
+        number: 4,
+        title: 'Ortak Kart Mahsup Virmanlarını Kapat (Çok Önemli!)',
+        description: 'Merkez veya şirket ortağı (şahsi / ortak kart), Bilgisayar Hastanesi\'nin vergisini veya faturasını ödediyse vadeler listesinde sarı "⚠️ Merkeze Virman Bekliyor" uyarısı çıkar. Hemen yanındaki "[Merkeze Virmanla →]" butonuna basarak dükkan kasasından veya bankasından virmanı onaylayıp borcu kapatabilirsin.',
+        tip: 'İşlem tamamlandığında rozet yeşil "✓ Mahsup Kapatıldı"ya dönüşür ve kâr/zararın ikinci kez düşmeden tertemiz kalır.'
       }
     ],
     faqs: [
       {
-        question: 'Bugünkü net kârım neden düştü?',
-        answer: 'Dükkan için bir gider (fatura, kargo vb.) kaydedildiğinde net kâr harcanan tutar kadar azalır.'
+        question: 'Bugünkü net kârım neden eksiye düştü?',
+        answer: 'Dükkan için bir gider (kargo, fatura vb.) işlendiğinde veya iade alındığında net kâr harcanan tutar kadar azalır. Satış ve servis tahsilatları yapıldıkça kâr tekrar artıya geçer.'
       },
       {
-        question: 'Kasa toplamı çekmecedeki para ile uyuşmuyor, ne yapmalıyım?',
-        answer: 'Gün içinde fişsiz yapılan perakende satışları veya kaydedilmeyen harcamaları kontrol etmelisin.'
+        question: 'Vadeler tablosundaki [Öde] butonu ne işe yarar?',
+        answer: 'Günü gelen bir sabit gideri (örn: kira veya internet faturası) tek tıkla doğrudan dükkan kasasından veya bankasından ödeyip listeyi güncellemeni sağlar.'
       }
     ]
   },
@@ -70,7 +76,7 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     steps: [
       {
         number: 1,
-        title: 'Üst Kasa ve Gelir Şeridini Takip Et',
+        title: 'Üst Finans Şeridini Takip Et',
         description: 'Ekranın en üstünde KASA (çekmecedeki toplam nakit), NAKİT (günün nakit satışları), K.KARTI (günün POS çekimleri), SERVİS (teknik servisten gelen tahsilatlar) ve GİDER (dükkan harcamaları) anlık olarak toplanır.',
         tip: 'Bu şerit gün boyunca dükkanın canlı finansal nabzını gösterir.'
       },
@@ -121,122 +127,215 @@ export const GUIDE_TOPICS: GuideTopic[] = [
   {
     id: 'technical-service',
     title: 'Teknik Servis & Cihaz Takip',
-    subtitle: 'Cihaz kabul, parça/işçilik ekleme, servis fişi ve teslimat',
+    subtitle: 'Cihaz kabul, parça/işçilik ekleme, servis fişi, WhatsApp ve teslimat',
     iconName: 'Wrench',
     category: 'service',
     routePath: '/technical-service',
-    summary: 'Bilgisayar Hastanesi\'nin ana damarıdır. Müşteriden arızalı laptop/kasa kabulünden başlayıp, arıza tespiti, yedek parça + format/işçilik ekleme ve teslimata kadar tüm süreç buradan yönetilir.',
+    summary: 'Bilgisayar Hastanesi\'nin en yoğun çalıştığı modüldür. Arızalı laptop, masaüstü, konsol veya monitör kabulünden başlayıp; arıza tespiti, yedek parça ve format/bakım işçiliği ekleme, servis fişi yazdırma ve teslimata kadar tüm süreç buradan yönetilir.',
     steps: [
       {
         number: 1,
-        title: '+ Yeni Servis Kaydı Aç (Cihaz Kabul)',
-        description: 'Müşteri cihaz getirdiğinde "+ Yeni Servis Kaydı" butonuna tıkla. Müşteri adı, telefon, cihaz türü (Laptop, Kasa, Monitör), seri no, şifre ve şikayetini gir.',
-        warning: 'Cihazın yanında şarj aleti, çanta alınıp alınmadığını ve kasadaki mevcut kırık/çizikleri mutlaka nota yaz.',
-        tip: 'Kaydettikten sonra çıkan Servis Kabul Fişi çıktısını alıp müşteriye ver, ikinci kopyayı cihaza iliştir.'
+        title: '+ Yeni Servis Kaydı Aç (Cihaz Kabulü)',
+        description: 'Müşteri cihaz getirdiğinde "+ Yeni Servis Kaydı" butonuna bas. Müşteri adını ve telefonunu gir (kayıtlıysa seç, değilse hemen yeni müşteri açılır).',
+        tip: 'Cihaz Türünü seç: Laptop, Masaüstü PC, All-in-One, Monitör, Game Console, Game Pad, Tablet/Telefon veya Diğer.'
       },
       {
         number: 2,
-        title: 'Durumu "İşlemde" Yap ve Parça/İşçilik Ekle',
-        description: 'Cihazı tamir masasına aldığında durumunu "İşlemde" yap. Kullanılan SSD, RAM veya fanı depodan seç (stoktan düşer). Yapılan format veya bakım hizmetini de işçilik olarak ekle.',
-        tip: 'Sistem parça maliyetini ve toplam satış fiyatını otomatik hesaplar.'
+        title: 'Cihaz Bilgilerini ve Aksesuarları Eksiksiz Doldur',
+        description: 'Marka/Model, Seri No ve en önemlisi Cihaz Şifresini yaz. Aksesuarlar alanındaki hazır butonlardan (Şarj Aleti, Çanta, Güç Kablosu vb.) teslim aldıklarını işaretle. Kasa üzerindeki çizik/kırıkları fiziksel duruma not et.',
+        warning: 'Fiziksel durumu ve aksesuarları eksiksiz yazmak sonradan yaşanabilecek müşteri anlaşmazlıklarını tamamen önler!'
       },
       {
         number: 3,
-        title: 'Cihazı "Hazır" Konumuna Getir',
-        description: 'Testleri tamamlanan cihazın durumunu "Hazır (Müşteri Bekleniyor)" yap ve müşteriye haber ver.'
+        title: 'Servis Kabul Fişi Çıktısı Al ve Müşteriye Ver',
+        description: 'Cihazı kaydettikten sonra açılan kabul fişini termal veya normal yazıcıdan çıkar. Bir nüshasını müşteriye teslim et, ikinci nüshayı cihazın üzerine iliştir.',
+        tip: 'Fiş üzerinde servis numarası (örn: BH-2026-001) ve işlem detayları yer alır.'
       },
       {
         number: 4,
-        title: 'Cihazı Teslim Et ve Tahsilat Al',
-        description: 'Müşteri geldiğinde "Cihazı Teslim Et" butonuna tıkla. Ücreti Nakit mi, POS Kredi Kartı mı aldığını seç ve onayla. Cihaz kapatılır, para kasana işlenir.',
-        warning: 'Teslim edilmeden cihazı müşteriye verme; teslim formu imzalatmayı unutma.'
+        title: 'Aşama Takibi ve Durum Güncelleme',
+        description: 'Cihaz tamir masasındayken durumunu güncelle: "İncelemede / Arıza Tespiti" ➔ "Müşteri Onayı Bekliyor" ➔ "Yedek Parça Bekliyor" ➔ "Hazır (Onarım Tamamlandı)".',
+        tip: 'İster Kanban pano görünümünde kartları sürükleyebilir, ister liste görünümünden detayına tıklayabilirsin.'
+      },
+      {
+        number: 5,
+        title: 'Kullanılan Yedek Parça ve Yapılan İşçiliği Ekle',
+        description: 'Cihaz detayında "Kullanılan Yedek Parçalar" alanından depodaki SSD, RAM veya ekranı seç (stoktan otomatik düşer). "Yapılan Hizmet / İşçilik" alanından Format, Bakım vb. hizmeti ekle.',
+        tip: 'Sistem parçaların maliyetini ve toplam servis tutarını otomatik olarak hesaplar.'
+      },
+      {
+        number: 6,
+        title: 'Dış Servis / Konsinye Takibi (Gerekiyorsa)',
+        description: 'Cihaz anakart tamiri veya çip değişimi için anlaşmalı bir dış servise gönderildiyse "Dış Servis / Tedarikçi" seçeneğini işaretleyip tedarikçiyi ve dış servis maliyetini gir.'
+      },
+      {
+        number: 7,
+        title: 'Müşteriye WhatsApp İle Bilgi Ver',
+        description: 'Cihaz "Hazır" olduğunda kartın üzerindeki yeşil WhatsApp simgesine tıkla. Hazır şablon mesaj (Cihazınız hazır, toplam tutar: X TL) müşterinin telefonuna tek tıkla gönderilir.'
+      },
+      {
+        number: 8,
+        title: 'Cihazı Teslim Et ve Tahsilatı Kapat',
+        description: 'Müşteri cihazı almaya geldiğinde "Cihazı Teslim Et" butonuna bas. Ödeme türünü belirle: Nakit Kasa mı, Banka / POS Kredi Kartı mı, yoksa Müşteri Carisine Veresiye Borç mu? Onayladığında para kasana girer ve cihaz "Teslim Edildi" olarak kapanır.',
+        warning: 'Tahsilatı yapmadan ve teslim formunu almadan cihazı dükkandan çıkarma.'
       }
     ],
     faqs: [
       {
-        question: 'Müşteri tamiri kabul etmedi (İptal/İade), ne yapacağım?',
-        answer: 'Servis kaydının durumunu "İptal Edildi / İade" olarak değiştir. Takılan bir parça varsa stoğa geri iade edilir.'
+        question: 'Müşteri tamirden vazgeçti, cihazı iade edeceğim?',
+        answer: 'Servis kaydının durumunu "İptal / İade Edildi" yap. Eğer cihaza bir yedek parça bağladıysan sistem o parçayı depodaki stoğuna otomatik olarak geri yükler.'
       },
       {
-        question: 'Format attım ama parça takmadım, nasıl girmeliyim?',
-        answer: 'Parça seçmene gerek yoktur; sadece "Hizmet / İşçilik" alanından "Format & Sistem Kurulumu" seçip tutarı belirlemen yeterlidir.'
+        question: 'Müşteri sonra ödeyeceğini söyledi, nasıl teslim edeceğim?',
+        answer: 'Teslimat penceresinde ödeme yöntemi olarak "Müşteri Carisine Borç Ekle (Veresiye)" seçeneğini işaretle. Tutar müşterinin carisine borç yazılır, cihaz teslim edilmiş sayılır.'
+      },
+      {
+        question: 'Sadece format attım, parça kullanmadım?',
+        answer: 'Parça eklemene gerek yoktur. "Yapılan Hizmetler" kısmından "Format & İşletim Sistemi Kurulumu" seçip tutarı belirlemen yeterlidir.'
       }
     ]
   },
   {
     id: 'stocks',
     title: 'Stok & Depo Yönetimi',
-    subtitle: 'Ürün listesi, depo adetleri ve kritik stok takibi',
+    subtitle: 'Depo bazlı stok kartları, kritik seviyeler, sayım ve transfer',
     iconName: 'Package',
     category: 'stock',
     routePath: '/stocks',
-    summary: 'Dükkandaki tüm sıfır ve ikinci el ürünlerin, yedek parçaların (SSD, RAM, ekran kartı, adaptör vb.) anlık adetlerini gösterir.',
+    summary: 'Bilgisayar Hastanesi deposundaki tüm yedek parçaların (SSD, RAM, ekran, fan, adaptör), çevre birimlerinin ve sarf malzemelerin adet, maliyet ve satış fiyatlarının takip edildiği ekrandır.',
     steps: [
       {
         number: 1,
-        title: 'Stok Listesini İncele ve Ara',
-        description: 'Arama çubuğuna ürün adı veya barkod yazarak rafta kaç adet kaldığını gör.',
-        tip: 'Kritik seviyenin altına düşen ürünler kırmızı uyarı rozetiyle öne çıkar.'
+        title: 'Dükkan Deposunu Seç ve Filtrele',
+        description: 'Depo filtresinden "Bilgisayar Hastanesi Ana Depo"yu seç. Dükkanındaki mevcut ürünlerin adetlerini ve toplam stok değerini incele.',
+        tip: 'Arama çubuğuna barkod okutarak veya ürün adı yazarak anında raftaki adedi bulabilirsin.'
       },
       {
         number: 2,
-        title: 'Yeni Ürün Kartı Aç',
-        description: 'Dükkana ilk defa gelen yeni bir ürün için "+ Yeni Stok Kartı" butonuna bas. Ürün adı, barkod, kategori, alış ve satış fiyatını gir.',
-        warning: 'Depo olarak mutlaka "Bilgisayar Hastanesi Ana Depo"yu seç.'
+        title: '+ Yeni Stok Kartı Aç',
+        description: 'Dükkana ilk defa gelen bir ürün için "+ Yeni Stok Kartı" butonuna bas. Ürün Adı, Barkod/SKU, Kategori & Alt Kategori, Başlangıç Adedi, Alış Fiyatı, KDV Oranı ve Para Birimini (TRY/USD/EUR) gir.',
+        warning: 'Depo olarak mutlaka "Bilgisayar Hastanesi Ana Depo" seçili olmalıdır.'
       },
       {
         number: 3,
-        title: 'Depolar Arası Transfer',
-        description: 'Eğer merkez depodan dükkana parça geldiyse veya başka bir şubeye gönderildiyse "Depo Transferi" ile stoğu aktar.'
+        title: 'Kritik Stok Uyarısı Tanımla',
+        description: 'Her ürün için "Kritik Stok Eşiği" belirle (Örn: 2 adet). Stok bu sayının altına düştüğünde sistem seni kırmızı rozetle ve üst bardaki bildirim ziliyle uyarır.'
+      },
+      {
+        number: 4,
+        title: 'Hızlı Stok Hareketi ve Manuel Sayım',
+        description: 'Ürün kartındaki "+/- Hızlı Stok" butonuna basarak raf sayımında fazla çıkan ürünü Giriş (+), eksik çıkan veya hasar gören ürünü Çıkış (-) olarak açıklamayla kaydedebilirsin.'
+      },
+      {
+        number: 5,
+        title: 'Depolar Arası Virman / Transfer',
+        description: 'Merkez depodan dükkana parça geldiğinde veya dükkandan merkeze ürün gönderildiğinde "Depo Transferi" butonunu kullanarak stoğu resmi olarak aktar.'
+      }
+    ],
+    faqs: [
+      {
+        question: 'Teknik serviste veya mağazada satılan ürün stoktan otomatik düşer mi?',
+        answer: 'Evet! Teknik serviste cihaza takılan yedek parçalar ve Mağaza ekranında listeden seçilen ürünler depodan anında düşer.'
+      },
+      {
+        question: 'Dolar veya Euro ile aldığım parçayı nasıl gireceğim?',
+        answer: 'Para birimini USD veya EUR olarak seçtiğinde sistem TCMB canlı kurundan TL maliyetini otomatik hesaplar.'
+      }
+    ]
+  },
+  {
+    id: 'services',
+    title: 'Hizmet & İşçilik Yönetimi',
+    subtitle: 'Standart servis ve tamir şablonları, işçilik fiyat tarifeleri',
+    iconName: 'Briefcase',
+    category: 'service',
+    routePath: '/services',
+    summary: 'Dükkanda verilen format, termal macun bakımı, kasa toplama, virüs temizliği, ekran montajı gibi standart işçilik kalemlerinin birim fiyat ve KDV oranlarıyla tanımlandığı şablon ekranıdır.',
+    steps: [
+      {
+        number: 1,
+        title: '+ Yeni Hizmet Kartı Tanımla',
+        description: 'Dükkanda sık yaptığın işçilikler için kart oluştur: Hizmet Adı (Örn: "Format & Standart Kurulum"), Birim Fiyat (Örn: 500 TL), KDV Oranı (%20) ve Şirket olarak "Bilgisayar Hastanesi"ni seç.',
+        tip: 'Burada tanımladığın hizmetler Teknik Servis ekranında ve Fatura keserken tek tıkla önüne gelir.'
+      },
+      {
+        number: 2,
+        title: 'Fiyat Tarifesini Güncelle',
+        description: 'İşçilik ücretlerine zam geldiğinde hizmet kartının üzerindeki "Düzenle" simgesine basıp yeni fiyatı yaz. Eski kayıtlar etkilenmez, yeni işler güncel fiyattan açılır.'
       }
     ]
   },
   {
     id: 'customers',
-    title: 'Müşteriler & Cari Hesaplar',
-    subtitle: 'Müşteri listesi, açık hesap borçları ve tahsilat alma',
+    title: 'Müşteriler & Cari Hesaplar (Alacak)',
+    subtitle: 'Müşteri rehberi, açık hesap borçları, cari ekstre ve tahsilat alma',
     iconName: 'ArrowUpRight',
     category: 'core',
     routePath: '/customers',
-    summary: 'Dükkanın müşterilerini, telefon numaralarını ve en önemlisi kimin ne kadar veresiye borcu olduğunu takip ettiğin ekrandır.',
+    summary: 'Dükkanın müşterilerini, telefonlarını, geçmiş servis/satış hareketlerini ve en önemlisi veresiye borçlarını takip ettiğin ekrandır.',
     steps: [
       {
         number: 1,
-        title: 'Borçlu Müşterileri Filtrele',
-        description: 'Üstteki filtrelerden "Borçlu Müşteriler" butonuna basarak dükkana borcu olan kişileri ve toplam alacağını tek ekranda gör.'
+        title: '+ Yeni Müşteri Kartı Oluştur',
+        description: 'Müşteri Adı, Yetkili Kişi, Telefon Numarası, Adres ve varsa Vergi Dairesi/No bilgilerini gir. Varsa devir bakiyesini "Açılış Bakiyesi"ne yaz.',
+        warning: 'Telefon numarasını başında sıfır olmadan (5XXXXXXXXX) formatında hatasız gir; WhatsApp bilgilendirmeleri bu numaraya gider.'
       },
       {
         number: 2,
-        title: 'Tahsilat Al (Borç Kapatma)',
-        description: 'Müşteri gelip borcunu ödediğinde kartındaki "[Tahsilat Al]" butonuna tıkla. Tutarı gir, Nakit mi yoksa Banka Havalesi mi aldığını seç ve kaydet.',
-        tip: 'Tahsilat yapıldığında müşterinin borcu düşer, dükkan kasan anında artar.'
+        title: 'Borçlu Müşterileri Filtrele',
+        description: 'Üstteki filtrelerden "Borçlu Müşteriler" butonuna basarak dükkana açık hesap borcu olan kişileri ve toplam alacağını tek listede gör.',
+        tip: 'Kırmızı bakiye müşterinin dükkana borçlu olduğunu, yeşil bakiye ise müşterinin avans verdiğini gösterir.'
       },
       {
         number: 3,
-        title: 'Müşteri Ekstresi İnceleme',
-        description: 'Müşteri "Ben ne zaman ne almıştım?" derse, kartına tıklayarak tüm alışveriş ve servis geçmişini tarih tarih görebilirsin.'
+        title: 'Borç Tahsilatı Al (Veresiye Kapatma)',
+        description: 'Müşteri borcunu ödemeye geldiğinde kartındaki "[Tahsilat Al]" butonuna tıkla. Alınan tutarı gir, paranın girdiği "Bilgisayar Hastanesi Kasası"nı veya "Şirket Banka Hesabı"nı seçip kaydet.',
+        tip: 'Tahsilat girildiği anda müşterinin borcu düşer, dükkan kasan anında artar.'
+      },
+      {
+        number: 4,
+        title: 'Cari Ekstre İncele & WhatsApp ile Gönder',
+        description: 'Müşteri kartına tıkladığında tarih tarih tüm servis ve alışveriş dökümü açılır. "WhatsApp ile Gönder" butonuna basarak müşterinin telefonuna güncel hesap özetini atabilirsin.'
+      }
+    ],
+    faqs: [
+      {
+        question: 'Müşteri kısmi ödeme yaptı, sistem kabul eder mi?',
+        answer: 'Evet. 2.000 TL borcu olan müşteri 800 TL ödediyse tahsilat tutarına 800 TL yaz. Kalan borç otomatik 1.200 TL olarak güncellenir.'
       }
     ]
   },
   {
     id: 'suppliers',
     title: 'Satıcılar & Tedarikçiler (Borç)',
-    subtitle: 'Toptancılar, parça alımları ve tedarikçi ödemeleri',
+    subtitle: 'Toptancılar, parça alış faturaları ve tedarikçi ödemeleri',
     iconName: 'ArrowDownLeft',
     category: 'core',
     routePath: '/suppliers',
-    summary: 'Dükkana yedek parça ve malzeme aldığın toptancıların (örneğin Arena, Penta, Index vb.) cari hesapları ve borç takibidir.',
+    summary: 'Yedek parça, bilgisayar bileşeni ve aksesuar aldığın toptancıların (Arena, Penta, yerel toptancılar vb.) cari hesapları, alış faturaları ve borç takibidir.',
     steps: [
       {
         number: 1,
-        title: 'Toptancıya Olan Borçları Gör',
-        description: 'Hangi toptancıya ne kadar borcun olduğunu ve yaklaşan ödeme tarihlerini liste üzerinden incele.'
+        title: 'Toptancı Kartı Tanımla',
+        description: 'Toptancının firma adını, telefonunu ve başlangıç borç bakiyesini "+ Yeni Satıcı" butonundan ekle.',
+        tip: 'Şirket seçimi olarak "Bilgisayar Hastanesi"ni seç.'
       },
       {
         number: 2,
-        title: 'Ödeme Yap',
-        description: 'Toptancıya ödeme yaptığında "[Ödeme Yap]" butonuna bas. Dükkan kasasından mı yoksa şirket bankasından mı çıktığını belirle.',
-        warning: 'Kasadan ödeme yapıldığında dükkan nakit bakiyesi düşer; fiili parayla tutarlı olması için mutlaka girilmelidir.'
+        title: 'Alış Faturası Ekle (Stoğa Otomatik Giriş)',
+        description: 'Toptancıdan gelen irsaliye/faturayı işlemek için satıcı kartındaki "[Fatura Ekle]" butonuna bas. Alınan ürünleri, adetleri ve birim alış fiyatlarını gir.',
+        tip: '"Stoğa Ekle: Evet" ve "Depo: Bilgisayar Hastanesi Deposu" seçildiğinde ürünler depodaki stoğuna anında eklenir!'
+      },
+      {
+        number: 3,
+        title: 'Toptancıya Ödeme Yap',
+        description: 'Toptancıya elden nakit veya banka havalesiyle ödeme yaptığında "[Ödeme Yap]" butonuna bas. Paranın çıktığı kasayı/bankayı seç. Toptancıya olan borcun düşer, kasandan para düşer.'
+      }
+    ],
+    faqs: [
+      {
+        question: 'Toptancıya peşin ödedim, borç yazmasın istiyorum?',
+        answer: 'Ödeme Yap butonuna basıp ödeme türünü Nakit Kasa olarak hemen gir; böylece toptancı bakiyesi sıfır kalır ve kasandan para düşüşü gerçekleşir.'
       }
     ]
   },
@@ -247,22 +346,51 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     iconName: 'Wallet',
     category: 'finance',
     routePath: '/cash-registers',
-    summary: 'Bilgisayar Hastanesi\'nin fiziksel para çekmecesinin dijital ikizidir. Yapılan her nakit satış, servis tahsilatı veya nakit harcama burayı etkiler.',
+    summary: 'Bilgisayar Hastanesi\'nin fiziksel para çekmecesinin sistemdeki tam karşılığıdır. Mağazadan yapılan nakit satışlar, teknik servis peşin tahsilatları ve dükkan masrafları saniyesine kadar bu ekranda toplanır.',
     steps: [
       {
         number: 1,
-        title: 'Kasa Bakiyesini Kontrol Et',
-        description: 'Ekranda yazan bakiye, dükkandaki çekmecede kuruşu kuruşuna bulunan nakit para ile aynı olmalıdır.'
+        title: 'Kasa Bakiyesini Karşılaştır',
+        description: 'Ekranda "Bilgisayar Hastanesi Ana Kasası"nda yazan tutar ile çekmecendeki fiziki nakit parayı sayıp karşılaştır.',
+        warning: 'İkisi birbirine eşit değilse gün içinde fişsiz veya kayıtsız bir işlem yapılmış demektir.'
       },
       {
         number: 2,
-        title: 'Elden Nakit Giriş/Çıkış Yap',
-        description: 'Özel bir durum için kasaya para konduysa "+ Para Girişi", elden para alındıysa "- Para Çıkışı" yaparak açıklamasını yaz.'
+        title: 'Elden Nakit Para Girişi / Çıkışı',
+        description: 'Özel bir durum için kasaya elden para konduysa "+ Para Girişi", elden para alındıysa "- Para Çıkışı" butonuna basarak açıklama ve tutar gir.',
+        tip: 'Her giriş kasayı artırır, her çıkış kasayı azaltır.'
       },
       {
         number: 3,
-        title: 'Kasa Hareketlerini İncele',
-        description: 'Aşağıdaki hareket tablosunda gün içinde yapılan tüm satışlar yeşil (+), harcamalar kırmızı (-) olarak saniyesine kadar listelenir.'
+        title: 'Kasadan Bankaya Transfer (Virman)',
+        description: 'Kasada biriken nakit parayı dükkanın şirket banka hesabına veya ATM\'den yatırdığında "[Bankaya Transfer]" butonunu kullan. Kasandan düşer, banka hesabına geçer.'
+      },
+      {
+        number: 4,
+        title: 'Kasa Hareket Dökümünü İncele',
+        description: 'Aşağıdaki tabloda gün içinde giren tüm paralar yeşil (+), çıkan paralar kırmızı (-) olarak işlem açıklaması ve saat bilgisiyle listelenir.'
+      }
+    ]
+  },
+  {
+    id: 'bank-accounts',
+    title: 'Banka Hesapları & POS',
+    subtitle: 'Şirket banka hesapları, gelen/giden havaleler ve POS tahsilatları',
+    iconName: 'Landmark',
+    category: 'finance',
+    routePath: '/bank-accounts',
+    summary: 'Bilgisayar Hastanesi\'ne ait ticari banka hesaplarının ve kredi kartı POS tahsilatlarının takip edildiği ekrandır.',
+    steps: [
+      {
+        number: 1,
+        title: 'Banka Bakiyesini Kontrol Et',
+        description: 'Bilgisayar Hastanesi adına açılmış ticari hesapların güncel bakiyesini gör.',
+        tip: 'POS cihazından çekilen kredi kartı ödemeleri ve banka havaleleri burada birikir.'
+      },
+      {
+        number: 2,
+        title: 'Gelen Havale / EFT Girişi',
+        description: 'Bir müşteri IBAN\'a tamir veya ürün parası gönderdiğinde banka hareketlerinden gelen tutarı ilgili müşteriyle eşle.'
       }
     ]
   },
@@ -273,25 +401,40 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     iconName: 'Receipt',
     category: 'finance',
     routePath: '/expenses',
-    summary: 'Dükkanın kira, elektrik, kargo, çay-şeker gibi harcamalarının işlendiği ve merkez ortak kartla ödenen vergilerin dükkan kasasından mahsup virmanı yapıldığı ekrandır.',
+    summary: 'Dükkanın kira, elektrik, kargo, sarf malzeme harcamalarının işlendiği ve merkez ortak kartla ödenen dükkan vergilerinin mahsup virmanının yapıldığı kritik finans ekranıdır.',
     steps: [
       {
         number: 1,
-        title: 'Hızlı Gider Kaydet',
-        description: 'Kargo veya sarf malzeme aldığında tutarı, kategoriyi ve ödemenin çıktığı "Bilgisayar Hastanesi Kasası"nı seçip kaydet.',
-        tip: 'Gider işlendiğinde dükkan kârından düşer ve kasan azalır.'
+        title: 'Hızlı Gider Girişi',
+        description: 'Sayfanın ortasındaki formdan Kategori (Kargo, Mutfak, Fatura vb.), Tutar, Açıklama ve Ödeme Kaynağı olarak "Bilgisayar Hastanesi Kasası"nı seçip kaydet.',
+        tip: 'Gider işlendiği anda dükkan kasasından düşer ve net kârı günceller.'
       },
       {
         number: 2,
-        title: 'Ortak Kart Mahsup Virmanı Yap (Çok Önemli!)',
-        description: 'Eğer merkez yönetici ortak bir kredi kartı ile Bilgisayar Hastanesi\'nin vergisini veya faturasını ödediyse, gider tablosunda "⚠️ Merkeze Virman Bekliyor" rozeti çıkar.',
-        tip: 'Hemen yanındaki "[Virmanla →]" butonuna tıkla. Açılan pencerede ödemenin çıkacağı dükkan kasasını veya bankasını seçip "Virmanı Onayla ve Kapat" de.',
-        warning: 'Bu işlem dükkan kasandan parayı düşürür, merkez kart borcunu kapatır ve kâr/zararı ikinci kez etkilemeden tertemiz muhasebeleştirir!'
+        title: 'Ortak Kart Mahsup Virmanını Yap (En Kritik Adım!)',
+        description: 'Merkez veya şirket ortağı (şahsi / ortak kart), Bilgisayar Hastanesi\'nin vergisini veya faturasını ortak kredi kartıyla ödediğinde gider tablosunda turuncu renkli "⚠️ Merkeze Virman Bekliyor" rozeti belirir.',
+        warning: 'Bu harcama dükkanın gideridir ama para merkez kartından çıkmıştır. Kartın vadesinde dükkan kasasından merkeze aktarılmalıdır!'
       },
       {
         number: 3,
-        title: 'Sabit Şablonları İncele',
-        description: 'Her ay düzenli ödenen kira, muhasebe veya internet giderlerini sabit şablonlar sekmesinden takip edebilirsin.'
+        title: '[Virmanla →] Butonuna Tıkla',
+        description: 'Gider satırındaki "[Virmanla →]" butonuna tıkla. Açılan pencerede paranın çıkacağı "Bilgisayar Hastanesi Kasası"nı veya "Şirket Banka Hesabı"nı seçip "Virmanı Onayla ve Kapat" de.',
+        tip: 'Dükkan kasandan para düşer, ortak kart borcu kapanır, yeşil "✓ Mahsup Kapatıldı" rozeti çıkar ve kâr/zararın ikinci kez etkilenmez!'
+      },
+      {
+        number: 4,
+        title: 'Sabit Gider Takip Şeridini İncele',
+        description: 'Kira, muhasebe, internet gibi her ay tekrarlayan giderlerin vadesini ve bu ay ödenip ödenmediğini takip şeridinden renkli rozetlerle takip et.'
+      }
+    ],
+    faqs: [
+      {
+        question: 'Yanlış girdiğim bir gideri nasıl silerim?',
+        answer: 'Gider satırındaki çöp kutusu simgesine tıkla. Sistem gideri iptal eder ve harcanan tutarı ilgili kasaya/hesaba kuruşu kuruşuna geri iade eder.'
+      },
+      {
+        question: 'Ortak kart mahsup virmanı kârımı iki defa düşürür mü?',
+        answer: 'HAYIR! Virman işlemi sistemde transfer (mahsup) olarak işlenir; dükkan kârını ikinci kez asla düşürmez.'
       }
     ]
   }
@@ -302,11 +445,11 @@ export const ROUTE_TO_GUIDE_MAP: Record<string, string> = {
   '/retail': 'retail',
   '/technical-service': 'technical-service',
   '/stocks': 'stocks',
-  '/services': 'technical-service',
+  '/services': 'services',
   '/customers': 'customers',
   '/suppliers': 'suppliers',
   '/cash-registers': 'cash-registers',
-  '/bank-accounts': 'dashboard',
+  '/bank-accounts': 'bank-accounts',
   '/expenses': 'expenses',
   '/reports': 'dashboard'
 }
