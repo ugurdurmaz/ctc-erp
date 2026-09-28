@@ -133,7 +133,7 @@ Hoş geldin İbrahim! Bu kılavuz, Bilgisayar Hastanesi'ndeki günlük satışla
 ---
 
 ### SENARYO 6 (ÇOK ÖNEMLİ): ORTAK KARTLA ÖDENEN GİDERLER VE MERKEZE VİRMANLAMA
-> **Örnek Olay:** Merkez yöneticin (veya patron), Bilgisayar Hastanesi'nin 2 adet vergisini veya dükkan internet faturasını merkezdeki **Ortak Kredi Kartı** ile ödedi. 
+> **Örnek Olay:** Merkez veya şirket ortağı (şahsi / ortak kart), Bilgisayar Hastanesi'nin 2 adet vergisini veya dükkan internet faturasını merkezdeki **Ortak Kredi Kartı** ile ödedi. 
 > Bu vergi gideri senin dükkanının gideridir; ancak para senin kasan yerine merkez kredi kartından çıkmıştır. 
 > Bu durumda kartın son ödeme günü geldiğinde senin bu parayı dükkan kasandan merkeze aktarman (virmanlaman) gerekir.
 
@@ -179,7 +179,7 @@ Dükkanın kapısını kilitlemeden önce şu 3 dakikalık işlemi mutlaka yap:
 2. **Kafana Göre Kayıt Silme:** Bir faturayı veya gideri yanlış girdiysen rastgele silmek yerine nedenini kontrol et. Sistem her silinen işlemin arkasında log (denetim izi) bırakır.
 3. **Açık Hesap (Veresiye) Verirken Müşteriyi Doğru Seç:** Müşteri seçmeden veresiye verirsen kime borç yazıldığı belli olmaz. Telefon numarasını mutlaka teyit et.
 4. **Teknik Servis Cihazını Fişsiz Teslim Etme:** Cihazı teslim ederken müşteriye teslim fişi imzalat ve sistemden "Teslim Edildi" olarak kapatmayı unutma.
-5. **Kasa Açığı Varsa Patronla Paylaş:** Kasada açıklanamayan bir fark olduğunda durumu yöneticine bildir.
+5. **Kasa Açığı Varsa Şirket Yetkilisiyle Paylaş:** Kasada açıklanamayan bir fark olduğunda durumu merkez yönetimine bildir.
 
 ---
 

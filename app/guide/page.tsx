@@ -7,7 +7,7 @@ import {
   CheckCircle2, ArrowRight, Store, Wrench, Package, 
   ArrowUpRight, ArrowDownLeft, Wallet, Receipt, LayoutDashboard,
   Layers, Sparkles, Check, ChevronDown, ChevronUp, FileText,
-  Clock, ShieldAlert, ArrowRightLeft, HelpCircle
+  Clock, ShieldAlert, ArrowRightLeft, HelpCircle, Download
 } from 'lucide-react'
 import { GUIDE_TOPICS, GuideTopic } from '@/lib/guide-data'
 
@@ -83,12 +83,22 @@ export default function GuidePage() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0 print:hidden">
+            <a
+              href="/IBRAHIM-KULLANIM-KILAVUZU.pdf"
+              download="IBRAHIM-KULLANIM-KILAVUZU.pdf"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition-all shadow-lg shadow-amber-900/20 active:scale-95 cursor-pointer"
+            >
+              <Download size={15} />
+              <span>Resmi Kılavuzu İndir (PDF)</span>
+            </a>
+
             <button
               onClick={() => window.print()}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 transition-all shadow-md active:scale-95 cursor-pointer"
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs border border-slate-700 transition-all shadow-md active:scale-95 cursor-pointer"
+              title="Tarayıcıdan Yazdır"
             >
               <Printer size={15} className="text-indigo-400" />
-              <span>Yazdır / PDF İndir</span>
+              <span>Yazdır</span>
             </button>
           </div>
         </div>
@@ -155,7 +165,7 @@ export default function GuidePage() {
               </h2>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed print:text-slate-700">
-              Merkez veya patron, Bilgisayar Hastanesi'nin bir vergisini veya faturasını ortak bir kredi kartı ile ödediğinde bu harcama senin dükkanının gideri olarak yazılır. Kartın son ödeme günü geldiğinde senin bu parayı dükkan kasandan merkeze aktarman gerekir:
+              Merkez veya şirket ortağı (şahsi / ortak kart), Bilgisayar Hastanesi'nin bir vergisini veya faturasını ortak bir kredi kartı ile ödediğinde bu harcama senin dükkanının gideri olarak yazılır. Kartın son ödeme günü geldiğinde senin bu parayı dükkan kasandan merkeze aktarman gerekir:
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-xs">
               <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 space-y-1 print:border-slate-300 print:bg-slate-50">
