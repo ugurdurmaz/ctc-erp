@@ -1485,13 +1485,13 @@ export default function Home() {
                 </div>
                 <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
                     <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
-                      {pnlPeriod === 'daily' ? 'Günlük SMM & Mlyt.' : pnlPeriod === 'weekly' ? 'Haftalık SMM & Mlyt.' : 'SMM & Direkt Mlyt.'}
+                      {pnlPeriod === 'daily' ? 'Günlük SMM & Mlyt.' : pnlPeriod === 'weekly' ? 'Haftalık SMM & Mlyt.' : 'Bu Ayki SMM & Mlyt.'}
                     </p>
                     <div className="text-sm font-black font-mono text-orange-400">{formatMoney(pnlData.currPoint.cost, 'TRY').formatted}</div>
                 </div>
                 <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
                     <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
-                      {pnlPeriod === 'daily' ? 'Günlük İşletme Gid.' : pnlPeriod === 'weekly' ? 'Haftalık İşletme Gid.' : 'İşletme Giderleri'}
+                      {pnlPeriod === 'daily' ? 'Günlük İşletme Gid.' : pnlPeriod === 'weekly' ? 'Haftalık İşletme Gid.' : 'Bu Ayki İşletme Gid.'}
                     </p>
                     <div className="text-sm font-black font-mono text-purple-400">{formatMoney(pnlData.currPoint.expense, 'TRY').formatted}</div>
                 </div>
@@ -1499,7 +1499,7 @@ export default function Home() {
                 {/* MAĞAZA POS KARI KARTI */}
                 <div className="bg-cyan-950/20 border border-cyan-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
                     <p className="text-[9px] text-cyan-400/90 font-bold uppercase tracking-wider mb-0.5">
-                      {pnlPeriod === 'daily' ? 'Bugünkü Mağaza Kârı' : pnlPeriod === 'weekly' ? 'Bu Haftaki Mağaza Kârı' : 'Mağaza Kârı'}
+                      {pnlPeriod === 'daily' ? 'Bugünkü Mağaza Kârı' : pnlPeriod === 'weekly' ? 'Bu Haftaki Mağaza Kârı' : 'Bu Ayki Mağaza Kârı'}
                     </p>
                     <div className="text-sm font-black font-mono text-cyan-400">{formatMoney(pnlData.currPoint.posProfit, 'TRY').formatted}</div>
                     <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${pnlData.posProfitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -1509,7 +1509,7 @@ export default function Home() {
 
                 <div className="bg-emerald-950/20 border border-emerald-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
                     <p className="text-[9px] text-emerald-400/90 font-bold uppercase tracking-wider mb-0.5">
-                      {pnlPeriod === 'daily' ? 'Bugünkü Net Kâr' : pnlPeriod === 'weekly' ? 'Bu Haftaki Net Kâr' : 'Net Ticari Kâr'}
+                      {pnlPeriod === 'daily' ? 'Bugünkü Net Kâr' : pnlPeriod === 'weekly' ? 'Bu Haftaki Net Kâr' : 'Bu Ayki Net Ticari Kâr'}
                     </p>
                     <div className={`text-sm font-black font-mono ${pnlData.currPoint.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {formatMoney(pnlData.currPoint.profit, 'TRY').formatted}
