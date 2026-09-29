@@ -783,6 +783,20 @@ export default function RetailPOSPage() {
 
         if (hasFilledRows || hasNotes || hasPhotos || hasTrans) {
           let restoredRows: RetailRow[] = draft.rows || []
+
+          // Silinmiş harici giderleri taslak satırlarından temizle
+          const beforeFilterCount = restoredRows.length
+          restoredRows = restoredRows.filter(r => {
+            if (r.categoryId !== EXPENSE_CATEGORY_ID) return true
+            const isExt = r.isExternalExpense || r.transferId?.startsWith('EXP-') || r.description?.includes('[EXP-') || r.description?.startsWith('Gider Ödemesi')
+            if (!isExt) return true // Elle girilmiş yerel mağaza gideri
+            return externalCashTxs.some(ext => 
+              (ext.transfer_id && r.transferId === ext.transfer_id) ||
+              (ext.transfer_id && r.description?.includes(ext.transfer_id)) ||
+              (r.description === ext.description && parseValue(r.cash) === Number(ext.amount))
+            )
+          })
+
           if (externalCashTxs.length > 0) {
             const missingExtTxs = externalCashTxs.filter(ext => {
               return !restoredRows.some(r => 
@@ -810,6 +824,12 @@ export default function RetailPOSPage() {
               }))
               restoredRows = [...restoredRows, ...newExtRows]
             }
+          }
+
+          // Taslaktan silinen harici gider olduysa localStorage'ı güncelle
+          if (restoredRows.length !== beforeFilterCount) {
+            draft.rows = restoredRows
+            try { localStorage.setItem(draftKey, JSON.stringify(draft)) } catch {}
           }
 
           setPhotoCash(draft.photoCash || '')
@@ -863,11 +883,20 @@ export default function RetailPOSPage() {
         if (catId === EXPENSE_CATEGORY_ID) {
           const processedExternalIds = new Set<string>();
 
-          catDbRows.forEach(r => {
+          for (const r of catDbRows) {
+            const isExt = r.description?.includes('[EXP-') || r.description?.startsWith('Gider Ödemesi')
             const matchedExt = externalCashTxs.find(ext => 
               (ext.transfer_id && r.description?.includes(ext.transfer_id)) ||
               (r.description === ext.description && parseValue(r.cash) === Number(ext.amount))
             );
+
+            // Harici gider formatında olup kasada karşılığı kalmadıysa (Genel Giderler'den silinmişse),
+            // yetim pos_transactions kaydını arka planda temizle ve UI listesine ekleme
+            if (isExt && !matchedExt) {
+              supabase.from('pos_transactions').delete().eq('id', r.id).then()
+              continue
+            }
+
             if (matchedExt) {
               processedExternalIds.add(matchedExt.id);
             }
@@ -885,7 +914,7 @@ export default function RetailPOSPage() {
               transferId: matchedExt?.transfer_id || null,
               isExternalExpense: !!matchedExt
             });
-          });
+          }
 
           // pos_transactions tablosunda henüz yer almayan harici giderleri ekle
           externalCashTxs.forEach(ext => {

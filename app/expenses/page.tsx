@@ -948,6 +948,15 @@ export default function ExpensesPage() {
             }
           }
 
+          // Varsa bu gidere ait mağaza pos_transactions kaydını da temizle
+          const relatedExpTrf = oldTx.transfer_id || `EXP-${oldTx.id}`
+          await supabase
+            .from('pos_transactions')
+            .delete()
+            .eq('date', oldTx.tx_date)
+            .eq('category_id', 'gider')
+            .or(`description.like.%[${relatedExpTrf}]%,description.like.%[EXP-${oldTx.id}]%`)
+
           await supabase.from('expense_transactions').delete().eq('id', txId)
           
           await logActivity('expense', 'DELETE', `Gider silindi ve iade edildi: ${oldTx.description}`, txId, oldTx.amount, oldTx.currency || 'TRY', oldTx, null, oldTx.company_id)

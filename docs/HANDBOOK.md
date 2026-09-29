@@ -520,7 +520,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
   - **Sabit Gider Takip Şeridi:** Mevcut ayın düzenli kira, aidat, fatura, SGK/BağKur vb. ödeme durumu (`Ödendi`, `Gecikti`, `Bugün`, `X gün kaldı`, `Ay Sonu`); görünüm değiştirici (Yoğun Liste / Kart Izgara); filtreler (`Bu Ay`, `Bekleyenler`, `Ödenenler`, `Geçmişten Kalanlar`).
   - **Geçmiş Dönem Ödenmemiş Sabit Giderler (Backlog):** Önceki aylarda ödenmemiş kalan şablonların tespiti (`pastUnpaidList`), acil uyarı şeridi ve geçmiş aya özel otomatik açıklamalı Hızlı Ödeme desteği.
   - **Manuel Gider Formu & Tablosu:** Tarih, merkez **zorunlu**, kategori, ödeme kaynağı kasa/banka/kart, açıklama, döviz, kur, tutar, arama ve tablo listesi.
-- Gider ekle: `expense_transactions` + kaynağa `EXP-<tx_id>` hareketi (kartta `expense`, diğerlerinde `out`). Silme her ikisini geri alır. **Düzenleme yok.**
+- Gider ekle: `expense_transactions` + kaynağa `EXP-<tx_id>` hareketi (kartta `expense`, diğerlerinde `out`). Silme her ikisini geri alır; ayrıca mağaza POS Z-raporuna yansımış bir `pos_transactions` kaydı varsa onu da otomatik temizler. Mağaza ekranı da taslak ve DB yüklemesinde kasada karşılığı kalmayan silinmiş harici giderleri otomatik ayıklar. **Düzenleme yok.**
 
 ### 7.11 Abonelik / Kredi `/subscriptions`
 - Üst: kredi cüzdanı kartları (bakiye adet, tedarikçi, sıradaki maliyet, Yükle), Yeni Cüzdan.
