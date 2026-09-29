@@ -531,20 +531,30 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Kurallar: §6.5.
 
 ### 7.12 Raporlar (P&L / Nakit Akışı / Mizan) `/reports`
-- **Filtreler:** Merkez seçimi, dönem hapları (Son 7 Gün / Son 30 Gün / Bu Ay / Geçen Ay / Bu Yıl / Tüm Zamanlar / Özel İki Tarih Aralığı), **Raporu Yazdır** (A4 dikey tek sayfa optimizasyonu, `#printable-report` dışındaki her şey gizlenir, sıfır siyah ekonomik baskı CSS'i).
-- **Yönetici Özet KPI Kartları:** Toplam Nakit Girişi, Toplam Çıkış & Masraf, Net Nakit Akışı, Günlük Ortalama Hacim, En Yüksek Girişli Zirve Gün.
-- **Cari Mutabakat & Açık Bakiye Dengesi Kartları:** Müşteri Alacakları (Açık bakiye, dönem satış/tahsilat), Tedarikçi Borçları (Açık borç, dönem alış/ödeme), Net Cari Denge (Alacak − Borç).
-- **Günlük İnteraktif Trend Grafiği (Saf SVG):** Seçilen aralıktaki her gün için Yeşil (Giriş) ve Kırmızı (Çıkış) çubukları; Net Nakit Akış eğrisi; canlı hover popover ve tıklanabilir gün drill-down seçimi (varsayılan olarak baskıda gizlidir, üst bardaki "Grafikleri Yazdır" kutusuyla açılabilir).
-- **Kategori & Kanal Analizleri:** Masraf kategorileri dağılımı (yüzdeli barlar) ve Mağaza (POS) Nakit vs. Kredi Kartı satış hasılat oranı.
-- **Günlük İşlem Detay Dökümü (Drill-Down):** Tıklanan güne veya tüm döneme ait tüm fatura, tahsilat, masraf, kasa ve banka hareketlerinin kronolojik listesi ve anlık araması (baskıda gizli).
-- **Bölüm 1 (İşlem Gören Kaynakların Dağılımı):** Ekranda Gider, Tedarikçi Ödemesi, Müşteri Tahsilatı için 3'lü renkli kartlar; baskıda ise dikey alanı koruyan 4 satırlık kompakt mizan matrisi (`Gider/Tedarikçi/Müşteri × Kasa/Banka/Kart/Toplam`).
-- **Maksimum Ekonomik Tek Sayfa A4 Baskı Düzeni:**
-  - `@page { size: A4 portrait; margin: 4mm 5mm; }`
-  - Baskıda 6'lı üst KPI/Cari strip tek satırda toplanır.
-  - Finansal mizan tabloları **dengeli 2 sütunlu ızgara** halinde dizilir (`print:grid print:grid-cols-2 print:gap-2`):
-    - **Sol Sütun:** 1. Kaynak Dağılımı Matrisi, 2. Nakit Kasalar, 3. Banka Hesapları, 4. Kredi Kartları, 7. Depo ve Sermaye Durumu (yükseklik dengelemesi için sol sütunda).
-    - **Sağ Sütun:** 5. Müşteriler (Alacaklarımız) Mizanı, 6. Tedarikçiler (Borçlarımız) Mizanı.
-  - Kompakt yazı boyutu (`6.8px`–`7px`) ve hücre dolguları (`1.2px 2.5px`) ile kesilme veya taşma olmadan tek A4 sayfasına sığar.
+- **Sekmeli Modüler Raporlama Mimarisi:**
+  - `🏪 Mağaza Kâr & Perakende Satış Analizi` (Detaylı P&L): Perakende Z-Raporu satış hasılatları, ürün alış maliyetleri, kategori kârlılıkları ve Genel Durum ana ekranı P&L kâr mutabakatı.
+  - `📊 Finansal Mizan & Nakit Akışı` (Bilanço & Likidite): Nakit akışı, cari alacak/borç dengesi, banka, kasa, kredi kartı ve depo sermaye mizanı.
+- **Filtreler:** Merkez seçimi (şirket kısıtlı personeller için otomatik kilitli), dönem hapları (Son 7 Gün / Son 30 Gün / Bu Ay / Geçen Ay / Bu Yıl / Tüm Zamanlar / Özel İki Tarih Aralığı), **Raporu Yazdır** (A4 dikey tek sayfa optimizasyonu, `#printable-report` dışındaki her şey gizlenir, sıfır siyah ekonomik baskı CSS'i).
+- **1. Mağaza Kâr & Perakende Satış Analizi Sekmesi:**
+  - **Canlı Hesaplama & P&L Mutabakat Köprüsü:** Genel Durum ekranındaki Mağaza Kârı ile Net Ticari Kâr arasındaki bağlantıyı (`Mağaza Kârı + Teknik Servis Geliri − Sabit/Genel Giderler − Yerel Mağaza Masrafları − POS Komisyon Kesintileri = Net Ticari Kâr`) kuran 6 adımlı köprü kartı.
+  - **5'li Yönetici KPI Sayaçları:** Perakende Satış Cirosu (Nakit ve Kart kırılımlı), Satışların Maliyeti (COGS - satılan ürünlerin stok/geliş maliyeti), Net Mağaza Kârı (ve % net kâr marjı), Toplam İşlem/Fiş Adedi (ve sepet ortalaması), En Çok Kâr Getiren Kategori (ve kâr tutarı/marjı).
+  - **Kategori Bazlı Satış, Maliyet & Kârlılık Tablosu:** Aksesuar, Oyun & Program, DVD & Hariciye, Orijinal Film/Oyun, Diğer Gelirler, Servis Satışları, Fotokopi kategorilerinin işlem adedi, nakit hasılat, kartlı hasılat, toplam ciro, maliyet, net kâr, kâr marjı (%) ve ciro payı (%).
+  - **Günlük Z-Raporu Satış & Kâr Kırılımı (Genişletilebilir Accordion):** Her günün toplam cirosu, maliyeti, net kârı ve satır tıklandığında açılan o güne ait münferit kalem satış dökümü (kalem açıklaması, kategori rozeti, nakit/kart, fiyat, maliyet, net kâr, marj).
+  - **Tüm Tekil Kalemler Arama & Filtreleme Tablosu:** Dönem içindeki tüm münferit perakende satış kalemlerinin açıklamaya ve kategoriye göre anlık aranabilmesi ve tekil kârlılıklarının incelenmesi.
+- **2. Finansal Mizan & Nakit Akışı Sekmesi:**
+  - **Yönetici Özet KPI Kartları:** Toplam Nakit Girişi, Toplam Çıkış & Masraf, Net Nakit Akışı, Günlük Ortalama Hacim, En Yüksek Girişli Zirve Gün.
+  - **Cari Mutabakat & Açık Bakiye Dengesi Kartları:** Müşteri Alacakları (Açık bakiye, dönem satış/tahsilat), Tedarikçi Borçları (Açık borç, dönem alış/ödeme), Net Cari Denge (Alacak − Borç).
+  - **Günlük İnteraktif Trend Grafiği (Saf SVG):** Seçilen aralıktaki her gün için Yeşil (Giriş) ve Kırmızı (Çıkış) çubukları; Net Nakit Akış eğrisi; canlı hover popover ve tıklanabilir gün drill-down seçimi (varsayılan olarak baskıda gizlidir, üst bardaki "Grafikleri Yazdır" kutusuyla açılabilir).
+  - **Kategori & Kanal Analizleri:** Masraf kategorileri dağılımı (yüzdeli barlar) ve Mağaza (POS) Nakit vs. Kredi Kartı satış hasılat oranı.
+  - **Günlük İşlem Detay Dökümü (Drill-Down):** Tıklanan güne veya tüm döneme ait tüm fatura, tahsilat, masraf, kasa ve banka hareketlerinin kronolojik listesi ve anlık araması (baskıda gizli).
+  - **Bölüm 1 (İşlem Gören Kaynakların Dağılımı):** Ekranda Gider, Tedarikçi Ödemesi, Müşteri Tahsilatı için 3'lü renkli kartlar; baskıda ise dikey alanı koruyan 4 satırlık kompakt mizan matrisi (`Gider/Tedarikçi/Müşteri × Kasa/Banka/Kart/Toplam`).
+  - **Maksimum Ekonomik Tek Sayfa A4 Baskı Düzeni:**
+    - `@page { size: A4 portrait; margin: 4mm 5mm; }`
+    - Baskıda 6'lı üst KPI/Cari strip tek satırda toplanır.
+    - Finansal mizan tabloları **dengeli 2 sütunlu ızgara** halinde dizilir (`print:grid print:grid-cols-2 print:gap-2`):
+      - **Sol Sütun:** 1. Kaynak Dağılımı Matrisi, 2. Nakit Kasalar, 3. Banka Hesapları, 4. Kredi Kartları, 7. Depo ve Sermaye Durumu (yükseklik dengelemesi için sol sütunda).
+      - **Sağ Sütun:** 5. Müşteriler (Alacaklarımız) Mizanı, 6. Tedarikçiler (Borçlarımız) Mizanı.
+    - Kompakt yazı boyutu (`6.8px`–`7px`) ve hücre dolguları (`1.2px 2.5px`) ile kesilme veya taşma olmadan tek A4 sayfasına sığar.
 
 
 

@@ -1,19 +1,31 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, Fragment } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
+import { useAuth } from '@/lib/auth-context'
 import toast, { Toaster } from 'react-hot-toast'
 import {
   Printer, Calendar, Filter, Wallet, Landmark, CreditCard, Activity,
   TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
   BarChart2, PieChart, ShoppingBag, X, ChevronDown, ChevronUp,
   Search, CheckCircle2, AlertCircle, Sparkles, HelpCircle, Layers,
-  Users, Building2, Scale
+  Users, Building2, Scale, Package, Wrench
 } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type DateFilterType = 'thisMonth' | 'lastMonth' | 'last7Days' | 'last30Days' | 'thisYear' | 'custom' | 'all'
+
+const POS_CATEGORIES: Record<string, { name: string; color: string; badgeBg: string; badgeText: string }> = {
+  aksesuar: { name: 'Aksesuar & Sarf Malzeme', color: '#10b981', badgeBg: 'bg-emerald-500/15 border-emerald-500/30', badgeText: 'text-emerald-400' },
+  oyun_prog: { name: 'Oyun & Program Yükleme', color: '#14b8a6', badgeBg: 'bg-teal-500/15 border-teal-500/30', badgeText: 'text-teal-400' },
+  dvd_harici: { name: 'DVD & Hariciye (Film, Müzik)', color: '#06b6d4', badgeBg: 'bg-cyan-500/15 border-cyan-500/30', badgeText: 'text-cyan-400' },
+  orjinal: { name: 'Orijinal Film & Oyun', color: '#6366f1', badgeBg: 'bg-indigo-500/15 border-indigo-500/30', badgeText: 'text-indigo-400' },
+  diger: { name: 'Diğer Hizmet & Gelirler', color: '#8b5cf6', badgeBg: 'bg-purple-500/15 border-purple-500/30', badgeText: 'text-purple-400' },
+  servis: { name: 'Servis Satışları', color: '#f59e0b', badgeBg: 'bg-amber-500/15 border-amber-500/30', badgeText: 'text-amber-400' },
+  fotokopi: { name: 'Fotokopi (Baskı & Çıktı)', color: '#3b82f6', badgeBg: 'bg-blue-500/15 border-blue-500/30', badgeText: 'text-blue-400' },
+  gider: { name: 'Yerel Mağaza Gideri', color: '#f43f5e', badgeBg: 'bg-rose-500/15 border-rose-500/30', badgeText: 'text-rose-400' }
+}
 
 function formatDateTR(dateStr: string) {
   if (!dateStr) return ''
@@ -29,11 +41,43 @@ function formatShortDateTR(dateStr: string) {
   return dateStr
 }
 
+function formatDateWithDayTR(dateStr: string) {
+  if (!dateStr) return ''
+  const parts = dateStr.split('-')
+  if (parts.length === 3) {
+    const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+    const dayNames = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi']
+    return `${parts[2]}.${parts[1]}.${parts[0]} ${dayNames[d.getDay()]}`
+  }
+  return dateStr
+}
+
 export default function AdvancedReportsPage() {
+  const { profile, isAdmin } = useAuth()
+  const isRestricted = !isAdmin && (profile?.allowed_companies?.length || 0) > 0
+
+  const [activeTab, setActiveTab] = useState<'mizan' | 'retail_profit'>('retail_profit')
   const [companies, setCompanies] = useState<Company[]>([])
   const [selectedCompany, setSelectedCompany] = useState<string>('all')
   const [dateFilter, setDateFilter] = useState<DateFilterType>('thisMonth')
   const [includeChartInPrint, setIncludeChartInPrint] = useState<boolean>(false)
+
+  // Mağaza Kâr Sekmesi Ek State'leri
+  const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({})
+  const [itemSearchQuery, setItemSearchQuery] = useState<string>('')
+  const [itemCategoryFilter, setItemCategoryFilter] = useState<string>('all')
+  const [showAllItems, setShowAllItems] = useState<boolean>(false)
+
+  const toggleDayExpanded = (d: string) => {
+    setExpandedDays(prev => ({ ...prev, [d]: !prev[d] }))
+  }
+
+  // Kısıtlı personel için şirket kitlemesi
+  useEffect(() => {
+    if (isRestricted && profile?.allowed_companies?.[0]) {
+      setSelectedCompany(profile.allowed_companies[0])
+    }
+  }, [isRestricted, profile?.allowed_companies])
   
   // Özel Tarih Aralığı State'leri
   const now = new Date()
@@ -54,6 +98,7 @@ export default function AdvancedReportsPage() {
   const [cashTxs, setCashTxs] = useState<any[]>([])
   const [bankTxs, setBankTxs] = useState<any[]>([])
   const [posTxs, setPosTxs] = useState<any[]>([])
+  const [techTickets, setTechTickets] = useState<any[]>([])
   
   const [banks, setBanks] = useState<any[]>([])
   const [cashes, setCashes] = useState<any[]>([])
@@ -154,6 +199,11 @@ export default function AdvancedReportsPage() {
         .select('id, date, category_id, description, cash, card, cost, stock_id, company_id')
       setPosTxs(posTransactions || [])
 
+      // Teknik Servis Fişleri (Mağaza ve Servis P&L dengesi için)
+      const { data: techData } = await supabase.from('technical_service_tickets')
+        .select('id, ticket_no, customer_name, brand_model, total_cost, status, delivered_at, created_at, company_id')
+      setTechTickets(techData || [])
+
     } catch (err) {
       toast.error('Veriler alınırken hata oluştu.')
     } finally {
@@ -166,6 +216,11 @@ export default function AdvancedReportsPage() {
   }
 
   const isMatchCompany = (compId: string | null) => {
+    if (isRestricted) {
+      if (!compId) return false
+      if (!profile?.allowed_companies?.includes(compId)) return false
+      return compId === selectedCompany
+    }
     if (selectedCompany === 'all') return true
     if (selectedCompany === 'common') return compId === null
     return compId === selectedCompany
@@ -236,6 +291,228 @@ export default function AdvancedReportsPage() {
   const expSources = getSourceDistribution(expenseTxs, 'tx_date')
   const suppSources = getSourceDistribution(supplierTxs, 'tx_date', 'payment')
   const custSources = getSourceDistribution(customerTxs, 'tx_date', 'payment')
+
+  // =====================================================================
+  // --- MAĞAZA (POS) KÂR & SATIŞ DETAY ANALİZ MOTORU ---
+  // =====================================================================
+  const retailProfitAnalysis = useMemo(() => {
+    // 1. Dönem içindeki ve seçili şirketteki POS hareketleri
+    const periodPosTxs = posTxs.filter(t => {
+      if (!isMatchCompany(t.company_id)) return false
+      const d = t.date
+      return d && d >= start && d <= end
+    })
+
+    // Sadece satış kalemleri (gider hariç)
+    const salesTxs = periodPosTxs.filter(t => t.category_id !== 'gider')
+    // Yerel mağaza giderleri
+    const localExpenseTxs = periodPosTxs.filter(t => t.category_id === 'gider' && !t.description?.includes('[EXP-') && !t.description?.startsWith('Gider Ödemesi'))
+
+    let totalCashRev = 0
+    let totalCardRev = 0
+    let totalCost = 0
+
+    salesTxs.forEach(t => {
+      totalCashRev += Number(t.cash || 0)
+      totalCardRev += Number(t.card || 0)
+      totalCost += Number(t.cost || 0)
+    })
+
+    const totalRev = totalCashRev + totalCardRev
+    const netProfit = totalRev - totalCost
+    const marginPct = totalRev > 0 ? (netProfit / totalRev) * 100 : 0
+    const avgTicket = salesTxs.length > 0 ? totalRev / salesTxs.length : 0
+
+    // 2. Kategori Bazlı Kırılım
+    const catMap: Record<string, {
+      id: string
+      name: string
+      count: number
+      cash: number
+      card: number
+      revenue: number
+      cost: number
+      profit: number
+      marginPct: number
+      revenueSharePct: number
+    }> = {}
+
+    salesTxs.forEach(t => {
+      const catId = t.category_id || 'diger'
+      if (!catMap[catId]) {
+        const catInfo = POS_CATEGORIES[catId]
+        catMap[catId] = {
+          id: catId,
+          name: catInfo ? catInfo.name : catId,
+          count: 0,
+          cash: 0,
+          card: 0,
+          revenue: 0,
+          cost: 0,
+          profit: 0,
+          marginPct: 0,
+          revenueSharePct: 0
+        }
+      }
+      const c = Number(t.cash || 0)
+      const k = Number(t.card || 0)
+      const cost = Number(t.cost || 0)
+      catMap[catId].count += 1
+      catMap[catId].cash += c
+      catMap[catId].card += k
+      catMap[catId].revenue += (c + k)
+      catMap[catId].cost += cost
+    })
+
+    const categoryList = Object.values(catMap).map(c => {
+      const profit = c.revenue - c.cost
+      const margin = c.revenue > 0 ? (profit / c.revenue) * 100 : 0
+      const share = totalRev > 0 ? (c.revenue / totalRev) * 100 : 0
+      return {
+        ...c,
+        profit,
+        marginPct: margin,
+        revenueSharePct: share
+      }
+    }).sort((a, b) => b.profit - a.profit)
+
+    // 3. Gün Gün Dağılım
+    const dayMap: Record<string, {
+      date: string
+      count: number
+      cash: number
+      card: number
+      revenue: number
+      cost: number
+      profit: number
+      marginPct: number
+      items: any[]
+    }> = {}
+
+    salesTxs.forEach(t => {
+      const d = t.date
+      if (!dayMap[d]) {
+        dayMap[d] = {
+          date: d,
+          count: 0,
+          cash: 0,
+          card: 0,
+          revenue: 0,
+          cost: 0,
+          profit: 0,
+          marginPct: 0,
+          items: []
+        }
+      }
+      const c = Number(t.cash || 0)
+      const k = Number(t.card || 0)
+      const cost = Number(t.cost || 0)
+      const rev = c + k
+      dayMap[d].count += 1
+      dayMap[d].cash += c
+      dayMap[d].card += k
+      dayMap[d].revenue += rev
+      dayMap[d].cost += cost
+      dayMap[d].items.push({
+        id: t.id,
+        category_id: t.category_id,
+        description: t.description,
+        cash: c,
+        card: k,
+        rev,
+        cost,
+        profit: rev - cost,
+        stock_id: t.stock_id
+      })
+    })
+
+    const dailyList = Object.values(dayMap).map(d => {
+      const profit = d.revenue - d.cost
+      const margin = d.revenue > 0 ? (profit / d.revenue) * 100 : 0
+      return {
+        ...d,
+        profit,
+        marginPct: margin
+      }
+    }).sort((a, b) => b.date.localeCompare(a.date))
+
+    // 4. İlgili Dönemin Teknik Servis Gelirleri (Dashboard Köprüsü için)
+    let techServiceRev = 0
+    let techServiceCount = 0
+    techTickets.forEach(t => {
+      if (!isMatchCompany(t.company_id)) return
+      if (t.status !== 'delivered') return
+      const d = (t.delivered_at || t.created_at)?.substring(0, 10)
+      if (d && d >= start && d <= end) {
+        techServiceRev += Number(t.total_cost || 0)
+        techServiceCount += 1
+      }
+    })
+
+    // 5. İlgili Dönemin Ticari Genel Giderleri
+    let commercialExpTotal = 0
+    expenseTxs.forEach(e => {
+      if (!isMatchCompany(e.company_id)) return
+      const d = (e.tx_date || e.created_at)?.substring(0, 10)
+      if (d && d >= start && d <= end) {
+        commercialExpTotal += Number(e.amount || 0) * Number(e.exchange_rate || 1)
+      }
+    })
+
+    // 6. Yerel Mağaza Masrafları Toplamı
+    let localExpTotal = 0
+    localExpenseTxs.forEach(e => {
+      localExpTotal += Number(e.cash || 0) + Number(e.card || 0)
+    })
+
+    // 7. POS Komisyon Kesintileri
+    let posCommTotal = 0
+    bankTxs.forEach(b => {
+      if (!isMatchCompany(b.company_id)) return
+      if (!b.description?.includes('POS Komisyon Kesintisi')) return
+      const d = (b.tx_date || b.created_at)?.substring(0, 10)
+      if (d && d >= start && d <= end) {
+        posCommTotal += Number(b.amount || 0) * Number(b.exchange_rate || 1)
+      }
+    })
+
+    const totalOperatingExpenses = commercialExpTotal + localExpTotal + posCommTotal
+    const netCommercialProfit = (totalRev + techServiceRev) - totalCost - totalOperatingExpenses
+
+    return {
+      totalCashRev,
+      totalCardRev,
+      totalRev,
+      totalCost,
+      netProfit,
+      marginPct,
+      avgTicket,
+      totalSalesCount: salesTxs.length,
+      categoryList,
+      dailyList,
+      salesTxs,
+      techServiceRev,
+      techServiceCount,
+      commercialExpTotal,
+      localExpTotal,
+      posCommTotal,
+      totalOperatingExpenses,
+      netCommercialProfit
+    }
+  }, [posTxs, start, end, isMatchCompany, techTickets, expenseTxs, bankTxs])
+
+  const filteredRetailItems = useMemo(() => {
+    return retailProfitAnalysis.salesTxs.filter(t => {
+      if (itemCategoryFilter !== 'all' && t.category_id !== itemCategoryFilter) return false
+      if (itemSearchQuery.trim()) {
+        const q = itemSearchQuery.trim().toLocaleLowerCase('tr-TR')
+        const desc = (t.description || '').toLocaleLowerCase('tr-TR')
+        const cat = (t.category_id || '').toLocaleLowerCase('tr-TR')
+        if (!desc.includes(q) && !cat.includes(q)) return false
+      }
+      return true
+    })
+  }, [retailProfitAnalysis.salesTxs, itemCategoryFilter, itemSearchQuery])
 
   // =====================================================================
   // --- GÜNLÜK HAREKET VE TREND GRAFİĞİ MOTORU ---
@@ -890,17 +1167,81 @@ export default function AdvancedReportsPage() {
 
       {/* ÜST KONTROL BAR (Yazdırmada tamamen gizlenir) */}
       <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex flex-col gap-3 bg-[#0d1322] border border-slate-800/80 p-3.5 rounded-xl shadow-md shrink-0 mb-4 transition-colors print:hidden">
+        {/* SEKME GEÇİŞİ (TABS) */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveTab('retail_profit')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                activeTab === 'retail_profit'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-900/40 border border-emerald-400/30'
+                  : 'bg-[#070b14] text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
+              }`}
+            >
+              <ShoppingBag size={14} className={activeTab === 'retail_profit' ? 'text-emerald-100' : 'text-slate-400'} />
+              <span>🏪 Mağaza Kâr & Perakende Satış Analizi</span>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
+                activeTab === 'retail_profit' ? 'bg-black/25 text-emerald-100' : 'bg-slate-800 text-emerald-400'
+              }`}>
+                Detaylı P&L
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('mizan')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                activeTab === 'mizan'
+                  ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-900/40 border border-indigo-400/30'
+                  : 'bg-[#070b14] text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
+              }`}
+            >
+              <Activity size={14} className={activeTab === 'mizan' ? 'text-indigo-100' : 'text-slate-400'} />
+              <span>📊 Finansal Mizan & Nakit Akışı</span>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
+                activeTab === 'mizan' ? 'bg-black/25 text-indigo-100' : 'bg-slate-800 text-indigo-400'
+              }`}>
+                Bilanço
+              </span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-[11px] text-slate-400">Aktif Modül:</span>
+            <span className={`font-bold px-2 py-0.5 rounded text-[11px] border ${
+              activeTab === 'retail_profit'
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+            }`}>
+              {activeTab === 'retail_profit' ? '🏪 Mağaza Perakende Satış & Kâr Analizi' : '📊 Genel Mizan & Nakit Akışı'}
+            </span>
+          </div>
+        </div>
+
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
           <div className="flex items-center gap-3 text-white">
-            <div className="p-2 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-indigo-400 rounded-lg border border-indigo-500/30">
-              <Activity size={22} />
+            <div className={`p-2 rounded-lg border ${
+              activeTab === 'retail_profit'
+                ? 'bg-gradient-to-br from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/30'
+                : 'bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-indigo-400 border-indigo-500/30'
+            }`}>
+              {activeTab === 'retail_profit' ? <ShoppingBag size={22} /> : <Activity size={22} />}
             </div>
             <div>
               <h2 className="font-black text-base md:text-lg leading-tight tracking-tight flex items-center gap-2">
-                Dönemsel Hareket & Nakit Akış Raporu
-                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 font-semibold px-2 py-0.5 rounded-full border border-indigo-500/30">Finansal Mizan & Analitik</span>
+                {activeTab === 'retail_profit' ? 'Mağaza Perakende Kâr & Satış Analiz Raporu' : 'Dönemsel Hareket & Nakit Akış Raporu'}
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                  activeTab === 'retail_profit'
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                }`}>
+                  {activeTab === 'retail_profit' ? 'Kâr & Maliyet Analizi' : 'Finansal Mizan & Analitik'}
+                </span>
               </h2>
-              <p className="text-[10px] text-slate-400 mt-0.5">Nakit akışı, cari alacak/borç dengesi, banka, kasa ve depo hareketleri</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {activeTab === 'retail_profit'
+                  ? 'Perakende Z-Raporu satış ciroları, ürün alış maliyetleri, kategori kârlılıkları ve P&L kâr mutabakatı'
+                  : 'Nakit akışı, cari alacak/borç dengesi, banka, kasa ve depo hareketleri'}
+              </p>
             </div>
           </div>
 
@@ -990,18 +1331,569 @@ export default function AdvancedReportsPage() {
         {/* YAZDIRMA RESMİ BAŞLIĞI */}
         <div className="text-center border-b border-slate-800 pb-2 print:pb-1 print:mb-1 print:border-b print:border-black">
           <div className="flex justify-between items-baseline print:flex print:justify-between print:items-center">
-            <h1 className="text-base font-black text-white tracking-wider print-text-black uppercase print:text-[9.5px] print:leading-none print:font-extrabold">DÖNEMSEL FİNANSAL MİZAN VE HAREKET RAPORU</h1>
+            <h1 className="text-base font-black text-white tracking-wider print-text-black uppercase print:text-[9.5px] print:leading-none print:font-extrabold">
+              {activeTab === 'retail_profit'
+                ? 'DÖNEMSEL MAĞAZA PERAKENDE SATIŞ, MALİYET VE KÂR ANALİZ RAPORU'
+                : 'DÖNEMSEL FİNANSAL MİZAN VE HAREKET RAPORU'}
+            </h1>
             <span className="hidden print:inline-block print:text-[6.5px] print:text-slate-600 font-mono">Çıktı: {new Date().toLocaleDateString('tr-TR')} {new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
           <p className="text-[10px] text-slate-400 mt-1 print:mt-0.5 print-text-black font-medium print:text-[7px] print:leading-tight print:text-left">
             Kapsam: <strong>{selectedCompany === 'all' ? 'Tüm Kurumlar (Konsolide)' : companies.find(c => c.id === selectedCompany)?.name}</strong>
             {' • '} Dönem: <strong>{formatDateTR(start)} – {formatDateTR(end)}</strong>
+            {activeTab === 'retail_profit' && (
+              <span> {' • '} Modül: <strong>Perakende Satış Kâr & Maliyet Analizi</strong></span>
+            )}
           </p>
         </div>
 
-        {/* YÖNETİCİ ÖZETİ (EKRANDA GENİŞ KARTLAR, BASKIDA GİZLENİR - YERİNE AŞAĞIDAKİ TEK SATIR STRIP KULLANILIR) */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 print:hidden">
-          <div className="bg-[#070b14] border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-emerald-500/40 transition-colors">
+        {activeTab === 'retail_profit' ? (
+          /* ================================================================= */
+          /* --- MAĞAZA PERAKENDE SATIŞ, MALİYET & KÂR ANALİZ GÖRÜNÜMÜ --- */
+          /* ================================================================= */
+          <div className="space-y-6 print:space-y-3">
+            
+            {/* 1. HESAPLAMA MOTORU & BİLGİLENDİRME BİLGİ KARTI */}
+            <div className="bg-gradient-to-r from-emerald-950/40 via-teal-950/30 to-slate-900 border border-emerald-500/30 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 print:hidden shadow-lg">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 bg-emerald-500/20 text-emerald-400 rounded-lg shrink-0 border border-emerald-500/40">
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    <span>Genel Durum Mağaza Kârı Hesaplama Motoru</span>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                      Canlı & Resmi Formül
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                    Bu sayfadaki tüm veriler, <strong>Genel Durum</strong> ekranındaki <strong>Mağaza Kârı ({formatMoney(retailProfitAnalysis.netProfit, 'TRY').formatted})</strong> rakamını oluşturan Z-Raporu perakende satış kalemleri ve alış maliyetlerinden dinamik olarak üretilir.
+                  </p>
+                </div>
+              </div>
+              <div className="bg-[#070b14]/90 border border-emerald-500/30 px-3.5 py-2 rounded-lg text-right shrink-0">
+                <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">Temel Hesaplama Formülü</span>
+                <span className="text-xs font-mono font-black text-emerald-300">
+                  Mağaza Kârı = Satış Cirosu - Ürün Maliyeti
+                </span>
+              </div>
+            </div>
+
+            {/* 2. YÖNETİCİ KPI ÖZET KARTLARI (5'li Grid) */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 print:grid-cols-5 print:gap-1.5">
+              {/* Kart 1: Mağaza Satış Cirosu */}
+              <div className="bg-[#070b14] border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-emerald-500/40 transition-colors">
+                <div className="flex justify-between items-start">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Perakende Satış Cirosu</span>
+                  <div className="p-1 rounded bg-emerald-500/10 text-emerald-400"><ShoppingBag size={14} /></div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-base font-black text-emerald-400 font-mono">
+                    {formatMoney(retailProfitAnalysis.totalRev, 'TRY').formatted}
+                  </div>
+                  <div className="text-[9px] text-slate-500 mt-0.5 flex justify-between font-mono">
+                    <span>Nakit: {formatMoney(retailProfitAnalysis.totalCashRev, 'TRY').formatted}</span>
+                    <span>Kart: {formatMoney(retailProfitAnalysis.totalCardRev, 'TRY').formatted}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Kart 2: Satış Maliyeti */}
+              <div className="bg-[#070b14] border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-rose-500/40 transition-colors">
+                <div className="flex justify-between items-start">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Satışların Maliyeti (COGS)</span>
+                  <div className="p-1 rounded bg-rose-500/10 text-rose-400"><Package size={14} /></div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-base font-black text-rose-400 font-mono">
+                    {formatMoney(retailProfitAnalysis.totalCost, 'TRY').formatted}
+                  </div>
+                  <div className="text-[9px] text-slate-500 mt-0.5 font-mono">
+                    Satılan ürünlerin stok/geliş maliyeti
+                  </div>
+                </div>
+              </div>
+
+              {/* Kart 3: Net Mağaza Kârı */}
+              <div className="bg-[#070b14] border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-teal-500/40 transition-colors">
+                <div className="flex justify-between items-start">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Net Mağaza Kârı</span>
+                  <div className="p-1 rounded bg-teal-500/10 text-teal-400"><TrendingUp size={14} /></div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-base font-black text-teal-300 font-mono">
+                    {formatMoney(retailProfitAnalysis.netProfit, 'TRY').formatted}
+                  </div>
+                  <div className="text-[9px] text-teal-400/90 font-bold mt-0.5 flex items-center gap-1 font-mono">
+                    <span>Kâr Marjı: %{retailProfitAnalysis.marginPct.toFixed(1)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Kart 4: Toplam İşlem / Fiş Adedi */}
+              <div className="bg-[#070b14] border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-indigo-500/40 transition-colors">
+                <div className="flex justify-between items-start">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Toplam İşlem / Fiş</span>
+                  <div className="p-1 rounded bg-indigo-500/10 text-indigo-400"><Scale size={14} /></div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-base font-black text-white font-mono">
+                    {retailProfitAnalysis.totalSalesCount} <span className="text-xs font-normal text-slate-400">Adet Satış</span>
+                  </div>
+                  <div className="text-[9px] text-slate-500 mt-0.5 font-mono">
+                    Ort. Fiş: {formatMoney(retailProfitAnalysis.avgTicket, 'TRY').formatted}
+                  </div>
+                </div>
+              </div>
+
+              {/* Kart 5: En Kârlı Kategori */}
+              <div className="col-span-2 md:col-span-1 bg-[#070b14] border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-purple-500/40 transition-colors">
+                <div className="flex justify-between items-start">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">En Çok Kâr Getiren</span>
+                  <div className="p-1 rounded bg-purple-500/10 text-purple-400"><Sparkles size={14} /></div>
+                </div>
+                <div className="mt-2">
+                  <div className="text-sm font-black text-purple-300 truncate">
+                    {retailProfitAnalysis.categoryList[0]?.name || 'Kayıt Yok'}
+                  </div>
+                  <div className="text-[9px] text-purple-400 font-bold mt-0.5 font-mono">
+                    {formatMoney(retailProfitAnalysis.categoryList[0]?.profit || 0, 'TRY').formatted} (%{(retailProfitAnalysis.categoryList[0]?.marginPct || 0).toFixed(0)} marj)
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. GENEL DURUM P&L KÂR KÖPRÜSÜ (Mağaza Kârından Net Ticari Kâra Geçiş) */}
+            <div className="bg-[#070b14] border border-slate-800/90 rounded-xl p-4 print-force-transparent">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 mb-3">
+                <div>
+                  <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2 print-text-black print:text-[8.5px]">
+                    <Layers size={14} className="text-indigo-400 print:hidden" />
+                    Genel Durum P&L Kâr Köprüsü (Mağaza Kârı ➔ Net Ticari Kâr)
+                  </h3>
+                  <p className="text-[10px] text-slate-400 print-text-black print:text-[7px]">
+                    Genel Durum ana sayfasındaki ticari net kâr rakamının Mağaza Kârı ile bağlantısını ve işletme masraf kesintilerini gösterir.
+                  </p>
+                </div>
+                <div className="text-[11px] font-mono font-bold text-slate-300 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded">
+                  Net Ticari Kâr: <span className={retailProfitAnalysis.netCommercialProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                    {formatMoney(retailProfitAnalysis.netCommercialProfit, 'TRY').formatted}
+                  </span>
+                </div>
+              </div>
+
+              {/* Köprü Kartları Adımları */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-center text-xs font-mono">
+                {/* 1. Mağaza Kârı */}
+                <div className="bg-[#0d1322] border border-emerald-500/30 rounded-lg p-2.5 flex flex-col justify-between">
+                  <span className="text-[9px] font-sans font-bold text-emerald-400 uppercase tracking-wider block">1. Mağaza Kârı</span>
+                  <div className="text-sm font-black text-emerald-300 my-1">
+                    +{formatMoney(retailProfitAnalysis.netProfit, 'TRY').formatted}
+                  </div>
+                  <span className="text-[8px] text-slate-400 font-sans">Perakende Brüt Kârı</span>
+                </div>
+
+                {/* 2. Teknik Servis */}
+                <div className="bg-[#0d1322] border border-amber-500/30 rounded-lg p-2.5 flex flex-col justify-between">
+                  <span className="text-[9px] font-sans font-bold text-amber-400 uppercase tracking-wider block">2. Teknik Servis</span>
+                  <div className="text-sm font-black text-amber-300 my-1">
+                    +{formatMoney(retailProfitAnalysis.techServiceRev, 'TRY').formatted}
+                  </div>
+                  <span className="text-[8px] text-slate-400 font-sans">{retailProfitAnalysis.techServiceCount} Servis İşi Geliri</span>
+                </div>
+
+                {/* 3. Sabit/Genel Giderler */}
+                <div className="bg-[#0d1322] border border-rose-500/30 rounded-lg p-2.5 flex flex-col justify-between">
+                  <span className="text-[9px] font-sans font-bold text-rose-400 uppercase tracking-wider block">3. Sabit/Genel Gider</span>
+                  <div className="text-sm font-black text-rose-400 my-1">
+                    -{formatMoney(retailProfitAnalysis.commercialExpTotal, 'TRY').formatted}
+                  </div>
+                  <span className="text-[8px] text-slate-400 font-sans">Kira, Fatura, Maaş vb.</span>
+                </div>
+
+                {/* 4. Yerel Mağaza Masrafları */}
+                <div className="bg-[#0d1322] border border-rose-500/30 rounded-lg p-2.5 flex flex-col justify-between">
+                  <span className="text-[9px] font-sans font-bold text-rose-400 uppercase tracking-wider block">4. Yerel Masraflar</span>
+                  <div className="text-sm font-black text-rose-400 my-1">
+                    -{formatMoney(retailProfitAnalysis.localExpTotal, 'TRY').formatted}
+                  </div>
+                  <span className="text-[8px] text-slate-400 font-sans">Kasa & Günlük Harcama</span>
+                </div>
+
+                {/* 5. POS Komisyon Kesintileri */}
+                <div className="bg-[#0d1322] border border-rose-500/30 rounded-lg p-2.5 flex flex-col justify-between">
+                  <span className="text-[9px] font-sans font-bold text-rose-400 uppercase tracking-wider block">5. POS Komisyon</span>
+                  <div className="text-sm font-black text-rose-400 my-1">
+                    -{formatMoney(retailProfitAnalysis.posCommTotal, 'TRY').formatted}
+                  </div>
+                  <span className="text-[8px] text-slate-400 font-sans">Banka Kesintileri</span>
+                </div>
+
+                {/* 6. Net Ticari Kâr */}
+                <div className={`rounded-lg p-2.5 flex flex-col justify-between border ${
+                  retailProfitAnalysis.netCommercialProfit >= 0
+                    ? 'bg-emerald-950/30 border-emerald-500/50'
+                    : 'bg-rose-950/30 border-rose-500/50'
+                }`}>
+                  <span className="text-[9px] font-sans font-bold uppercase tracking-wider block text-slate-300">6. Net Ticari Kâr</span>
+                  <div className={`text-sm font-black my-1 ${
+                    retailProfitAnalysis.netCommercialProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  }`}>
+                    {formatMoney(retailProfitAnalysis.netCommercialProfit, 'TRY').formatted}
+                  </div>
+                  <span className="text-[8px] text-slate-400 font-sans">Genel Durum Tablosu</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. KATEGORİ BAZLI DETAYLI SATIŞ VE KÂR ANALİZ TABLOSU */}
+            <div className="print-break-avoid">
+              <div className="flex justify-between items-center mb-2">
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 print-text-black print:text-[8px]">
+                    <PieChart size={13} className="text-emerald-400 print:hidden" />
+                    Kategori Bazlı Perakende Satış, Maliyet & Kârlılık Dağılımı
+                  </h3>
+                  <p className="text-[10px] text-slate-400 print-text-black print:text-[7px]">
+                    Hangi ürün grubunun ne kadar ciro, alış maliyeti ve net kâr bıraktığının tam dökümü
+                  </p>
+                </div>
+                <span className="text-[10px] font-mono text-slate-400 print-text-black">
+                  {retailProfitAnalysis.categoryList.length} Aktif Kategori
+                </span>
+              </div>
+
+              <div className="border border-slate-800/80 rounded-xl overflow-hidden print-force-transparent">
+                <table className="w-full text-left text-[10px] font-mono">
+                  <thead className="bg-[#0a0f1d] border-b border-slate-800">
+                    <tr>
+                      <th className="p-2.5 font-bold font-sans text-slate-300 uppercase print-text-black">Kategori</th>
+                      <th className="p-2.5 font-bold font-sans text-slate-300 uppercase text-center w-16 print-text-black">Adet</th>
+                      <th className="p-2.5 font-bold font-sans text-slate-300 uppercase text-right w-24 sm:w-28 print-text-black">Nakit (₺)</th>
+                      <th className="p-2.5 font-bold font-sans text-slate-300 uppercase text-right w-24 sm:w-28 print-text-black">Kart (₺)</th>
+                      <th className="p-2.5 font-bold font-sans text-slate-300 uppercase text-right w-28 sm:w-32 print-text-black">Toplam Ciro</th>
+                      <th className="p-2.5 font-bold font-sans text-rose-400 uppercase text-right w-28 sm:w-32 print-text-black">Ürün Maliyeti</th>
+                      <th className="p-2.5 font-bold font-sans text-emerald-400 uppercase text-right w-28 sm:w-32 print-text-black">Net Kâr</th>
+                      <th className="p-2.5 font-bold font-sans text-cyan-400 uppercase text-right w-20 sm:w-24 print-text-black">Kâr Marjı</th>
+                      <th className="p-2.5 font-bold font-sans text-slate-400 uppercase text-right w-24 sm:w-28 print-text-black">Ciro Payı</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/40">
+                    {retailProfitAnalysis.categoryList.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="text-center font-sans text-slate-500 py-4">Bu dönemde mağaza satışı bulunamadı.</td>
+                      </tr>
+                    ) : (
+                      retailProfitAnalysis.categoryList.map(cat => {
+                        const catMeta = POS_CATEGORIES[cat.id]
+                        return (
+                          <tr key={cat.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="p-2.5 font-sans font-medium text-white print-text-black flex items-center gap-2">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full inline-block shrink-0"
+                                style={{ backgroundColor: catMeta?.color || '#94a3b8' }}
+                              />
+                              <span className="truncate max-w-[180px] sm:max-w-none">{cat.name}</span>
+                            </td>
+                            <td className="p-2.5 text-center text-slate-300 print-text-black font-bold">{cat.count}</td>
+                            <td className="p-2.5 text-right text-slate-300 print-text-black">{formatMoney(cat.cash, 'TRY').formatted}</td>
+                            <td className="p-2.5 text-right text-slate-300 print-text-black">{formatMoney(cat.card, 'TRY').formatted}</td>
+                            <td className="p-2.5 text-right font-bold text-white print-text-black bg-slate-900/30">{formatMoney(cat.revenue, 'TRY').formatted}</td>
+                            <td className="p-2.5 text-right font-bold text-rose-400 print-text-black">{formatMoney(cat.cost, 'TRY').formatted}</td>
+                            <td className="p-2.5 text-right font-black text-emerald-400 print-text-black bg-emerald-950/10">{formatMoney(cat.profit, 'TRY').formatted}</td>
+                            <td className="p-2.5 text-right font-black text-cyan-300 print-text-black">%{cat.marginPct.toFixed(1)}</td>
+                            <td className="p-2.5 text-right text-slate-400 print-text-black font-medium">%{cat.revenueSharePct.toFixed(1)}</td>
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                  {retailProfitAnalysis.categoryList.length > 0 && (
+                    <tfoot className="bg-[#070b14] border-t-2 border-slate-700 font-bold">
+                      <tr>
+                        <td className="p-2.5 text-white font-sans uppercase print-text-black">Genel Toplam</td>
+                        <td className="p-2.5 text-center text-white print-text-black">{retailProfitAnalysis.totalSalesCount}</td>
+                        <td className="p-2.5 text-right text-slate-200 print-text-black">{formatMoney(retailProfitAnalysis.totalCashRev, 'TRY').formatted}</td>
+                        <td className="p-2.5 text-right text-slate-200 print-text-black">{formatMoney(retailProfitAnalysis.totalCardRev, 'TRY').formatted}</td>
+                        <td className="p-2.5 text-right text-white font-black bg-slate-900/50 print-text-black">{formatMoney(retailProfitAnalysis.totalRev, 'TRY').formatted}</td>
+                        <td className="p-2.5 text-right text-rose-400 font-black print-text-black">{formatMoney(retailProfitAnalysis.totalCost, 'TRY').formatted}</td>
+                        <td className="p-2.5 text-right text-emerald-400 font-black bg-emerald-950/20 print-text-black">{formatMoney(retailProfitAnalysis.netProfit, 'TRY').formatted}</td>
+                        <td className="p-2.5 text-right text-cyan-300 font-black print-text-black">%{retailProfitAnalysis.marginPct.toFixed(1)}</td>
+                        <td className="p-2.5 text-right text-slate-300 print-text-black">%100.0</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+
+            {/* 5. GÜN GÜN Z-RAPORU SATIŞ & KÂR KIRILIMI (AÇILABİLİR GÜNLÜK DETAYLAR) */}
+            <div className="print-break-avoid">
+              <div className="flex justify-between items-center mb-2">
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 print-text-black print:text-[8px]">
+                    <Calendar size={13} className="text-teal-400 print:hidden" />
+                    Günlük Z-Raporu Satış, Maliyet & Net Kâr Kırılımı
+                  </h3>
+                  <p className="text-[10px] text-slate-400 print-text-black print:text-[7px]">
+                    Her günün toplam cirosu, maliyeti, net kârı ve o gün satılan münferit kalemler (detayı açmak için güne tıklayın)
+                  </p>
+                </div>
+                <span className="text-[10px] font-mono text-slate-400 print-text-black">
+                  {retailProfitAnalysis.dailyList.length} Satış Yapılan Gün
+                </span>
+              </div>
+
+              <div className="border border-slate-800/80 rounded-xl overflow-hidden print-force-transparent">
+                <table className="w-full text-left text-[10px] font-mono">
+                  <thead className="bg-[#0a0f1d] border-b border-slate-800">
+                    <tr>
+                      <th className="p-2.5 font-bold font-sans text-slate-300 uppercase print-text-black">Tarih</th>
+                      <th className="p-2.5 font-bold font-sans text-slate-300 uppercase text-center w-16 print-text-black">Adet</th>
+                      <th className="p-2.5 font-bold font-sans text-slate-300 uppercase text-right w-24 sm:w-28 print-text-black">Nakit (₺)</th>
+                      <th className="p-2.5 font-bold font-sans text-slate-300 uppercase text-right w-24 sm:w-28 print-text-black">Kart (₺)</th>
+                      <th className="p-2.5 font-bold font-sans text-slate-300 uppercase text-right w-28 sm:w-32 print-text-black">Günlük Ciro</th>
+                      <th className="p-2.5 font-bold font-sans text-rose-400 uppercase text-right w-28 sm:w-32 print-text-black">Alış Maliyeti</th>
+                      <th className="p-2.5 font-bold font-sans text-emerald-400 uppercase text-right w-28 sm:w-32 print-text-black">Günlük Kâr</th>
+                      <th className="p-2.5 font-bold font-sans text-cyan-400 uppercase text-right w-20 sm:w-24 print-text-black">Kâr Marjı</th>
+                      <th className="p-2.5 font-bold font-sans text-slate-400 uppercase text-center w-16 print:hidden">Detay</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/40">
+                    {retailProfitAnalysis.dailyList.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="text-center font-sans text-slate-500 py-4">Bu dönemde günlük satış hareketi bulunamadı.</td>
+                      </tr>
+                    ) : (
+                      retailProfitAnalysis.dailyList.map(day => {
+                        const isExpanded = !!expandedDays[day.date]
+                        return (
+                          <Fragment key={day.date}>
+                            <tr
+                              onClick={() => toggleDayExpanded(day.date)}
+                              className="hover:bg-slate-800/30 transition-colors cursor-pointer select-none"
+                            >
+                              <td className="p-2.5 font-sans font-medium text-white print-text-black">
+                                <div className="flex items-center gap-1.5">
+                                  <Calendar size={12} className="text-slate-500 shrink-0 print:hidden" />
+                                  <span>{formatDateWithDayTR(day.date)}</span>
+                                </div>
+                              </td>
+                              <td className="p-2.5 text-center text-slate-300 print-text-black font-bold">{day.count}</td>
+                              <td className="p-2.5 text-right text-slate-300 print-text-black">{formatMoney(day.cash, 'TRY').formatted}</td>
+                              <td className="p-2.5 text-right text-slate-300 print-text-black">{formatMoney(day.card, 'TRY').formatted}</td>
+                              <td className="p-2.5 text-right font-bold text-white print-text-black bg-slate-900/30">{formatMoney(day.revenue, 'TRY').formatted}</td>
+                              <td className="p-2.5 text-right font-bold text-rose-400 print-text-black">{formatMoney(day.cost, 'TRY').formatted}</td>
+                              <td className="p-2.5 text-right font-black text-emerald-400 print-text-black bg-emerald-950/10">{formatMoney(day.profit, 'TRY').formatted}</td>
+                              <td className="p-2.5 text-right font-black text-cyan-300 print-text-black">%{day.marginPct.toFixed(1)}</td>
+                              <td className="p-2.5 text-center text-slate-400 print:hidden">
+                                <button className="p-1 hover:text-white transition-colors cursor-pointer">
+                                  {isExpanded ? <ChevronUp size={14} className="text-indigo-400" /> : <ChevronDown size={14} />}
+                                </button>
+                              </td>
+                            </tr>
+
+                            {/* Genişletilmiş Gün Kalemleri */}
+                            {isExpanded && (
+                              <tr key={`${day.date}-details`} className="bg-[#050811]/90 print-break-avoid">
+                                <td colSpan={9} className="p-3 pl-6 border-y border-indigo-500/20">
+                                  <div className="border border-slate-800 rounded-lg overflow-hidden">
+                                    <div className="bg-[#0b101e] px-3 py-1.5 flex justify-between items-center text-[10px] font-sans border-b border-slate-800">
+                                      <span className="font-bold text-slate-300 flex items-center gap-1.5">
+                                        <Package size={11} className="text-emerald-400" />
+                                        {formatDateWithDayTR(day.date)} Günü Satılan Tüm Kalemler ({day.items.length} Kalem)
+                                      </span>
+                                      <span className="text-slate-400 font-mono">
+                                        Toplam Günlük Kâr: <strong className="text-emerald-400 font-bold">{formatMoney(day.profit, 'TRY').formatted}</strong>
+                                      </span>
+                                    </div>
+                                    <table className="w-full text-left text-[9px] font-mono">
+                                      <thead className="bg-[#080d19] border-b border-slate-800/60">
+                                        <tr>
+                                          <th className="p-1.5 font-bold font-sans text-slate-400 uppercase">Açıklama / Ürün</th>
+                                          <th className="p-1.5 font-bold font-sans text-slate-400 uppercase">Kategori</th>
+                                          <th className="p-1.5 font-bold font-sans text-slate-400 uppercase text-right">Nakit</th>
+                                          <th className="p-1.5 font-bold font-sans text-slate-400 uppercase text-right">Kart</th>
+                                          <th className="p-1.5 font-bold font-sans text-slate-400 uppercase text-right">Satış Tutarı</th>
+                                          <th className="p-1.5 font-bold font-sans text-rose-400 uppercase text-right">Maliyet</th>
+                                          <th className="p-1.5 font-bold font-sans text-emerald-400 uppercase text-right">Net Kâr</th>
+                                          <th className="p-1.5 font-bold font-sans text-cyan-400 uppercase text-right">Marj</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-800/30">
+                                        {day.items.map((item: any, itIdx: number) => {
+                                          const catMeta = POS_CATEGORIES[item.category_id]
+                                          const itemMargin = item.rev > 0 ? (item.profit / item.rev) * 100 : 0
+                                          return (
+                                            <tr key={item.id || itIdx} className="hover:bg-slate-800/40">
+                                              <td className="p-1.5 font-sans text-white">{item.description || 'İsimsiz Kalem'}</td>
+                                              <td className="p-1.5">
+                                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-sans font-bold border ${catMeta?.badgeBg || 'bg-slate-800'} ${catMeta?.badgeText || 'text-slate-300'}`}>
+                                                  {catMeta?.name?.split(' ')[0] || item.category_id}
+                                                </span>
+                                              </td>
+                                              <td className="p-1.5 text-right text-slate-400">{item.cash > 0 ? formatMoney(item.cash, 'TRY').formatted : '-'}</td>
+                                              <td className="p-1.5 text-right text-slate-400">{item.card > 0 ? formatMoney(item.card, 'TRY').formatted : '-'}</td>
+                                              <td className="p-1.5 text-right font-bold text-white">{formatMoney(item.rev, 'TRY').formatted}</td>
+                                              <td className="p-1.5 text-right text-rose-400">{formatMoney(item.cost, 'TRY').formatted}</td>
+                                              <td className="p-1.5 text-right font-bold text-emerald-400">{formatMoney(item.profit, 'TRY').formatted}</td>
+                                              <td className="p-1.5 text-right font-bold text-cyan-300">%{itemMargin.toFixed(0)}</td>
+                                            </tr>
+                                          )
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        )
+                      })
+                    )}
+                  </tbody>
+                  {retailProfitAnalysis.dailyList.length > 0 && (
+                    <tfoot className="bg-[#070b14] border-t-2 border-slate-700 font-bold">
+                      <tr>
+                        <td className="p-2.5 text-white font-sans uppercase print-text-black">Toplam</td>
+                        <td className="p-2.5 text-center text-white print-text-black">{retailProfitAnalysis.totalSalesCount}</td>
+                        <td className="p-2.5 text-right text-slate-200 print-text-black">{formatMoney(retailProfitAnalysis.totalCashRev, 'TRY').formatted}</td>
+                        <td className="p-2.5 text-right text-slate-200 print-text-black">{formatMoney(retailProfitAnalysis.totalCardRev, 'TRY').formatted}</td>
+                        <td className="p-2.5 text-right text-white font-black bg-slate-900/50 print-text-black">{formatMoney(retailProfitAnalysis.totalRev, 'TRY').formatted}</td>
+                        <td className="p-2.5 text-right text-rose-400 font-black print-text-black">{formatMoney(retailProfitAnalysis.totalCost, 'TRY').formatted}</td>
+                        <td className="p-2.5 text-right text-emerald-400 font-black bg-emerald-950/20 print-text-black">{formatMoney(retailProfitAnalysis.netProfit, 'TRY').formatted}</td>
+                        <td className="p-2.5 text-right text-cyan-300 font-black print-text-black">%{retailProfitAnalysis.marginPct.toFixed(1)}</td>
+                        <td className="p-2.5 print:hidden"></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+
+            {/* 6. TÜM TEKİL SATIŞ KALEMLERİ ARAMA & DETAY İNCELEME TABLOSU */}
+            <div className="print-break-avoid">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 mb-2">
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 print-text-black print:text-[8px]">
+                    <Search size={13} className="text-indigo-400 print:hidden" />
+                    Tüm Tekil Satış Kalemleri (Filtreli Liste)
+                  </h3>
+                  <p className="text-[10px] text-slate-400 print-text-black print:text-[7px]">
+                    Dönem içinde satılan tüm kalemlerin alış maliyetleri, satış fiyatları ve tekil kârlılıkları
+                  </p>
+                </div>
+
+                {/* Filtre ve Arama Çubuğu */}
+                <div className="flex flex-wrap items-center gap-2 print:hidden">
+                  <div className="relative">
+                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Ürün veya açıklama ara..."
+                      value={itemSearchQuery}
+                      onChange={(e) => setItemSearchQuery(e.target.value)}
+                      className="bg-[#070b14] border border-slate-700 rounded-lg pl-7 pr-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-48 sm:w-64"
+                    />
+                  </div>
+
+                  <select
+                    value={itemCategoryFilter}
+                    onChange={(e) => setItemCategoryFilter(e.target.value)}
+                    className="bg-[#070b14] border border-slate-700 text-white text-xs rounded-lg px-2.5 py-1 focus:outline-none cursor-pointer"
+                  >
+                    <option value="all">Tüm Kategoriler</option>
+                    {Object.entries(POS_CATEGORIES).filter(([k]) => k !== 'gider').map(([k, v]) => (
+                      <option key={k} value={k}>{v.name}</option>
+                    ))}
+                  </select>
+
+                  <span className="text-[10px] font-mono text-slate-400">
+                    {filteredRetailItems.length} Kalem
+                  </span>
+                </div>
+              </div>
+
+              <div className="border border-slate-800/80 rounded-xl overflow-hidden print-force-transparent">
+                <table className="w-full text-left text-[10px] font-mono">
+                  <thead className="bg-[#0a0f1d] border-b border-slate-800">
+                    <tr>
+                      <th className="p-2 font-bold font-sans text-slate-300 uppercase print-text-black w-24">Tarih</th>
+                      <th className="p-2 font-bold font-sans text-slate-300 uppercase print-text-black w-28 sm:w-36">Kategori</th>
+                      <th className="p-2 font-bold font-sans text-slate-300 uppercase print-text-black">Ürün / Satış Açıklaması</th>
+                      <th className="p-2 font-bold font-sans text-slate-300 uppercase print-text-black text-center w-20">Ödeme</th>
+                      <th className="p-2 font-bold font-sans text-slate-300 uppercase text-right w-24 sm:w-28 print-text-black">Satış Fiyatı</th>
+                      <th className="p-2 font-bold font-sans text-rose-400 uppercase text-right w-24 sm:w-28 print-text-black">Maliyet</th>
+                      <th className="p-2 font-bold font-sans text-emerald-400 uppercase text-right w-24 sm:w-28 print-text-black">Net Kâr</th>
+                      <th className="p-2 font-bold font-sans text-cyan-400 uppercase text-right w-20 print-text-black">Marj</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/30">
+                    {filteredRetailItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="text-center font-sans text-slate-500 py-4">Aranan kriterlere uygun satış kalemi bulunamadı.</td>
+                      </tr>
+                    ) : (
+                      (showAllItems ? filteredRetailItems : filteredRetailItems.slice(0, 50)).map((t, idx) => {
+                        const catMeta = POS_CATEGORIES[t.category_id]
+                        const c = Number(t.cash || 0)
+                        const k = Number(t.card || 0)
+                        const rev = c + k
+                        const cost = Number(t.cost || 0)
+                        const profit = rev - cost
+                        const margin = rev > 0 ? (profit / rev) * 100 : 0
+                        return (
+                          <tr key={t.id || idx} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="p-2 text-slate-400 font-sans print-text-black">{formatDateTR(t.date)}</td>
+                            <td className="p-2">
+                              <span className={`px-1.5 py-0.5 rounded text-[8.5px] font-sans font-bold border ${catMeta?.badgeBg || 'bg-slate-800'} ${catMeta?.badgeText || 'text-slate-300'}`}>
+                                {catMeta?.name || t.category_id}
+                              </span>
+                            </td>
+                            <td className="p-2 font-sans font-medium text-white print-text-black truncate max-w-xs">{t.description}</td>
+                            <td className="p-2 text-center font-sans">
+                              {c > 0 && k > 0 ? (
+                                <span className="text-[9px] bg-slate-800 text-slate-300 px-1 py-0.5 rounded font-bold">Nakit+Kart</span>
+                              ) : c > 0 ? (
+                                <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1 py-0.5 rounded font-bold border border-emerald-500/20">Nakit</span>
+                              ) : (
+                                <span className="text-[9px] bg-purple-500/10 text-purple-400 px-1 py-0.5 rounded font-bold border border-purple-500/20">Kart</span>
+                              )}
+                            </td>
+                            <td className="p-2 text-right font-bold text-white print-text-black">{formatMoney(rev, 'TRY').formatted}</td>
+                            <td className="p-2 text-right text-rose-400 print-text-black">{formatMoney(cost, 'TRY').formatted}</td>
+                            <td className="p-2 text-right font-bold text-emerald-400 print-text-black bg-emerald-950/10">{formatMoney(profit, 'TRY').formatted}</td>
+                            <td className="p-2 text-right font-bold text-cyan-300 print-text-black">%{margin.toFixed(0)}</td>
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
+                {filteredRetailItems.length > 50 && (
+                  <div className="bg-[#0a0f1d] p-2.5 text-center border-t border-slate-800 print:hidden">
+                    <button
+                      onClick={() => setShowAllItems(!showAllItems)}
+                      className="text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer"
+                    >
+                      {showAllItems
+                        ? `Daha Az Göster (İlk 50 Kaleme Dön)`
+                        : `Tümünü Göster (Kalan ${filteredRetailItems.length - 50} Kalemi Listele)`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+        ) : (
+          /* ================================================================= */
+          /* --- MEVCUT FİNANSAL MİZAN & NAKİT AKIŞI GÖRÜNÜMÜ --- */
+          /* ================================================================= */
+          <>
+            {/* YÖNETİCİ ÖZETİ (EKRANDA GENİŞ KARTLAR, BASKIDA GİZLENİR - YERİNE AŞAĞIDAKİ TEK SATIR STRIP KULLANILIR) */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 print:hidden">
+              <div className="bg-[#070b14] border border-slate-800 rounded-xl p-3 flex flex-col justify-between hover:border-emerald-500/40 transition-colors">
             <div className="flex justify-between items-start">
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Toplam Nakit Girişi</span>
               <div className="p-1 rounded bg-emerald-500/10 text-emerald-400"><ArrowUpRight size={14} /></div>
@@ -1783,6 +2675,8 @@ export default function AdvancedReportsPage() {
           </div>
 
         </div>
+          </>
+        )}
       </div>
     </div>
   )
