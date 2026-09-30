@@ -143,6 +143,125 @@ export default function ActivityLogPage() {
     const toastId = toast.loading('İşlem geri alınıyor, veriler dengeleniyor...')
     
     try {
+      if (log.action === 'DELETE') {
+        const deletedObj = log.old_data?.deleted_tx || log.old_data
+        if (deletedObj) {
+          if (log.module === 'card_tx') {
+            const payload = {
+              id: deletedObj.id,
+              card_id: deletedObj.card_id,
+              company_id: deletedObj.company_id || null,
+              tx_date: deletedObj.tx_date,
+              description: deletedObj.description,
+              tx_type: deletedObj.tx_type,
+              amount: deletedObj.amount
+            }
+            await supabase.from('card_transactions').insert([payload])
+            const { data: txs } = await supabase.from('card_transactions').select('amount, tx_type').eq('card_id', deletedObj.card_id)
+            let debt = 0
+            txs?.forEach(t => {
+              if (t.tx_type === 'expense') debt += Number(t.amount)
+              else debt -= Number(t.amount)
+            })
+            await supabase.from('credit_cards').update({ current_debt: debt }).eq('id', deletedObj.card_id)
+          } else if (log.module === 'bank_tx' || log.module === 'bank_transfer') {
+            const payload = {
+              id: deletedObj.id,
+              bank_account_id: deletedObj.bank_account_id,
+              company_id: deletedObj.company_id || null,
+              tx_date: deletedObj.tx_date,
+              description: deletedObj.description,
+              tx_type: deletedObj.tx_type,
+              amount: deletedObj.amount,
+              currency: deletedObj.currency || 'TRY',
+              exchange_rate: deletedObj.exchange_rate || 1,
+              is_transfer: deletedObj.is_transfer || false,
+              transfer_id: deletedObj.transfer_id || null,
+              status: deletedObj.status || 'completed'
+            }
+            await supabase.from('bank_transactions').insert([payload])
+            const { data: bData } = await supabase.from('bank_accounts').select('initial_balance').eq('id', deletedObj.bank_account_id).single()
+            const initialBal = Number(bData?.initial_balance) || 0
+            const { data: txs } = await supabase.from('bank_transactions').select('amount, tx_type, status').eq('bank_account_id', deletedObj.bank_account_id)
+            let bal = initialBal
+            txs?.forEach(t => {
+              if (t.status === 'pending') return
+              if (t.tx_type === 'in') bal += Number(t.amount)
+              else bal -= Number(t.amount)
+            })
+            await supabase.from('bank_accounts').update({ balance: bal }).eq('id', deletedObj.bank_account_id)
+          } else if (log.module === 'cash_tx') {
+            const payload = {
+              id: deletedObj.id,
+              cash_register_id: deletedObj.cash_register_id,
+              company_id: deletedObj.company_id || null,
+              tx_date: deletedObj.tx_date,
+              description: deletedObj.description,
+              tx_type: deletedObj.tx_type,
+              amount: deletedObj.amount,
+              currency: deletedObj.currency || 'TRY',
+              exchange_rate: deletedObj.exchange_rate || 1,
+              is_transfer: deletedObj.is_transfer || false,
+              transfer_id: deletedObj.transfer_id || null
+            }
+            await supabase.from('cash_transactions').insert([payload])
+            const { data: cData } = await supabase.from('cash_registers').select('initial_balance').eq('id', deletedObj.cash_register_id).single()
+            const initialBal = Number(cData?.initial_balance) || 0
+            const { data: txs } = await supabase.from('cash_transactions').select('amount, tx_type').eq('cash_register_id', deletedObj.cash_register_id)
+            let bal = initialBal
+            txs?.forEach(t => {
+              if (t.tx_type === 'in') bal += Number(t.amount)
+              else bal -= Number(t.amount)
+            })
+            await supabase.from('cash_registers').update({ balance: bal }).eq('id', deletedObj.cash_register_id)
+          } else if (log.module === 'expense' || log.module === 'expense_tx') {
+            const exp = deletedObj
+            await supabase.from('expense_transactions').insert([{
+              id: exp.id,
+              company_id: exp.company_id || null,
+              category_id: exp.category_id || null,
+              tx_date: exp.tx_date,
+              description: exp.description,
+              amount: exp.amount,
+              currency: exp.currency || 'TRY',
+              exchange_rate: exp.exchange_rate || 1,
+              payment_source_type: exp.payment_source_type || null,
+              payment_source_id: exp.payment_source_id || null,
+              transfer_id: exp.transfer_id || null
+            }])
+          }
+        }
+      } else if (log.action === 'INSERT') {
+        if (log.module === 'card_tx' && log.record_id) {
+          const cardId = log.new_data?.card_id || log.new_data?.target_id
+          await supabase.from('card_transactions').delete().eq('id', log.record_id)
+          if (cardId) {
+            const { data: txs } = await supabase.from('card_transactions').select('amount, tx_type').eq('card_id', cardId)
+            let debt = 0
+            txs?.forEach(t => {
+              if (t.tx_type === 'expense') debt += Number(t.amount)
+              else debt -= Number(t.amount)
+            })
+            await supabase.from('credit_cards').update({ current_debt: debt }).eq('id', cardId)
+          }
+        } else if ((log.module === 'bank_tx' || log.module === 'bank_transfer') && log.record_id) {
+          const bankId = log.new_data?.bank_account_id || log.new_data?.source_tx?.bank_account_id
+          await supabase.from('bank_transactions').delete().eq('id', log.record_id)
+          if (bankId) {
+            const { data: bData } = await supabase.from('bank_accounts').select('initial_balance').eq('id', bankId).single()
+            const initialBal = Number(bData?.initial_balance) || 0
+            const { data: txs } = await supabase.from('bank_transactions').select('amount, tx_type, status').eq('bank_account_id', bankId)
+            let bal = initialBal
+            txs?.forEach(t => {
+              if (t.status === 'pending') return
+              if (t.tx_type === 'in') bal += Number(t.amount)
+              else bal -= Number(t.amount)
+            })
+            await supabase.from('bank_accounts').update({ balance: bal }).eq('id', bankId)
+          }
+        }
+      }
+
       await supabase.from('audit_logs').insert([{
         module: log.module,
         action: 'ROLLBACK',
