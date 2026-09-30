@@ -5,6 +5,7 @@ import { Calendar, ChevronLeft, ChevronRight, Save, Wallet, CreditCard, Eye, Eye
 import { formatMoney } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { logActivity } from '@/lib/audit'
+import { useAuth } from '@/lib/auth-context'
 import toast, { Toaster } from 'react-hot-toast'
 
 const CATEGORIES = [
@@ -49,8 +50,8 @@ type BankTransfer = {
   isNew?: boolean; 
 }
 
-type BankAccount = { id: string; bank_name: string; account_name: string; currency: string }
-type CashRegister = { id: string; name: string; currency: string }
+type BankAccount = { id: string; bank_name: string; account_name: string; currency: string; company_id?: string | null }
+type CashRegister = { id: string; name: string; currency: string; company_id?: string | null }
 type Warehouse = { id: string; name: string; company_id?: string | null }
 type RawStock = { id: string; name: string; sku: string; quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
 type CardDetail = { id: string; name: string; current_debt: number; card_limit: number; company_id: string | null }
@@ -99,6 +100,9 @@ const formatValue = (num: number) => {
 }
 
 export default function RetailPOSPage() {
+  const { profile, isAdmin } = useAuth()
+  const isRestricted = !isAdmin && !!profile?.allowed_companies?.length
+
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0])
   const dateInputRef = useRef<HTMLInputElement>(null)
   const dataDateRef = useRef<string>(currentDate)
@@ -200,6 +204,66 @@ export default function RetailPOSPage() {
     ).slice(0, 40)
   }, [storeStocks, returnStockSearch])
 
+  // Mağazanın bağlı olduğu şirket ID'si (Hiyerarşi: Kısıtlı Yetki -> POS Ayarı -> Kasa Şirketi -> Depo Şirketi -> İlk Ticari Şirket)
+  const storeCompanyId = useMemo(() => {
+    if (isRestricted && profile?.allowed_companies?.[0]) {
+      return profile.allowed_companies[0]
+    }
+    if (posSettings.companyId) {
+      return posSettings.companyId
+    }
+    if (posSettings.targetCashId) {
+      const cash = activeCashes.find(c => c.id === posSettings.targetCashId)
+      if (cash?.company_id) return cash.company_id
+    }
+    if (activeWarehouse?.company_id) {
+      return activeWarehouse.company_id
+    }
+    const comm = companies.find(c => !c.is_personal)
+    return comm ? comm.id : (companies[0]?.id || null)
+  }, [isRestricted, profile?.allowed_companies, posSettings.companyId, posSettings.targetCashId, activeCashes, activeWarehouse, companies])
+
+  // Bağlı şirketin adı
+  const storeCompanyName = useMemo(() => {
+    if (!storeCompanyId) return null
+    return companies.find(c => c.id === storeCompanyId)?.name || null
+  }, [storeCompanyId, companies])
+
+  // Sadece mağaza şirketine ait banka hesapları
+  const storeCompanyBanks = useMemo(() => {
+    if (!storeCompanyId) return activeBanks
+    const filtered = activeBanks.filter(b => b.company_id === storeCompanyId)
+    if (filtered.length > 0) return filtered
+    // Eğer o şirkete özel hesap henüz açılmamışsa ortak hesapları listele
+    const commonBanks = activeBanks.filter(b => !b.company_id)
+    return commonBanks.length > 0 ? commonBanks : activeBanks
+  }, [activeBanks, storeCompanyId])
+
+  // Transfer modalını mağaza şirketinin bankasıyla açma
+  const handleOpenTransferModal = () => {
+    setTransferForm(prev => {
+      const isValid = storeCompanyBanks.some(b => b.id === prev.bankId)
+      return {
+        ...prev,
+        bankId: isValid ? prev.bankId : (storeCompanyBanks[0]?.id || '')
+      }
+    })
+    setIsTransferModalOpen(true)
+  }
+
+  // Banka listesi yüklendiğinde veya şirket değiştiğinde transfer formunu otomatik senkronize et
+  useEffect(() => {
+    if (storeCompanyBanks.length > 0) {
+      setTransferForm(prev => {
+        const isValid = storeCompanyBanks.some(b => b.id === prev.bankId)
+        if (!isValid) {
+          return { ...prev, bankId: storeCompanyBanks[0].id }
+        }
+        return prev
+      })
+    }
+  }, [storeCompanyBanks])
+
   const handleOpenReturnModal = () => {
     setReturnForm({
       isStockItem: true,
@@ -209,7 +273,7 @@ export default function RetailPOSPage() {
       originalPrice: '',
       refundAmount: '',
       refundMethod: 'cash',
-      bankId: activeBanks[0]?.id || '',
+      bankId: storeCompanyBanks[0]?.id || activeBanks[0]?.id || '',
       notes: ''
     })
     setReturnStockSearch('')
@@ -296,11 +360,14 @@ export default function RetailPOSPage() {
       }
 
       if (!initialCompanyId && compData && compData.length > 0) {
-        initialCompanyId = compData[0].id
+        const mCash = cData?.find(c => c.name.toLocaleLowerCase('tr-TR').includes('mağaza'))
+        const mWh = wData?.find(w => w.name.toLocaleLowerCase('tr-TR').includes('mağaza'))
+        initialCompanyId = mCash?.company_id || mWh?.company_id || compData[0].id
       }
 
       if (!initialBankId && bData && bData.length > 0) {
-        initialBankId = bData[0].id
+        const compBank = initialCompanyId ? bData.find(b => b.company_id === initialCompanyId) : null
+        initialBankId = compBank ? compBank.id : bData[0].id
       }
 
       const activeConfig: PosSettings = {
@@ -313,7 +380,10 @@ export default function RetailPOSPage() {
       setPosSettings(activeConfig)
       localStorage.setItem('ctc_pos_config', JSON.stringify(activeConfig))
       
-      if (bData && bData.length > 0) setTransferForm(prev => ({ ...prev, bankId: bData[0].id }))
+      if (bData && bData.length > 0) {
+        const compBank = initialCompanyId ? bData.find(b => b.company_id === initialCompanyId) : null
+        setTransferForm(prev => ({ ...prev, bankId: compBank ? compBank.id : bData[0].id }))
+      }
     }
     fetchAccounts()
   }, [])
@@ -399,7 +469,7 @@ export default function RetailPOSPage() {
 
     setIsReturnSubmitting(true)
     try {
-      const finalCompId = posSettings.companyId === '' ? null : posSettings.companyId
+      const finalCompId = posSettings.companyId === '' ? (storeCompanyId || null) : posSettings.companyId
       const selectedStock = returnForm.isStockItem ? stocks.find(s => s.id === returnForm.selectedStockId) : null
       const itemName = returnForm.isStockItem ? (selectedStock?.name || 'Ürün') : returnForm.customItemName.trim()
 
@@ -992,7 +1062,7 @@ export default function RetailPOSPage() {
   }
 
   const syncPosToMainSystem = async (currentDateStr: string, filledRows: RetailRow[]) => {
-    const finalCompId = posSettings.companyId === '' ? null : posSettings.companyId;
+    const finalCompId = posSettings.companyId === '' ? (storeCompanyId || null) : posSettings.companyId;
     
     const affectedBanks = new Set<string>();
     const affectedCashes = new Set<string>();
@@ -1895,7 +1965,7 @@ export default function RetailPOSPage() {
           >
             <span className="text-slate-400 font-sans font-bold text-[9px] uppercase">Kasa:</span>
             <span className="text-indigo-400 font-black text-xs font-mono">{formatMoney(calculatedKasa, 'TRY').formatted}</span>
-            <button onClick={() => setIsTransferModalOpen(true)} className="p-0.5 bg-indigo-600/20 hover:bg-indigo-600/50 text-indigo-300 rounded transition-colors" title="Bankaya Para Yatır / Çek">
+            <button onClick={handleOpenTransferModal} className="p-0.5 bg-indigo-600/20 hover:bg-indigo-600/50 text-indigo-300 rounded transition-colors" title="Bankaya Para Yatır / Çek">
               <Landmark size={13} />
             </button>
           </div>
@@ -2284,7 +2354,14 @@ export default function RetailPOSPage() {
                   className="bg-[#070b14] border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-indigo-500"
                 >
                   <option value="">-- Nakit Aktarımı Kapalı --</option>
-                  {activeCashes.map(cash => (<option key={cash.id} value={cash.id}>{cash.name}</option>))}
+                  {activeCashes.map(cash => {
+                    const comp = companies.find(c => c.id === cash.company_id)
+                    return (
+                      <option key={cash.id} value={cash.id}>
+                        {cash.name} {comp ? `(${comp.name})` : '(Ortak)'}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
 
@@ -2296,7 +2373,14 @@ export default function RetailPOSPage() {
                   className="bg-[#070b14] border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-indigo-500"
                 >
                   <option value="">-- K.Kartı Aktarımı Kapalı --</option>
-                  {activeBanks.map(bank => (<option key={bank.id} value={bank.id}>{bank.bank_name} - {bank.account_name}</option>))}
+                  {activeBanks.map(bank => {
+                    const comp = companies.find(c => c.id === bank.company_id)
+                    return (
+                      <option key={bank.id} value={bank.id}>
+                        {bank.bank_name} - {bank.account_name} {comp ? `(${comp.name})` : '(Ortak)'}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
 
@@ -2351,11 +2435,18 @@ export default function RetailPOSPage() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-slate-400 uppercase">İşlem Yapılacak Hesap</label>
-                {activeBanks.length === 0 ? (
-                  <div className="bg-[#070b14] border border-dashed border-slate-700 text-slate-500 text-xs rounded-lg px-3 py-3 text-center flex flex-col items-center gap-2">
-                     <Landmark size={20} className="opacity-50 animate-bounce text-indigo-400" />
-                     Sistemde yetkili bir banka hesabı bulunmuyor.
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-400 uppercase">İşlem Yapılacak Hesap</label>
+                  {storeCompanyName && (
+                    <span className="text-[10px] text-indigo-400 font-medium bg-indigo-950/50 border border-indigo-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      🏢 {storeCompanyName}
+                    </span>
+                  )}
+                </div>
+                {storeCompanyBanks.length === 0 ? (
+                  <div className="bg-[#070b14] border border-dashed border-rose-800/60 bg-rose-950/20 text-rose-300 text-xs rounded-lg px-3 py-3 text-center flex flex-col items-center gap-2">
+                     <AlertTriangle size={20} className="text-rose-400" />
+                     {storeCompanyName ? `${storeCompanyName} şirketine ait bir banka hesabı bulunamadı.` : 'Sistemde yetkili bir banka hesabı bulunmuyor.'}
                   </div>
                 ) : (
                   <select 
@@ -2363,7 +2454,7 @@ export default function RetailPOSPage() {
                     onChange={(e) => setTransferForm({ ...transferForm, bankId: e.target.value })} 
                     className="bg-[#070b14] border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-indigo-500"
                   >
-                    {activeBanks.map(bank => (<option key={bank.id} value={bank.id}>{bank.bank_name} - {bank.account_name}</option>))}
+                    {storeCompanyBanks.map(bank => (<option key={bank.id} value={bank.id}>{bank.bank_name} - {bank.account_name} ({bank.currency})</option>))}
                   </select>
                 )}
               </div>
@@ -2395,7 +2486,7 @@ export default function RetailPOSPage() {
 
               <button 
                 onClick={handleAddTransfer} 
-                disabled={!transferForm.amountStr || parseValue(transferForm.amountStr) <= 0 || activeBanks.length === 0} 
+                disabled={!transferForm.amountStr || parseValue(transferForm.amountStr) <= 0 || storeCompanyBanks.length === 0} 
                 className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-lg transition-colors mt-2 active:scale-95"
               >
                 Geçici Listeye Ekle
@@ -2665,7 +2756,11 @@ export default function RetailPOSPage() {
 
                     <button
                       type="button"
-                      onClick={() => setReturnForm({ ...returnForm, refundMethod: 'bank' })}
+                      onClick={() => setReturnForm(prev => ({
+                        ...prev,
+                        refundMethod: 'bank',
+                        bankId: prev.bankId && storeCompanyBanks.some(b => b.id === prev.bankId) ? prev.bankId : (storeCompanyBanks[0]?.id || '')
+                      }))}
                       className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${returnForm.refundMethod === 'bank' ? 'bg-indigo-950/40 border-indigo-500 text-indigo-300 shadow-sm' : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:border-slate-700'}`}
                     >
                       <div className="flex items-center gap-1.5 font-bold text-xs">
@@ -2677,16 +2772,27 @@ export default function RetailPOSPage() {
 
                   {returnForm.refundMethod === 'bank' && (
                     <div className="flex flex-col gap-1.5 mt-1 bg-slate-900/70 p-2.5 rounded-lg border border-slate-800">
-                      <label className="text-[10px] font-bold text-indigo-400 uppercase">Çıkış Yapılacak Banka Hesabı</label>
-                      <select
-                        value={returnForm.bankId}
-                        onChange={(e) => setReturnForm({ ...returnForm, bankId: e.target.value })}
-                        className="bg-[#070b14] border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-2 focus:outline-none focus:border-indigo-500"
-                      >
-                        {activeBanks.map(b => (
-                          <option key={b.id} value={b.id}>{b.bank_name} - {b.account_name} ({b.currency})</option>
-                        ))}
-                      </select>
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold text-indigo-400 uppercase">Çıkış Yapılacak Banka Hesabı</label>
+                        {storeCompanyName && (
+                          <span className="text-[9px] text-slate-400 font-medium">({storeCompanyName})</span>
+                        )}
+                      </div>
+                      {storeCompanyBanks.length === 0 ? (
+                        <div className="text-xs text-rose-400 py-1">
+                          {storeCompanyName ? `${storeCompanyName} şirketine ait banka hesabı yok.` : 'Banka hesabı bulunamadı.'}
+                        </div>
+                      ) : (
+                        <select
+                          value={returnForm.bankId}
+                          onChange={(e) => setReturnForm({ ...returnForm, bankId: e.target.value })}
+                          className="bg-[#070b14] border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-2 focus:outline-none focus:border-indigo-500"
+                        >
+                          {storeCompanyBanks.map(b => (
+                            <option key={b.id} value={b.id}>{b.bank_name} - {b.account_name} ({b.currency})</option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                   )}
                 </div>
