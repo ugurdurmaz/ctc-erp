@@ -451,8 +451,7 @@ export default function BankAccountsPage() {
           tx_date: transferDate || todayISO, 
           description: `Banka Ekstre Ödemesi (${currentBank.bank_name} - ${currentBank.account_name}) [${trfId}]`, 
           tx_type: 'payment', 
-          amount: amountIn, 
-          transfer_id: trfId 
+          amount: amountIn
         }
         const { data: inTxData, error: txErr4 } = await supabase.from('card_transactions').insert([inPayload]).select().single()
         if (txErr4) throw txErr4
@@ -529,7 +528,7 @@ export default function BankAccountsPage() {
             const { data: cardTxs } = await supabase
               .from('card_transactions')
               .select('*, card:credit_cards(name)')
-              .eq('transfer_id', tx.transfer_id)
+              .ilike('description', `%[${tx.transfer_id}]%`)
               .limit(1)
 
             if (cardTxs && cardTxs.length > 0) {
@@ -801,7 +800,7 @@ export default function BankAccountsPage() {
             oldDataPayload.related_txs.push({ type: 'cash', data: cTx })
           }
         }
-        const { data: cardTxs } = await supabase.from('card_transactions').select('*').eq('transfer_id', transferId)
+        const { data: cardTxs } = await supabase.from('card_transactions').select('*').ilike('description', `%[${transferId}]%`)
         if (cardTxs) {
           for (const cardTx of cardTxs) {
             affectedCards.add(cardTx.card_id)

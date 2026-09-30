@@ -151,7 +151,7 @@ export default function ExpensesPage() {
   const [cashes, setCashes] = useState<CashRegister[]>([])
   const [cards, setCards] = useState<CreditCardItem[]>([])
   const [allCards, setAllCards] = useState<CreditCardItem[]>([])
-  const [cardTxs, setCardTxs] = useState<{ id: string; card_id: string; amount: number; tx_type: string; transfer_id?: string; tx_date: string }[]>([])
+  const [cardTxs, setCardTxs] = useState<{ id: string; card_id: string; amount: number; tx_type: string; transfer_id?: string; tx_date: string; description?: string }[]>([])
   const [rates, setRates] = useState<{ USD: number; EUR: number }>({ USD: 34.25, EUR: 37.80 })
 
   // Ortak Kart Mahsup Virman Modalı State
@@ -338,7 +338,7 @@ export default function ExpensesPage() {
   }
 
   async function fetchCardTransactions() {
-    const { data } = await supabase.from('card_transactions').select('id, card_id, amount, tx_type, transfer_id, tx_date')
+    const { data } = await supabase.from('card_transactions').select('id, card_id, amount, tx_type, tx_date, description')
     setCardTxs(data || [])
   }
 
@@ -457,8 +457,7 @@ export default function ExpensesPage() {
             tx_date: dateStr,
             description: `Gider Ödemesi [${compName || 'Ortak İşlem'}] - ${expDesc} [EXP-${relatedTxId}]`,
             amount: convertedAmount,
-            tx_type: 'expense',
-            transfer_id: `EXP-${relatedTxId}`
+            tx_type: 'expense'
           }
           await supabase.from('card_transactions').insert([cardPayload])
         } else {
@@ -479,7 +478,7 @@ export default function ExpensesPage() {
         }
       } else if (action === 'reverse') {
         if (sourceType === 'card') {
-          await supabase.from('card_transactions').delete().or(`transfer_id.eq.EXP-${relatedTxId},description.like.%[EXP-${relatedTxId}]%`)
+          await supabase.from('card_transactions').delete().like('description', `%[EXP-${relatedTxId}]%`)
         } else {
           await supabase.from(txTable).delete().eq('transfer_id', `EXP-${relatedTxId}`)
         }
@@ -924,9 +923,9 @@ export default function ExpensesPage() {
           // Varsa bu gidere ait yapılmış mahsup virmanlarını temizle ve bakiyelerini güncelle
           const settleTransferKey = `EXP-SETTLE-${txId}`
           
-          const { data: relatedCardTxs } = await supabase.from('card_transactions').select('card_id').eq('transfer_id', settleTransferKey)
+          const { data: relatedCardTxs } = await supabase.from('card_transactions').select('card_id').like('description', `%[${settleTransferKey}]%`)
           if (relatedCardTxs && relatedCardTxs.length > 0) {
-            await supabase.from('card_transactions').delete().eq('transfer_id', settleTransferKey)
+            await supabase.from('card_transactions').delete().like('description', `%[${settleTransferKey}]%`)
             for (const rc of relatedCardTxs) {
               await recalculateAbsoluteCardDebt(rc.card_id)
             }
@@ -1051,10 +1050,8 @@ export default function ExpensesPage() {
         company_id: null,
         amount: amount,
         tx_type: 'payment',
-        is_transfer: true,
-        transfer_id: transferKey,
         tx_date: settleDate,
-        description: `[Mahsup Virmanı] ${settlingExpense.companyName} tarafından ${settleSourceType === 'cash' ? 'kasa' : 'banka'} virmanıyla ödendi (${settlingExpense.title})`
+        description: `[Mahsup Virmanı] ${settlingExpense.companyName} tarafından ${settleSourceType === 'cash' ? 'kasa' : 'banka'} virmanıyla ödendi (${settlingExpense.title}) [${transferKey}]`
       }])
       if (cardErr) throw cardErr
       await recalculateAbsoluteCardDebt(settlingExpense.cardId)
@@ -2261,7 +2258,7 @@ export default function ExpensesPage() {
                           {t.payment_source_type && t.payment_source_id && (() => {
                             const card = t.payment_source_type === 'card' ? (allCards.find(c => c.id === t.payment_source_id) || cards.find(c => c.id === t.payment_source_id)) : null
                             const isCommonCard = t.payment_source_type === 'card' && !!t.company_id && !!card && (!card.company_id || card.company_id !== t.company_id)
-                            const isSettled = isCommonCard ? cardTxs.some(ctx => ctx.transfer_id === `EXP-SETTLE-${t.id}` && ctx.tx_type === 'payment') : false
+                            const isSettled = isCommonCard ? cardTxs.some(ctx => (ctx.transfer_id === `EXP-SETTLE-${t.id}` || ctx.description?.includes(`[EXP-SETTLE-${t.id}]`)) && ctx.tx_type === 'payment') : false
 
                             return (
                               <div className="flex flex-col gap-0.5">

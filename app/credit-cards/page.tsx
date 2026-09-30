@@ -380,9 +380,9 @@ export default function CreditCardsPage() {
       }
     }
 
-    if (txToDelete?.description?.includes('[TRF-') || txToDelete?.transfer_id?.startsWith('TRF-')) {
-      const match = txToDelete.description.match(/\[(TRF-[^\]]+)\]/)
-      const trfId = txToDelete.transfer_id || (match ? match[1] : null)
+    if (txToDelete?.description?.includes('[TRF-') || (txToDelete as any)?.transfer_id?.startsWith('TRF-')) {
+      const match = txToDelete?.description ? txToDelete.description.match(/\[(TRF-[^\]]+)\]/) : null
+      const trfId = (txToDelete as any)?.transfer_id || (match ? match[1] : null)
       if (trfId) {
         const { data: srcTx } = await supabase.from('bank_transactions').select('id').eq('transfer_id', trfId).maybeSingle()
         if (srcTx) {

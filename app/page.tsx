@@ -188,7 +188,7 @@ export default function Home() {
       const { data: cardData } = await supabase.from('credit_cards').select('id, name, current_debt, card_limit, company_id, cutoff_day')
       setCards(cardData || [])
 
-      const { data: cTxData } = await supabase.from('card_transactions').select('id, card_id, company_id, tx_date, description, tx_type, amount, transfer_id')
+      const { data: cTxData } = await supabase.from('card_transactions').select('id, card_id, company_id, tx_date, description, tx_type, amount')
       setCardTxs(cTxData || [])
 
       try {
@@ -365,10 +365,9 @@ export default function Home() {
         card_id: settlingItem.cardId,
         company_id: finalCompId,
         tx_date: settleDate,
-        description: `Şirket Mahsup Ödemesi [${companies.find(c => c.id === finalCompId)?.name || 'Şirket'}] - ${settlingItem.title}`,
+        description: `Şirket Mahsup Ödemesi [${companies.find(c => c.id === finalCompId)?.name || 'Şirket'}] - ${settlingItem.title} [${trfId}]`,
         amount,
-        tx_type: 'payment',
-        transfer_id: trfId
+        tx_type: 'payment'
       }
       const { error: cardErr } = await supabase.from('card_transactions').insert([cardPayload])
       if (cardErr) throw cardErr
@@ -1152,7 +1151,7 @@ export default function Home() {
       const isCrossEntity = !card.company_id || card.company_id !== exp.company_id
       if (!isCrossEntity) return
 
-      const settlementTx = cardTxs.find(tx => tx.transfer_id === `EXP-SETTLE-${exp.id}` && tx.tx_type === 'payment')
+      const settlementTx = cardTxs.find(tx => (tx.transfer_id === `EXP-SETTLE-${exp.id}` || tx.description?.includes(`[EXP-SETTLE-${exp.id}]`)) && tx.tx_type === 'payment')
       const isPaid = !!settlementTx
 
       const cardCutoff = card.cutoff_day || 1
@@ -1312,7 +1311,7 @@ export default function Home() {
       const expDate = exp.tx_date || exp.created_at?.substring(0, 10)
       if (!expDate || expDate >= `${currentYearMonth}-01`) return
 
-      const settlementTx = cardTxs.find(tx => tx.transfer_id === `EXP-SETTLE-${exp.id}` && tx.tx_type === 'payment')
+      const settlementTx = cardTxs.find(tx => (tx.transfer_id === `EXP-SETTLE-${exp.id}` || tx.description?.includes(`[EXP-SETTLE-${exp.id}]`)) && tx.tx_type === 'payment')
       if (settlementTx) return
 
       const [y, m, d] = expDate.split('-').map(Number)
