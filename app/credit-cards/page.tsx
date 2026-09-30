@@ -171,6 +171,19 @@ export default function CreditCardsPage() {
     await supabase.from('credit_cards').update({ current_debt: absoluteDebt }).eq('id', cardId)
   }
 
+  async function recalculateAbsoluteBankBalance(bankId: string) {
+    const { data: bData } = await supabase.from('bank_accounts').select('initial_balance').eq('id', bankId).single()
+    const initialBal = Number(bData?.initial_balance) || 0
+    const { data: txs } = await supabase.from('bank_transactions').select('amount, tx_type, status').eq('bank_account_id', bankId)
+    let absoluteBal = initialBal
+    txs?.forEach(t => { 
+      if (t.status === 'pending') return
+      if (t.tx_type === 'in') absoluteBal += Number(t.amount)
+      else absoluteBal -= Number(t.amount)
+    })
+    await supabase.from('bank_accounts').update({ balance: absoluteBal }).eq('id', bankId)
+  }
+
   function openAddModal() {
     setEditingCardId(null)
     setCardName(''); setCardLimit(''); setCutoffDay('15'); setOpeningDebt(''); setCardColor(CARD_COLORS[0].value)
@@ -380,25 +393,94 @@ export default function CreditCardsPage() {
       }
     }
 
+    let isTransfer = false
+    let matchedTransferId: string | null = null
+    let pairedBankTx: any = null
+
     if (txToDelete?.description?.includes('[TRF-') || (txToDelete as any)?.transfer_id?.startsWith('TRF-')) {
       const match = txToDelete?.description ? txToDelete.description.match(/\[(TRF-[^\]]+)\]/) : null
       const trfId = (txToDelete as any)?.transfer_id || (match ? match[1] : null)
       if (trfId) {
-        const { data: srcTx } = await supabase.from('bank_transactions').select('id').eq('transfer_id', trfId).maybeSingle()
+        matchedTransferId = trfId
+        const { data: srcTx } = await supabase
+          .from('bank_transactions')
+          .select('*, bank:bank_accounts(bank_name, account_name)')
+          .eq('transfer_id', trfId)
+          .maybeSingle()
         if (srcTx) {
-          toast.error('Bu ödeme Banka Hesapları modülünden virman olarak yansıtılmıştır. İptal işlemini Banka Hesapları sayfasındaki ilgili transferi silerek yapmalısınız.')
-          return
+          isTransfer = true
+          pairedBankTx = srcTx
         } else {
           isOrphan = true
         }
       }
     }
 
+    if (isTransfer) {
+      const bankInfo = pairedBankTx?.bank ? `${pairedBankTx.bank.bank_name} - ${pairedBankTx.bank.account_name}` : 'Banka Hesabı'
+      setConfirmDialog({
+        isOpen: true,
+        title: 'Transferi İptal Et',
+        message: `DİKKAT: Bu işlem ${bankInfo} hesabından yapılmış bir virman (ekstre ödemesi) işlemidir. Sildiğinizde banka hesabındaki çıkış işlemi de iptal edilecek ve banka bakiyeniz iade edilecektir. Onaylıyor musunuz?`,
+        confirmText: 'Evet, İptal Et',
+        cancelText: 'Vazgeç',
+        isDanger: true,
+        onConfirm: async () => {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+          try {
+            const affectedBanks = new Set<string>()
+
+            // 1. Kredi kartı hareketini sil
+            await supabase.from('card_transactions').delete().eq('id', txId)
+
+            // 2. İlgili banka transfer çıkış hareketini/hareketlerini sil
+            if (matchedTransferId) {
+              const { data: bTxs } = await supabase.from('bank_transactions').select('*').eq('transfer_id', matchedTransferId)
+              if (bTxs) {
+                for (const b of bTxs) {
+                  affectedBanks.add(b.bank_account_id)
+                  await supabase.from('bank_transactions').delete().eq('id', b.id)
+                }
+              }
+            }
+
+            // 3. Bakiyeleri yeniden hesapla
+            if (selectedCardId) {
+              await recalculateAbsoluteCardDebt(selectedCardId)
+            }
+            for (const bId of Array.from(affectedBanks)) {
+              await recalculateAbsoluteBankBalance(bId)
+            }
+
+            // 4. Denetim günlüğü
+            await logActivity(
+              'card_tx',
+              'DELETE',
+              `Kredi kartı virman ödemesi iptal edildi: ${txToDelete?.description}`,
+              txId,
+              amount,
+              'TRY',
+              { deleted_tx: txToDelete, paired_bank_tx: pairedBankTx },
+              null,
+              txToDelete?.company_id
+            )
+
+            toast.success('Kredi kartı ekstre ödemesi ve bankadaki transfer kaydı iptal edildi, bakiyeler güncellendi.')
+            if (selectedCardId) fetchTransactions(selectedCardId)
+            fetchCards()
+          } catch (err: any) {
+            toast.error('İşlem iptal edilemedi: ' + err.message)
+          }
+        }
+      })
+      return
+    }
+
     setConfirmDialog({
       isOpen: true,
       title: isOrphan ? 'Yetim Hareketi Sil' : 'İşlemi Sil',
       message: isOrphan
-        ? 'Bu hareketin bağlı olduğu kaynak kayıt (Tedarikçi/Gider) silinmiş veya bulunamadı (yetim kayıt). Karttan kaldırıp kart borcunu güncellemek istediğinize emin misiniz?'
+        ? 'Bu hareketin bağlı olduğu kaynak kayıt (Tedarikçi/Gider/Banka) silinmiş veya bulunamadı (yetim kayıt). Karttan kaldırıp kart borcunu güncellemek istediğinize emin misiniz?'
         : 'Bu işlemi silmek istediğinize emin misiniz? İşlem tutarı kart bakiyenize geri yansıtılacaktır.',
       confirmText: 'Evet, Sil',
       cancelText: 'Vazgeç',
