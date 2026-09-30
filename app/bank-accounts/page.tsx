@@ -4,12 +4,13 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, Calculator, Sparkles } from 'lucide-react'
+import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, Calculator, Sparkles, CreditCard } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type BankAccount = { id: string; bank_name: string; account_name: string; iban: string; balance: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; account_color?: string; is_investment?: boolean; company?: { name: string; is_personal: boolean } }
 type BankTransaction = { id: string; bank_account_id: string; company_id?: string | null; tx_date: string; description: string; tx_type: 'in' | 'out'; amount: number; currency: string; exchange_rate: number; is_transfer: boolean; running_balance?: number; transfer_id?: string; status?: string; company?: { name: string; is_personal: boolean } }
 type CashRegister = { id: string; name: string; balance: number; currency: string }
+type CardDetail = { id: string; name: string; card_limit: number; current_debt: number; company_id?: string | null; company?: { name: string; is_personal: boolean } }
 
 function getLocalTodayISO() { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}` }
 function formatDateTR(dateStr: string) { if (!dateStr) return ''; const parts = dateStr.split('-'); if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`; return dateStr }
@@ -20,6 +21,7 @@ export default function BankAccountsPage() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [cashes, setCashes] = useState<CashRegister[]>([])
+  const [cards, setCards] = useState<CardDetail[]>([])
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null)
   const [transactions, setTransactions] = useState<BankTransaction[]>([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -71,7 +73,7 @@ export default function BankAccountsPage() {
   const [editTxAmount, setEditTxAmount] = useState('')
   const [editTxStatus, setEditTxStatus] = useState<string>('completed')
   const [isEditingTransfer, setIsEditingTransfer] = useState(false)
-  const [pairedTxInfo, setPairedTxInfo] = useState<{ type: 'bank' | 'cash'; id: string; targetId: string; name: string; amount: number; currency: string } | null>(null)
+  const [pairedTxInfo, setPairedTxInfo] = useState<{ type: 'bank' | 'cash' | 'card'; id: string; targetId: string; name: string; amount: number; currency: string } | null>(null)
   const [editTargetAmount, setEditTargetAmount] = useState('')
 
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -83,7 +85,7 @@ export default function BankAccountsPage() {
   const [commissionAmount, setCommissionAmount] = useState('')
   const [collectDate, setCollectDate] = useState(todayISO) 
 
-  useEffect(() => { fetchCompanies(); fetchBanks(); fetchCashes() }, [])
+  useEffect(() => { fetchCompanies(); fetchBanks(); fetchCashes(); fetchCards() }, [])
   useEffect(() => { if (selectedBankId) fetchTransactions(selectedBankId); else setTransactions([]) }, [selectedBankId])
 
   async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name', { ascending: true }); setCompanies(data || []) }
@@ -97,6 +99,7 @@ export default function BankAccountsPage() {
     if (mapped.length > 0 && !selectedBankId) setSelectedBankId(mapped[0].id) 
   }
   async function fetchCashes() { const { data } = await supabase.from('cash_registers').select('*'); setCashes(data || []) }
+  async function fetchCards() { const { data } = await supabase.from('credit_cards').select('*, company:companies(name, is_personal)').order('name', { ascending: true }); setCards(data || []) }
   async function fetchTransactions(bankId: string) { 
     const { data } = await supabase.from('bank_transactions')
       .select('*, company:companies(name, is_personal)')
@@ -236,6 +239,19 @@ export default function BankAccountsPage() {
     await supabase.from('cash_registers').update({ balance: absoluteBal }).eq('id', cashId)
   }
 
+  async function recalculateAbsoluteCardDebt(cardId: string) {
+    const { data: txs } = await supabase.from('card_transactions').select('amount, tx_type').eq('card_id', cardId)
+    let absoluteDebt = 0
+    txs?.forEach(t => { 
+      if (t.tx_type === 'expense') {
+        absoluteDebt += Number(t.amount)
+      } else {
+        absoluteDebt -= Number(t.amount)
+      }
+    })
+    await supabase.from('credit_cards').update({ current_debt: absoluteDebt }).eq('id', cardId)
+  }
+
   async function handleSaveBank(e: React.FormEvent) {
     e.preventDefault(); if (!bankName || !accountName) return
     const finalCompId = bankCompanyId === 'common' ? null : bankCompanyId
@@ -343,7 +359,18 @@ export default function BankAccountsPage() {
   const handleTransferTargetSelect = (val: string) => {
     setTransferTarget(val); const currentBank = banks.find(b => b.id === selectedBankId); if (!currentBank) return
     let newTargetCurr = 'TRY'
-    if (val) { const [tType, tId] = val.split('|'); if (tType === 'bank') newTargetCurr = banks.find(x => x.id === tId)?.currency || 'TRY'; else if (tType === 'cash') newTargetCurr = cashes.find(x => x.id === tId)?.currency || 'TRY' }
+    if (val) { 
+      const [tType, tId] = val.split('|'); 
+      if (tType === 'bank') newTargetCurr = banks.find(x => x.id === tId)?.currency || 'TRY'; 
+      else if (tType === 'cash') newTargetCurr = cashes.find(x => x.id === tId)?.currency || 'TRY';
+      else if (tType === 'card') {
+        newTargetCurr = 'TRY';
+        const c = cards.find(x => x.id === tId);
+        if (c?.company_id && transferCompanyId === 'common') {
+          setTransferCompanyId(c.company_id);
+        }
+      }
+    }
     setTargetCurrency(newTargetCurr)
     const s = parseFloat(transferAmount) || 0; const r = parseFloat(transferRate) || 1
     if (currentBank.currency !== newTargetCurr) { if (currentBank.currency === 'TRY') setTransferTargetAmount((s / r).toFixed(2)); else setTransferTargetAmount((s * r).toFixed(2)) } else setTransferTargetAmount(transferAmount)
@@ -377,7 +404,13 @@ export default function BankAccountsPage() {
     const finalCompId = transferCompanyId === 'common' ? null : transferCompanyId
 
     try {
-      const outPayload = { bank_account_id: selectedBankId, company_id: finalCompId, tx_date: transferDate || todayISO, description: 'Hesaplar Arası Transfer Çıkışı', tx_type: 'out', amount: amountOut, currency: currentBank.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId, status: 'completed' }
+      const isCardTransfer = tType === 'card'
+      const targetCard = isCardTransfer ? cards.find(c => c.id === tId) : null
+      const outDesc = isCardTransfer
+        ? `Kredi Kartı Ekstre Ödemesi: ${targetCard?.name || 'Kredi Kartı'}`
+        : 'Hesaplar Arası Transfer Çıkışı'
+
+      const outPayload = { bank_account_id: selectedBankId, company_id: finalCompId, tx_date: transferDate || todayISO, description: outDesc, tx_type: 'out', amount: amountOut, currency: currentBank.currency, exchange_rate: rate, is_transfer: true, transfer_id: trfId, status: 'completed' }
       const { data: outTxData, error: txErr1 } = await supabase.from('bank_transactions').insert([outPayload]).select().single()
       if (txErr1) throw txErr1
       
@@ -407,13 +440,32 @@ export default function BankAccountsPage() {
         
         await recalculateAbsoluteCashBalance(tId)
         targetEntityData = { target_id: tId, type: 'cash', transaction_data: inTxData }
+
+      } else if (tType === 'card') {
+        if (!targetCard) throw new Error('Hedef kredi kartı bulunamadı')
+        targetName = targetCard.name
+        
+        const inPayload = { 
+          card_id: tId, 
+          company_id: finalCompId, 
+          tx_date: transferDate || todayISO, 
+          description: `Banka Ekstre Ödemesi (${currentBank.bank_name} - ${currentBank.account_name}) [${trfId}]`, 
+          tx_type: 'payment', 
+          amount: amountIn, 
+          transfer_id: trfId 
+        }
+        const { data: inTxData, error: txErr4 } = await supabase.from('card_transactions').insert([inPayload]).select().single()
+        if (txErr4) throw txErr4
+        
+        await recalculateAbsoluteCardDebt(tId)
+        targetEntityData = { target_id: tId, type: 'card', transaction_data: inTxData }
       }
 
       await logActivity('bank_transfer', 'INSERT', `Transfer: ${currentBank.bank_name} -> ${targetName}`, outTxData.id, amountOut, currentBank.currency, null, { source_tx: outTxData, target_tx: targetEntityData, rate }, finalCompId)
 
       setIsTransferModalOpen(false); setTransferAmount(''); setTransferRate('1'); setTransferTarget(''); setTransferTargetAmount(''); setTransferCompanyId('common'); setTransferDate(todayISO)
-      fetchTransactions(selectedBankId); fetchBanks(); fetchCashes()
-      toast.success(`${targetName} hesabına başarıyla transfer yapıldı.`)
+      fetchTransactions(selectedBankId); fetchBanks(); fetchCashes(); fetchCards()
+      toast.success(isCardTransfer ? `${targetName} kredi kartı ekstresi başarıyla ödendi!` : `${targetName} hesabına başarıyla transfer yapıldı.`)
     } catch (err: any) { toast.error("Transfer Hatası: " + err.message) }
   }
 
@@ -473,6 +525,26 @@ export default function BankAccountsPage() {
               currency: pair.currency
             })
             setEditTargetAmount(pair.amount.toString())
+          } else {
+            const { data: cardTxs } = await supabase
+              .from('card_transactions')
+              .select('*, card:credit_cards(name)')
+              .eq('transfer_id', tx.transfer_id)
+              .limit(1)
+
+            if (cardTxs && cardTxs.length > 0) {
+              const pair = cardTxs[0]
+              const cardName = pair.card ? pair.card.name : 'Kredi Kartı'
+              setPairedTxInfo({
+                type: 'card',
+                id: pair.id,
+                targetId: pair.card_id,
+                name: cardName,
+                amount: pair.amount,
+                currency: 'TRY'
+              })
+              setEditTargetAmount(pair.amount.toString())
+            }
           }
         }
       } catch (e) {
@@ -512,6 +584,7 @@ export default function BankAccountsPage() {
     try {
       const affectedBanks = new Set<string>()
       const affectedCashes = new Set<string>()
+      const affectedCards = new Set<string>()
 
       affectedBanks.add(editingTx.bank_account_id)
       if (editTxBankAccountId && editTxBankAccountId !== editingTx.bank_account_id) {
@@ -557,9 +630,12 @@ export default function BankAccountsPage() {
           if (pairedTxInfo.type === 'bank') {
             affectedBanks.add(pairedTxInfo.targetId)
             await supabase.from('bank_transactions').update(pairedPayload).eq('id', pairedTxInfo.id)
-          } else {
+          } else if (pairedTxInfo.type === 'cash') {
             affectedCashes.add(pairedTxInfo.targetId)
             await supabase.from('cash_transactions').update(pairedPayload).eq('id', pairedTxInfo.id)
+          } else if (pairedTxInfo.type === 'card') {
+            affectedCards.add(pairedTxInfo.targetId)
+            await supabase.from('card_transactions').update(pairedPayload).eq('id', pairedTxInfo.id)
           }
         }
 
@@ -616,12 +692,16 @@ export default function BankAccountsPage() {
       for (const cId of Array.from(affectedCashes)) {
         await recalculateAbsoluteCashBalance(cId)
       }
+      for (const cardId of Array.from(affectedCards)) {
+        await recalculateAbsoluteCardDebt(cardId)
+      }
 
       setIsTxEditModalOpen(false)
       setEditingTx(null)
       if (selectedBankId) fetchTransactions(selectedBankId)
       fetchBanks()
       fetchCashes()
+      fetchCards()
     } catch (err: any) {
       toast.error('Güncelleme sırasında hata: ' + err.message)
     }
@@ -702,6 +782,7 @@ export default function BankAccountsPage() {
       
       const affectedBanks = new Set<string>();
       const affectedCashes = new Set<string>();
+      const affectedCards = new Set<string>();
 
       if (isTransfer && transferId) {
         const { data: bTxs } = await supabase.from('bank_transactions').select('*').eq('transfer_id', transferId)
@@ -720,6 +801,14 @@ export default function BankAccountsPage() {
             oldDataPayload.related_txs.push({ type: 'cash', data: cTx })
           }
         }
+        const { data: cardTxs } = await supabase.from('card_transactions').select('*').eq('transfer_id', transferId)
+        if (cardTxs) {
+          for (const cardTx of cardTxs) {
+            affectedCards.add(cardTx.card_id)
+            await supabase.from('card_transactions').delete().eq('id', cardTx.id)
+            oldDataPayload.related_txs.push({ type: 'card', data: cardTx })
+          }
+        }
       } else {
         if (selectedBankId) affectedBanks.add(selectedBankId);
         await supabase.from('bank_transactions').delete().eq('id', txId)
@@ -727,6 +816,7 @@ export default function BankAccountsPage() {
 
       for (const bId of Array.from(affectedBanks)) await recalculateAbsoluteBankBalance(bId)
       for (const cId of Array.from(affectedCashes)) await recalculateAbsoluteCashBalance(cId)
+      for (const cardId of Array.from(affectedCards)) await recalculateAbsoluteCardDebt(cardId)
 
       await logActivity(
         isTransfer ? 'bank_transfer' : 'bank_tx', 
@@ -743,7 +833,7 @@ export default function BankAccountsPage() {
       toast.success('İşlem silindi ve bakiyeler güncellendi.')
     } catch(err:any) { toast.error("Silme işleminde hata oluştu: " + err.message) }
     
-    fetchTransactions(selectedBankId!); fetchBanks(); fetchCashes()
+    fetchTransactions(selectedBankId!); fetchBanks(); fetchCashes(); fetchCards()
   }
 
   function openCollectModal(tx: BankTransaction) {
@@ -1039,6 +1129,7 @@ export default function BankAccountsPage() {
                                  : t.transfer_id?.startsWith('SUPP') ? <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/30 flex items-center gap-1">Tedarikçi Ödemesi</span> 
                                  : t.transfer_id?.startsWith('CUST') ? <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-1">Müşteri Tahsilatı</span> 
                                  : t.transfer_id?.startsWith('EXP') ? <span className="text-[9px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded border border-rose-500/30 flex items-center gap-1">Gider Ödemesi</span> 
+                                 : t.description?.toLowerCase().includes('kredi kartı') ? <span className="text-[9px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded border border-purple-500/30 flex items-center gap-1"><CreditCard size={10}/> Kredi Kartı Ödemesi</span>
                                  : t.is_transfer ? <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/30 flex items-center gap-1"><ArrowRightLeft size={10}/> Kasa/Banka Transferi</span> 
                                  : t.description?.toLowerCase().includes('faiz') ? <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1"><TrendingUp size={10}/> Faiz Geliri</span>
                                  : ''} 
@@ -1245,9 +1336,31 @@ export default function BankAccountsPage() {
                   <option value="">Seçiniz</option>
                   {banks.filter(b => b.id !== selectedBank.id).length > 0 && <optgroup label="Diğer Banka Hesapları">{banks.filter(b => b.id !== selectedBank.id).map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name} - {b.account_name} ({b.currency})</option>)}</optgroup>}
                   {cashes.length > 0 && <optgroup label="Nakit Kasalar">{cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name} ({c.currency})</option>)}</optgroup>}
+                  {cards.length > 0 && (
+                    <optgroup label="💳 Kredi Kartları (Ekstre Borç Ödemesi)">
+                      {cards.map(c => {
+                        const comp = companies.find(cp => cp.id === c.company_id)
+                        return (
+                          <option key={`card|${c.id}`} value={`card|${c.id}`}>
+                            💳 {c.name} {comp ? `(${comp.name})` : '(Ortak)'} — Borç: {formatMoney(c.current_debt, 'TRY').formatted}
+                          </option>
+                        )
+                      })}
+                    </optgroup>
+                  )}
                 </select>
                 {transferTarget && (() => {
                   const [tType, tId] = transferTarget.split('|')
+                  if (tType === 'card') {
+                    const targetCard = cards.find(a => a.id === tId)
+                    if (!targetCard) return null
+                    return (
+                      <div className="mt-1 text-[10px] text-slate-400 flex items-center justify-between bg-purple-950/30 px-2.5 py-1.5 rounded border border-purple-500/30">
+                        <span className="text-purple-300 flex items-center gap-1"><CreditCard size={12}/> Kredi Kartı Güncel Borcu:</span>
+                        <span className="font-mono font-bold text-rose-400">{formatMoney(targetCard.current_debt, 'TRY').formatted}</span>
+                      </div>
+                    )
+                  }
                   const targetAcc = (tType === 'bank' ? banks : cashes).find(a => a.id === tId)
                   if (!targetAcc) return null
                   return (
@@ -1279,9 +1392,35 @@ export default function BankAccountsPage() {
                       placeholder="0.00" 
                       value={transferAmount} 
                       onChange={(e) => handleTransferAmountChange(e.target.value)} 
-                      className={`w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 font-mono text-lg transition-colors ${selectedBank.balance > 0 ? 'pr-20' : ''}`} 
+                      className={`w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 font-mono text-lg transition-colors ${selectedBank.balance > 0 || transferTarget?.startsWith('card|') ? 'pr-28' : ''}`} 
                     />
-                    {selectedBank.balance > 0 && (
+                    {transferTarget?.startsWith('card|') ? (() => {
+                      const tCard = cards.find(c => c.id === transferTarget.split('|')[1])
+                      if (tCard && tCard.current_debt > 0) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => handleTransferAmountChange(tCard.current_debt.toString())}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold bg-purple-600/30 hover:bg-purple-600 text-purple-300 hover:text-white px-2 py-1 rounded border border-purple-500/40 transition-all active:scale-95 flex items-center gap-1"
+                            title={`Tüm kart borcunu (${formatMoney(tCard.current_debt, 'TRY').formatted}) aktar`}
+                          >
+                            BORCU KAPAT
+                          </button>
+                        )
+                      } else if (selectedBank.balance > 0) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => handleTransferAmountChange(selectedBank.balance.toString())}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white px-2 py-1 rounded border border-indigo-500/40 transition-all active:scale-95 flex items-center gap-1"
+                            title={`Tüm bakiyeyi (${formatMoney(selectedBank.balance, selectedBank.currency).formatted}) aktar`}
+                          >
+                            TÜMÜ
+                          </button>
+                        )
+                      }
+                      return null
+                    })() : selectedBank.balance > 0 && (
                       <button
                         type="button"
                         onClick={() => handleTransferAmountChange(selectedBank.balance.toString())}

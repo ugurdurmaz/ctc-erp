@@ -454,12 +454,12 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
   - Vadeli yatırım hesaplarında hızlı işlem barında `[ 📈 Günlük Faiz Ekle ]` butonu yer alır.
   - Hesapta duran mevcut bakiyeye göre yıllık faiz oranı (%), gün sayısı (1G / 2G / 3G Hafta Sonu) ve stopaj kesintisi oranıyla canlı net getiri hesaplayan akıllı hesaplayıcı içerir.
   - İstenen net getiri tutarı doğrudan manuel de girilebilir; işlem tarihi, açıklama ve ilgili merkez ile `tx_type = 'in'` (Giriş/Gelir) olarak hesaba işlenir, bakiye mutlak olarak güncellenir ve ekstrede `📈 Faiz Geliri` rozetiyle listelenir.
-- **Virman / Transfer**: Transfer modalında transfer tarihi seçilebilir (`tx_date`), çıkış tutarı ve döviz kuru/hedef tutar otomatik senkronize edilir.
+- **Virman / Transfer**: Transfer modalında transfer tarihi seçilebilir (`tx_date`), çıkış tutarı ve döviz kuru/hedef tutar otomatik senkronize edilir. Hedef olarak **Diğer Banka Hesapları**, **Nakit Kasalar** veya **💳 Kredi Kartları (Ekstre Borç Ödemesi)** seçilebilir. Kredi kartı seçildiğinde kartın güncel borcu canlı gösterilir, "BORCU KAPAT" butonu ile borç tutarı otomatik doldurulabilir; transfer kaydedildiğinde bankadan çıkış (`out`), karta ise anında ekstre ödemesi (`card_transactions`, `payment`, `TRF-` id'si) işlenerek kart borcu düşürülür.
 - **Banka Hesap Hareketlerini Düzenleme (Edit)**:
   - Tablodaki her işlem satırında yer alan düzenleme butonu (`Edit3`) ile modal açılır; işlem tarihi (`tx_date`), ilgili merkez (`company_id`), banka hesabı (`bank_account_id` - hareketi başka bir banka hesabına taşıma), işlem yönü (giriş/çıkış), açıklama, tutar ve işlem durumu (`completed` / `pending`) güncellenebilir.
-  - **Virman / Transfer Düzenleme**: Düzenlenen hareket bir transfer ise, karşı hesaptaki (diğer banka veya kasa) eşleşen hareketin tarihi, ilgili merkezi ve tutarı da otomatik güncellenir. Çapraz dövizli transferlerde her iki bacağın tutarı oransal/manuel düzenlenebilir.
-  - **Mutlak Bakiye Güncellemesi**: Düzenlenen işlem kaydedildiğinde etkilenen tüm hesapların (`recalculateAbsoluteBankBalance` / `recalculateAbsoluteCashBalance`) bakiyeleri anında yeniden hesaplanır.
-  - **Harici Modül Uyumluluğu**: Mağaza (POS), Cari veya Gider kaynaklı banka ekstre hareketleri için bilgilendirme şeridiyle birlikte tarih, açıklama ve tutar düzenleme imkanı sunulur. Silme anında kaynak kayıt yoksa yetim kayıt temizliği sunulur.
+  - **Virman / Transfer Düzenleme**: Düzenlenen hareket bir transfer ise, karşı hesaptaki (diğer banka, kasa veya kredi kartı) eşleşen hareketin tarihi, ilgili merkezi ve tutarı da otomatik güncellenir. Çapraz dövizli transferlerde her iki bacağın tutarı oransal/manuel düzenlenebilir.
+  - **Mutlak Bakiye Güncellemesi**: Düzenlenen işlem kaydedildiğinde etkilenen tüm hesapların (`recalculateAbsoluteBankBalance` / `recalculateAbsoluteCashBalance` / `recalculateAbsoluteCardDebt`) bakiyeleri anında yeniden hesaplanır.
+  - **Harici Modül Uyumluluğu**: Mağaza (POS), Cari veya Gider kaynaklı banka ekstre hareketleri için bilgilendirme şeridiyle birlikte tarih, açıklama ve tutar düzenleme imkanı sunulur. Silme anında kaynak kayıt yoksa yetim kayıt temizliği sunulur. Transfer silindiğinde karşı hesaptaki bacak da silinir (kredi kartı borcu veya kasa/banka bakiyesi geri alınır).
 - Provizyon onayı: valör tarihi (varsayılan işlem tarihi + 1 gün), komisyon (0 ≤ k < tutar). Komisyon `POS-Z-CARD-COMM-<tarih>` id'siyle `out` yazılır; böylece o POS günü yeniden kaydedilince komisyon da temizlenir.
 
 ### 7.5 Kredi Kartları `/credit-cards`
@@ -467,7 +467,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Alt: seçili kart ekstresi; hareket formu (tarih, merkez, Harcama/Ödeme, açıklama, tutar ₺).
 - Kart oluştur/düzenle: ad, limit, ekstre günü, dönem başı devir borcu (`Dönem Başı Devir Borcu` hareketi), renk, merkez.
 - Bakiye sütunu her satırda **kartın güncel borcunu** gösterir (yürüyen bakiye değil).
-- Gider/tedarikçi modüllerinden gelen `expense` hareketleri (`[SUPP-]`, `[EXP-]`) korunur; silme işlemi kaynak modülden yapılmalıdır. Kaynak kayıt sistemde bulunamazsa (yetim kayıt), kart ekstresinden "Yetim Hareketi Sil" onayıyla temizlenebilir ve kart borcu yeniden hesaplanır.
+- Gider/tedarikçi modüllerinden gelen `expense` hareketleri (`[SUPP-]`, `[EXP-]`) ve bankadan virmanla ödenen ekstre kayıtları (`[TRF-]`) korunur; virman iptali banka sayfasından yapılmalıdır. Kaynak kayıt sistemde bulunamazsa (yetim kayıt), kart ekstresinden "Yetim Hareketi Sil" onayıyla temizlenebilir ve kart borcu yeniden hesaplanır.
 
 ### 7.5.1 Banka Kredileri `/bank-loans`
 - **Amaç:** Bankalardan kullanılan taksitli ticari veya bireysel kredilerin borç bakiyesini, takvimsel amortisman planını ve faiz gideri ayrımını yönetmek.

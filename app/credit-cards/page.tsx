@@ -27,6 +27,7 @@ type Transaction = {
   description: string
   tx_type: 'expense' | 'payment'
   amount: number
+  transfer_id?: string | null
   company?: { name: string; is_personal: boolean }
 }
 
@@ -379,6 +380,20 @@ export default function CreditCardsPage() {
       }
     }
 
+    if (txToDelete?.description?.includes('[TRF-') || txToDelete?.transfer_id?.startsWith('TRF-')) {
+      const match = txToDelete.description.match(/\[(TRF-[^\]]+)\]/)
+      const trfId = txToDelete.transfer_id || (match ? match[1] : null)
+      if (trfId) {
+        const { data: srcTx } = await supabase.from('bank_transactions').select('id').eq('transfer_id', trfId).maybeSingle()
+        if (srcTx) {
+          toast.error('Bu ödeme Banka Hesapları modülünden virman olarak yansıtılmıştır. İptal işlemini Banka Hesapları sayfasındaki ilgili transferi silerek yapmalısınız.')
+          return
+        } else {
+          isOrphan = true
+        }
+      }
+    }
+
     setConfirmDialog({
       isOpen: true,
       title: isOrphan ? 'Yetim Hareketi Sil' : 'İşlemi Sil',
@@ -587,7 +602,7 @@ export default function CreditCardsPage() {
                         <td className="p-3 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
                         <td className="p-3 text-slate-200 font-sans align-top">
                            <div className="mb-1 flex items-center gap-1.5 flex-wrap">
-                             <span>{t.description.replace(/\s*\[(SUPP|EXP|POS)-[^\]]+\]/g, '')}</span>
+                             <span>{t.description.replace(/\s*\[(SUPP|EXP|POS|TRF)-[^\]]+\]/g, '')}</span>
                              {t.description.includes('[SUPP-') && (
                                <span className="text-[9px] bg-amber-500/10 text-amber-300 border border-amber-500/20 px-1.5 py-0.5 rounded font-sans">
                                  Tedarikçi Ödemesi
@@ -596,6 +611,11 @@ export default function CreditCardsPage() {
                              {t.description.includes('[EXP-') && (
                                <span className="text-[9px] bg-rose-500/10 text-rose-300 border border-rose-500/20 px-1.5 py-0.5 rounded font-sans">
                                  Genel Gider
+                               </span>
+                             )}
+                             {(t.description.includes('Banka Ekstre Ödemesi') || t.description.includes('[TRF-') || t.transfer_id?.startsWith('TRF-')) && (
+                               <span className="text-[9px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.5 rounded font-sans">
+                                 Banka Virmanı
                                </span>
                              )}
                            </div>
