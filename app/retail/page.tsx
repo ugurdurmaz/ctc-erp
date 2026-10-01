@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Calendar, ChevronLeft, ChevronRight, Save, Wallet, CreditCard, Eye, EyeOff, Landmark, X, Trash2, StickyNote, Loader2, AlertTriangle, Settings, ArrowRightLeft, Package, Search, Wrench, ExternalLink, RotateCcw, CheckCircle2, TrendingUp, Percent, ArrowDownLeft } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, ChevronDown, Plus, Save, Wallet, CreditCard, Eye, EyeOff, Landmark, X, Trash2, StickyNote, Loader2, AlertTriangle, Settings, ArrowRightLeft, Package, Search, Wrench, ExternalLink, RotateCcw, CheckCircle2, TrendingUp, Percent, ArrowDownLeft } from 'lucide-react'
 import { formatMoney } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { logActivity } from '@/lib/audit'
@@ -18,7 +18,7 @@ const CATEGORIES = [
 ]
 
 const EXPENSE_CATEGORY_ID = 'gider'
-const INITIAL_ROWS_PER_CATEGORY = 7
+const INITIAL_ROWS_PER_CATEGORY = 1
 
 type Company = { id: string; name: string; is_personal: boolean }
 
@@ -124,6 +124,52 @@ export default function RetailPOSPage() {
   const [photoCard, setPhotoCard] = useState<string>('')
   const [dailyNotes, setDailyNotes] = useState<string>('')
   const [showCost, setShowCost] = useState<Record<string, boolean>>({})
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
+
+  const toggleCategoryCollapse = (catId: string) => {
+    setCollapsedCategories(prev => ({
+      ...prev,
+      [catId]: !prev[catId]
+    }))
+  }
+
+  const isCategoryCollapsed = (catId: string) => {
+    return !!collapsedCategories[catId]
+  }
+
+  const isAllCollapsed = useMemo(() => {
+    const allIds = [...CATEGORIES.map(c => c.id), EXPENSE_CATEGORY_ID]
+    return allIds.every(id => !!collapsedCategories[id])
+  }, [collapsedCategories])
+
+  const toggleAllCategories = () => {
+    const allIds = [...CATEGORIES.map(c => c.id), EXPENSE_CATEGORY_ID, 'notes', 'transfers']
+    const targetState = !isAllCollapsed
+    const next: Record<string, boolean> = {}
+    allIds.forEach(id => {
+      next[id] = targetState
+    })
+    setCollapsedCategories(next)
+  }
+
+  const handleAddEmptyRow = (catId: string) => {
+    setHasUnsavedChanges(true)
+    if (saveStatus !== 'idle') setSaveStatus('idle')
+    setRows(prev => [
+      ...prev,
+      {
+        id: `${catId}-${Date.now()}-${Math.random()}`,
+        categoryId: catId,
+        description: '',
+        stockId: null,
+        supplierId: null,
+        quantity: '',
+        cost: '',
+        cash: '',
+        card: ''
+      }
+    ])
+  }
 
   const [companies, setCompanies] = useState<Company[]>([])
   const [activeBanks, setActiveBanks] = useState<BankAccount[]>([])
@@ -818,6 +864,7 @@ export default function RetailPOSPage() {
       setOpeningCash(formatValue(expectedOpening));
 
       // Günün Teslim Edilen Teknik Servis Fişlerini Çek (Bilgi amaçlı - Z-Raporuna dahil edilmez)
+      let dayTickets: DeliveredTicketSummary[] = [];
       try {
         const targetDateObj = new Date(dateStr);
         const prevDate = new Date(targetDateObj.getTime() - 86400000).toISOString().split('T')[0];
@@ -831,7 +878,7 @@ export default function RetailPOSPage() {
           .lte('delivered_at', `${nextDate}T23:59:59Z`)
           .order('delivered_at', { ascending: false });
 
-        const dayTickets = (ticketsData || []).filter(t => {
+        dayTickets = (ticketsData || []).filter(t => {
           if (!t.delivered_at) return false;
           return new Date(t.delivered_at).toLocaleDateString('en-CA') === dateStr;
         });
@@ -902,11 +949,83 @@ export default function RetailPOSPage() {
             try { localStorage.setItem(draftKey, JSON.stringify(draft)) } catch {}
           }
 
+          // Boş satırları filtrele ve sadece dolu satırlar + 1 boş satır bırak
+          let cleanedDraftRows: RetailRow[] = []
+          const allCatIds = [...CATEGORIES.map(c => c.id), EXPENSE_CATEGORY_ID]
+          allCatIds.forEach(catId => {
+            const catRows = restoredRows.filter(r => r.categoryId === catId)
+            let lastDataIdx = -1
+            for (let i = catRows.length - 1; i >= 0; i--) {
+              const r = catRows[i]
+              if (r.description?.trim() || parseValue(r.cost) > 0 || parseValue(r.cash) > 0 || parseValue(r.card) > 0) {
+                lastDataIdx = i
+                break
+              }
+            }
+            const desiredCount = Math.max(1, lastDataIdx + 2)
+            if (catRows.length > 0) {
+              cleanedDraftRows.push(...catRows.slice(0, desiredCount))
+              for (let k = catRows.length; k < desiredCount; k++) {
+                cleanedDraftRows.push({
+                  id: `${catId}-draft-pad-${Date.now()}-${k}-${Math.random()}`,
+                  categoryId: catId,
+                  description: '',
+                  stockId: null,
+                  supplierId: null,
+                  quantity: '',
+                  cost: '',
+                  cash: '',
+                  card: ''
+                })
+              }
+            } else {
+              cleanedDraftRows.push({
+                id: `${catId}-draft-init-${Date.now()}-${Math.random()}`,
+                categoryId: catId,
+                description: '',
+                stockId: null,
+                supplierId: null,
+                quantity: '',
+                cost: '',
+                cash: '',
+                card: ''
+              })
+            }
+          })
+          restoredRows = cleanedDraftRows
+
           setPhotoCash(draft.photoCash || '')
           setPhotoCard(draft.photoCard || '')
           setDailyNotes(draft.dailyNotes || '')
           setTransfers(draft.transfers || [])
           setRows(restoredRows)
+
+          // Taslak için daraltma durumunu ayarla: İşlem görenler açık, işlem görmeyenler kapalı
+          const draftActiveCatIds = new Set<string>()
+          restoredRows.forEach(r => {
+            if (r.description?.trim() || parseValue(r.cost) > 0 || parseValue(r.cash) > 0 || parseValue(r.card) > 0) {
+              draftActiveCatIds.add(r.categoryId)
+            }
+          })
+          if (dayTickets.length > 0) {
+            draftActiveCatIds.add('servis')
+          }
+          const draftHasActivity = draftActiveCatIds.size > 0 || (draft.transfers && draft.transfers.length > 0) || !!draft.dailyNotes?.trim()
+          const nextCollapsed: Record<string, boolean> = {}
+          if (draftHasActivity) {
+            CATEGORIES.forEach(c => {
+              nextCollapsed[c.id] = !draftActiveCatIds.has(c.id)
+            })
+            nextCollapsed[EXPENSE_CATEGORY_ID] = !draftActiveCatIds.has(EXPENSE_CATEGORY_ID)
+            nextCollapsed['notes'] = !draft.dailyNotes?.trim()
+            nextCollapsed['transfers'] = !draft.transfers || draft.transfers.length === 0
+          } else {
+            CATEGORIES.forEach(c => { nextCollapsed[c.id] = false })
+            nextCollapsed[EXPENSE_CATEGORY_ID] = false
+            nextCollapsed['notes'] = false
+            nextCollapsed['transfers'] = false
+          }
+          setCollapsedCategories(nextCollapsed)
           
           setIsDraftRestored(true)
           setHasUnsavedChanges(true)
@@ -1005,13 +1124,10 @@ export default function RetailPOSPage() {
             }
           });
 
-          const currentExpRowsCount = newRows.filter(r => r.categoryId === EXPENSE_CATEGORY_ID).length;
-          const rowsToAdd = Math.max(0, INITIAL_ROWS_PER_CATEGORY - currentExpRowsCount);
-          for (let i = 0; i < rowsToAdd; i++) {
-            newRows.push({ 
-              id: `${catId}-init-${Date.now()}-${i}-${Math.random()}`, categoryId: catId, description: '', stockId: null, supplierId: null, quantity: '', cost: '', cash: '', card: '' 
-            });
-          }
+          // Her zaman tam 1 adet yeni boş gider satırı ekle
+          newRows.push({ 
+            id: `${catId}-init-${Date.now()}-${Math.random()}`, categoryId: catId, description: '', stockId: null, supplierId: null, quantity: '', cost: '', cash: '', card: '' 
+          });
           return;
         }
 
@@ -1043,16 +1159,43 @@ export default function RetailPOSPage() {
           })
         })
 
-        const rowsToAdd = INITIAL_ROWS_PER_CATEGORY - catDbRows.length
-        for (let i = 0; i < rowsToAdd; i++) {
-          newRows.push({ 
-            id: `${catId}-init-${Date.now()}-${i}-${Math.random()}`, categoryId: catId, description: '', stockId: null, supplierId: null, quantity: '', cost: '', cash: '', card: '' 
-          })
-        }
+        // Her zaman tam 1 adet yeni boş satır ekle
+        newRows.push({ 
+          id: `${catId}-init-${Date.now()}-${Math.random()}`, categoryId: catId, description: '', stockId: null, supplierId: null, quantity: '', cost: '', cash: '', card: '' 
+        })
       })
 
       setRows(newRows)
       dataDateRef.current = dateStr
+
+      // Tarih değiştiğinde o tarihte işlem görmüş kategorileri açık, işlem görmeyenleri kapalı getir
+      const activeCatIds = new Set<string>()
+      newRows.forEach(r => {
+        if (r.description?.trim() || parseValue(r.cost) > 0 || parseValue(r.cash) > 0 || parseValue(r.card) > 0) {
+          activeCatIds.add(r.categoryId)
+        }
+      })
+      if (dayTickets.length > 0) {
+        activeCatIds.add('servis')
+      }
+
+      const hasAnyActivity = activeCatIds.size > 0 || (dbTransfers && dbTransfers.length > 0) || !!summary?.daily_notes?.trim()
+      const nextCollapsed: Record<string, boolean> = {}
+
+      if (hasAnyActivity) {
+        CATEGORIES.forEach(c => {
+          nextCollapsed[c.id] = !activeCatIds.has(c.id)
+        })
+        nextCollapsed[EXPENSE_CATEGORY_ID] = !activeCatIds.has(EXPENSE_CATEGORY_ID)
+        nextCollapsed['notes'] = !summary?.daily_notes?.trim()
+        nextCollapsed['transfers'] = !dbTransfers || dbTransfers.length === 0
+      } else {
+        CATEGORIES.forEach(c => { nextCollapsed[c.id] = false })
+        nextCollapsed[EXPENSE_CATEGORY_ID] = false
+        nextCollapsed['notes'] = false
+        nextCollapsed['transfers'] = false
+      }
+      setCollapsedCategories(nextCollapsed)
     } catch (error) {
       console.error("Veri çekme hatası:", error)
     } finally {
@@ -1291,6 +1434,7 @@ export default function RetailPOSPage() {
   const expenseCash = expenseRows.reduce((acc, row) => acc + parseValue(row.cash), 0)
   const expenseCard = expenseRows.reduce((acc, row) => acc + parseValue(row.card), 0)
   const expenseGrandTotal = expenseCash + expenseCard
+  const expenseFilledCount = expenseRows.filter(r => r.description?.trim() || parseValue(r.cash) > 0 || parseValue(r.card) > 0).length
 
   const totalToBank = transfers.filter(t => t.type === 'to_bank').reduce((sum, t) => sum + t.amount, 0)
   const totalFromBank = transfers.filter(t => t.type === 'from_bank').reduce((sum, t) => sum + t.amount, 0)
@@ -1629,6 +1773,8 @@ export default function RetailPOSPage() {
     const catCard = calculateCategoryTotal(category.id, 'card')
     const isCostVisible = showCost[category.id]
     const isExpenseCat = category.id === EXPENSE_CATEGORY_ID
+    const isCollapsed = isCategoryCollapsed(category.id)
+    const catFilledRowsCount = catRows.filter(r => r.description?.trim() || parseValue(r.cost) > 0 || parseValue(r.cash) > 0 || parseValue(r.card) > 0).length
 
     return (
       <div 
@@ -1636,14 +1782,37 @@ export default function RetailPOSPage() {
         style={{ animation: 'fadeInUp 0.4s both', animationDelay: `${0.1 + (index * 0.08)}s` }}
         className={`bg-[#070b14] border border-slate-700 rounded-lg flex flex-col shadow-lg w-full break-inside-avoid hover:border-slate-500/50 transition-colors ${catRows.some(r => r.id === activeDropdownId) ? 'z-50 relative' : 'relative z-10'}`}
       >
-        <div className={`${category.color} rounded-t-[7px] px-2.5 py-1.5 flex justify-between items-center text-white text-[11px] font-normal`}>
+        <div 
+          onClick={() => toggleCategoryCollapse(category.id)}
+          className={`${category.color} ${isCollapsed ? 'rounded-[7px]' : 'rounded-t-[7px]'} px-2.5 py-1.5 flex justify-between items-center text-white text-[11px] font-normal cursor-pointer select-none hover:brightness-110 active:opacity-95 transition-all`}
+        >
           <div className="flex items-center gap-1.5 overflow-hidden pr-2 flex-1 min-w-0">
+            <div className="p-0.5 rounded bg-black/20 hover:bg-black/40 transition-transform">
+              {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+            </div>
+
             {!isExpenseCat && (
-               <button onClick={() => toggleCostColumn(category.id)} className="p-1 bg-black/20 hover:bg-black/40 rounded transition-colors shrink-0">
+               <button 
+                 type="button"
+                 onClick={(e) => {
+                   e.stopPropagation();
+                   toggleCostColumn(category.id);
+                 }} 
+                 className="p-1 bg-black/20 hover:bg-black/40 rounded transition-colors shrink-0"
+                 title={isCostVisible ? "Maliyet sütununu gizle" : "Maliyet sütununu göster"}
+               >
                  {isCostVisible ? <EyeOff size={12} /> : <Eye size={12} />}
                </button>
             )}
-            <span className="truncate">{category.name}</span>
+
+            <span className="truncate font-medium">{category.name}</span>
+
+            {catFilledRowsCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-black/30 text-white/90 text-[9px] rounded-full font-mono font-medium shrink-0">
+                {catFilledRowsCount} işlem
+              </span>
+            )}
+
             {category.id === 'servis' && deliveredTickets.length > 0 && (
               <span className="ml-1 px-1.5 py-0.5 bg-teal-950/80 border border-teal-300/40 text-teal-200 text-[9px] rounded font-mono shrink-0" title="Bugün teslim edilen servis fişi sayısı">
                 {deliveredTickets.length} Fiş Teslim
@@ -1668,205 +1837,218 @@ export default function RetailPOSPage() {
           </div>
         </div>
 
-        <div className="flex flex-col divide-y divide-slate-700 pb-1 transition-all duration-300 relative">
-          {isFetching && (
-            <div className="absolute inset-0 bg-[#070b14]/50 backdrop-blur-[1px] z-10 flex items-center justify-center">
-              <Loader2 className="animate-spin text-slate-400" size={16} />
-            </div>
-          )}
-          {catRows.map((row, index) => {
-            const isFirst = index === 0;
-            const searchQ = (row.description || '').trim().toLocaleLowerCase('tr-TR');
-            const isUpward = index >= Math.max(catRows.length - 2, 5);
-            const isDropdownOpen = activeDropdownId === row.id && !isExpenseCat;
-            const hasMissingDesc = !row.description.trim() && (parseValue(row.cost) > 0 || parseValue(row.cash) > 0 || parseValue(row.card) > 0);
-            
-            // Açıklama girerken veya alana tıklandığında mağaza deposundaki ürünleri listele ve filtrele
-            const rowFilteredStocks = isDropdownOpen
-              ? storeStocks.filter(s => {
-                  if (!searchQ) return true; // Boşken depodaki tüm ürünler listelensin
-                  return s.name.toLocaleLowerCase('tr-TR').includes(searchQ) || (s.sku && s.sku.toLocaleLowerCase('tr-TR').includes(searchQ));
-                }).sort((a, b) => {
-                  if (b.quantity > 0 && a.quantity <= 0) return 1;
-                  if (a.quantity > 0 && b.quantity <= 0) return -1;
-                  return a.name.localeCompare(b.name, 'tr-TR');
-                })
-              : [];
-
-            const rowTooltip = hasMissingDesc 
-              ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı temizleyin.' 
-              : (row.description?.trim() || undefined);
-
-            return (
-            <div 
-              key={row.id} 
-              className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${isDropdownOpen ? 'z-40 relative' : ''} ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''}`}
-              title={rowTooltip}
-            >
+        {!isCollapsed && (
+          <div className="flex flex-col divide-y divide-slate-700 pb-1 transition-all duration-300 relative">
+            {isFetching && (
+              <div className="absolute inset-0 bg-[#070b14]/50 backdrop-blur-[1px] z-10 flex items-center justify-center">
+                <Loader2 className="animate-spin text-slate-400" size={16} />
+              </div>
+            )}
+            {catRows.map((row, index) => {
+              const isFirst = index === 0;
+              const searchQ = (row.description || '').trim().toLocaleLowerCase('tr-TR');
+              const isUpward = index >= Math.max(catRows.length - 2, 5);
+              const isDropdownOpen = activeDropdownId === row.id && !isExpenseCat;
+              const hasMissingDesc = !row.description.trim() && (parseValue(row.cost) > 0 || parseValue(row.cash) > 0 || parseValue(row.card) > 0);
               
-              <div className="flex-1 min-w-[50px] relative flex" title={rowTooltip}>
-                <div className={`flex items-center w-full bg-transparent border-r border-slate-700 focus-within:bg-indigo-900/20 transition-colors ${row.stockId ? 'bg-emerald-900/10' : ''}`}>
-                   {!isExpenseCat && (
-                     <button
-                       type="button"
-                       tabIndex={-1}
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         setActiveDropdownId(activeDropdownId === row.id ? null : row.id);
-                       }}
-                       className="ml-1.5 shrink-0 text-slate-500 hover:text-indigo-400 cursor-pointer"
-                       title={row.stockId ? (row.description ? `Stok: ${row.description}` : "Stoktan düşülecek ürün seçili") : "Depodaki ürünleri listele"}
+              // Açıklama girerken veya alana tıklandığında mağaza deposundaki ürünleri listele ve filtrele
+              const rowFilteredStocks = isDropdownOpen
+                ? storeStocks.filter(s => {
+                    if (!searchQ) return true; // Boşken depodaki tüm ürünler listelensin
+                    return s.name.toLocaleLowerCase('tr-TR').includes(searchQ) || (s.sku && s.sku.toLocaleLowerCase('tr-TR').includes(searchQ));
+                  }).sort((a, b) => {
+                    if (b.quantity > 0 && a.quantity <= 0) return 1;
+                    if (a.quantity > 0 && b.quantity <= 0) return -1;
+                    return a.name.localeCompare(b.name, 'tr-TR');
+                  })
+                : [];
+
+              const rowTooltip = hasMissingDesc 
+                ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı temizleyin.' 
+                : (row.description?.trim() || undefined);
+
+              return (
+              <div 
+                key={row.id} 
+                className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${isDropdownOpen ? 'z-40 relative' : ''} ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''}`}
+                title={rowTooltip}
+              >
+                
+                <div className="flex-1 min-w-[50px] relative flex" title={rowTooltip}>
+                  <div className={`flex items-center w-full bg-transparent border-r border-slate-700 focus-within:bg-indigo-900/20 transition-colors ${row.stockId ? 'bg-emerald-900/10' : ''}`}>
+                     {!isExpenseCat && (
+                       <button
+                         type="button"
+                         tabIndex={-1}
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           setActiveDropdownId(activeDropdownId === row.id ? null : row.id);
+                         }}
+                         className="ml-1.5 shrink-0 text-slate-500 hover:text-indigo-400 cursor-pointer"
+                         title={row.stockId ? (row.description ? `Stok: ${row.description}` : "Stoktan düşülecek ürün seçili") : "Depodaki ürünleri listele"}
+                       >
+                         {row.stockId ? <Package size={12} className="text-emerald-400" /> : <Search size={10} className="text-slate-500" />}
+                       </button>
+                     )}
+                     <input 
+                       type="text" 
+                       placeholder={hasMissingDesc ? "⚠️ Açıklama giriniz..." : (isFirst ? "Açıklama veya Ürün Seç..." : "")} 
+                       value={row.description} 
+                       title={rowTooltip}
+                       onChange={(e) => {
+                          handleInputChange(row.id, 'description', e.target.value);
+                          if(row.stockId) handleInputChange(row.id, 'stockId', '');
+                          if(!isExpenseCat) setActiveDropdownId(row.id);
+                       }} 
+                       onFocus={() => !isExpenseCat && setActiveDropdownId(row.id)}
+                       className={`w-full bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none placeholder:text-slate-600 font-sans font-normal transition-colors truncate ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
+                     />
+                     {row.stockId && (
+                       <button
+                         type="button"
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           handleInputChange(row.id, 'stockId', '');
+                         }}
+                         className="pr-1.5 text-slate-500 hover:text-rose-400 cursor-pointer"
+                         title="Stok bağlantısını kaldır"
+                       >
+                         <X size={11} />
+                       </button>
+                     )}
+                  </div>
+                  
+                  {isDropdownOpen && (
+                     <div 
+                       onMouseDown={(e) => e.stopPropagation()}
+                       className={`absolute ${isUpward ? 'bottom-full mb-1 origin-bottom max-h-[180px]' : 'top-full mt-0.5 origin-top max-h-60'} left-0 z-50 bg-[#0f172a] border border-indigo-500/50 rounded-xl shadow-2xl shadow-black/80 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150 ${isCostVisible ? 'w-[calc(100%+199px)]' : 'w-[calc(100%+144px)]'} min-w-[280px] max-w-[calc(100vw-32px)]`}
                      >
-                       {row.stockId ? <Package size={12} className="text-emerald-400" /> : <Search size={10} className="text-slate-500" />}
-                     </button>
-                   )}
+                        <div className="px-2.5 py-1.5 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between text-[10px] text-indigo-300 font-normal shrink-0">
+                           <div className="flex items-center gap-1.5">
+                              <Package size={12} className="text-indigo-400" />
+                              <span>{activeWarehouse?.name || 'Mağaza'} Deposu</span>
+                           </div>
+                           <span className="text-slate-400 text-[9px] font-mono font-normal">
+                              {rowFilteredStocks.length} ürün
+                           </span>
+                        </div>
+
+                        <div className="overflow-y-auto custom-scrollbar divide-y divide-slate-800/60 flex-1 min-h-0">
+                           {rowFilteredStocks.length === 0 ? (
+                              <div className="p-3 text-center text-slate-400 text-[10px]">
+                                 {searchQ ? `"${row.description}" ile eşleşen ürün bulunamadı.` : 'Seçili depoda henüz kayıtlı ürün bulunmuyor.'}
+                              </div>
+                           ) : (
+                              rowFilteredStocks.map(stock => {
+                                 const isSelected = row.stockId === stock.id;
+                                 return (
+                                 <div 
+                                   key={stock.id} 
+                                   onMouseDown={(e) => { 
+                                      e.preventDefault(); 
+                                      e.stopPropagation(); 
+                                      selectStockForRow(row.id, stock); 
+                                   }}
+                                   className={`px-2.5 py-2 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors flex justify-between items-center ${isSelected ? 'bg-indigo-950/60 text-indigo-200' : ''}`}
+                                 >
+                                    <div className="flex flex-col min-w-0 pr-2">
+                                       <span className="font-normal text-[11px] truncate text-slate-200">{stock.name}</span>
+                                       {stock.sku && <span className="text-[9px] text-slate-400 font-mono font-normal truncate">{stock.sku}</span>}
+                                    </div>
+                                    <div className="flex gap-2 items-center shrink-0">
+                                       {stock.quantity > 0 ? (
+                                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono font-normal">
+                                             Stk: {stock.quantity}
+                                          </span>
+                                       ) : (
+                                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono font-normal">
+                                             Stk: 0
+                                          </span>
+                                       )}
+                                       <span className="text-[10px] text-indigo-300 font-mono font-normal">
+                                          {formatMoney(stock.unit_price, stock.currency).formatted}
+                                       </span>
+                                    </div>
+                                 </div>
+                                 );
+                              })
+                           )}
+                        </div>
+                     </div>
+                  )}
+                </div>
+
+                {!isExpenseCat && (
                    <input 
                      type="text" 
-                     placeholder={hasMissingDesc ? "⚠️ Açıklama giriniz..." : (isFirst ? "Açıklama veya Ürün Seç..." : "")} 
-                     value={row.description} 
-                     title={rowTooltip}
+                     inputMode="numeric" 
+                     placeholder={isFirst ? "1" : ""} 
+                     value={row.quantity} 
                      onChange={(e) => {
-                        handleInputChange(row.id, 'description', e.target.value);
-                        if(row.stockId) handleInputChange(row.id, 'stockId', '');
-                        if(!isExpenseCat) setActiveDropdownId(row.id);
+                       handleInputChange(row.id, 'quantity', e.target.value);
+                       if (row.stockId) {
+                          const stock = stocks.find(s => s.id === row.stockId);
+                          if (stock) {
+                             const qty = parseValue(e.target.value) || 1;
+                             let unitPriceInTry = stock.unit_price;
+                             if (stock.currency === 'USD') unitPriceInTry = stock.unit_price * (rates.USD || 34.25);
+                             else if (stock.currency === 'EUR') unitPriceInTry = stock.unit_price * (rates.EUR || 37.80);
+                             handleInputChange(row.id, 'cost', formatValue(unitPriceInTry * qty));
+                          }
+                       }
                      }} 
-                     onFocus={() => !isExpenseCat && setActiveDropdownId(row.id)}
-                     className={`w-full bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none placeholder:text-slate-600 font-sans font-normal transition-colors truncate ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
+                     className="w-[34px] shrink-0 bg-transparent text-center px-0.5 py-1 text-slate-300 focus:outline-none focus:bg-indigo-900/20 border-r border-slate-700 font-mono font-normal transition-colors" 
+                     title="Adet"
                    />
-                   {row.stockId && (
-                     <button
-                       type="button"
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         handleInputChange(row.id, 'stockId', '');
-                       }}
-                       className="pr-1.5 text-slate-500 hover:text-rose-400 cursor-pointer"
-                       title="Stok bağlantısını kaldır"
-                     >
-                       <X size={11} />
-                     </button>
-                   )}
-                </div>
-                
-                {isDropdownOpen && (
-                   <div 
-                     onMouseDown={(e) => e.stopPropagation()}
-                     className={`absolute ${isUpward ? 'bottom-full mb-1 origin-bottom max-h-[180px]' : 'top-full mt-0.5 origin-top max-h-60'} left-0 z-50 bg-[#0f172a] border border-indigo-500/50 rounded-xl shadow-2xl shadow-black/80 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150 ${isCostVisible ? 'w-[calc(100%+199px)]' : 'w-[calc(100%+144px)]'} min-w-[280px] max-w-[calc(100vw-32px)]`}
-                   >
-                      <div className="px-2.5 py-1.5 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between text-[10px] text-indigo-300 font-normal shrink-0">
-                         <div className="flex items-center gap-1.5">
-                            <Package size={12} className="text-indigo-400" />
-                            <span>{activeWarehouse?.name || 'Mağaza'} Deposu</span>
-                         </div>
-                         <span className="text-slate-400 text-[9px] font-mono font-normal">
-                            {rowFilteredStocks.length} ürün
-                         </span>
-                      </div>
-
-                      <div className="overflow-y-auto custom-scrollbar divide-y divide-slate-800/60 flex-1 min-h-0">
-                         {rowFilteredStocks.length === 0 ? (
-                            <div className="p-3 text-center text-slate-400 text-[10px]">
-                               {searchQ ? `"${row.description}" ile eşleşen ürün bulunamadı.` : 'Seçili depoda henüz kayıtlı ürün bulunmuyor.'}
-                            </div>
-                         ) : (
-                            rowFilteredStocks.map(stock => {
-                               const isSelected = row.stockId === stock.id;
-                               return (
-                               <div 
-                                 key={stock.id} 
-                                 onMouseDown={(e) => { 
-                                    e.preventDefault(); 
-                                    e.stopPropagation(); 
-                                    selectStockForRow(row.id, stock); 
-                                 }}
-                                 className={`px-2.5 py-2 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors flex justify-between items-center ${isSelected ? 'bg-indigo-950/60 text-indigo-200' : ''}`}
-                               >
-                                  <div className="flex flex-col min-w-0 pr-2">
-                                     <span className="font-normal text-[11px] truncate text-slate-200">{stock.name}</span>
-                                     {stock.sku && <span className="text-[9px] text-slate-400 font-mono font-normal truncate">{stock.sku}</span>}
-                                  </div>
-                                  <div className="flex gap-2 items-center shrink-0">
-                                     {stock.quantity > 0 ? (
-                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono font-normal">
-                                           Stk: {stock.quantity}
-                                        </span>
-                                     ) : (
-                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-mono font-normal">
-                                           Stk: 0
-                                        </span>
-                                     )}
-                                     <span className="text-[10px] text-indigo-300 font-mono font-normal">
-                                        {formatMoney(stock.unit_price, stock.currency).formatted}
-                                     </span>
-                                  </div>
-                               </div>
-                               );
-                            })
-                         )}
-                      </div>
-                   </div>
                 )}
-              </div>
 
-              {!isExpenseCat && (
-                 <input 
-                   type="text" 
-                   inputMode="numeric"
-                   placeholder={isFirst ? "1" : ""} 
-                   value={row.quantity} 
-                   onChange={(e) => {
-                     handleInputChange(row.id, 'quantity', e.target.value);
-                     if (row.stockId) {
-                        const stock = stocks.find(s => s.id === row.stockId);
-                        if (stock) {
-                           const qty = parseValue(e.target.value) || 1;
-                           let unitPriceInTry = stock.unit_price;
-                           if (stock.currency === 'USD') unitPriceInTry = stock.unit_price * (rates.USD || 34.25);
-                           else if (stock.currency === 'EUR') unitPriceInTry = stock.unit_price * (rates.EUR || 37.80);
-                           handleInputChange(row.id, 'cost', formatValue(unitPriceInTry * qty));
-                        }
-                     }
-                   }} 
-                   className="w-[34px] shrink-0 bg-transparent text-center px-0.5 py-1 text-slate-300 focus:outline-none focus:bg-indigo-900/20 border-r border-slate-700 font-mono font-normal transition-colors" 
-                   title="Adet"
-                 />
-              )}
-
-              <input 
-                type="text" 
-                inputMode="decimal" 
-                placeholder={isFirst ? "0,00" : ""} 
-                value={row.cash} 
-                onChange={(e) => handleInputChange(row.id, 'cash', e.target.value)} 
-                onBlur={(e) => handleInputBlur(row.id, 'cash', e.target.value)} 
-                className={`w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-emerald-400 text-right focus:outline-none focus:bg-indigo-900/20 border-r border-slate-700 font-mono font-normal placeholder:text-emerald-900/40 transition-colors ${isExpenseCat ? 'text-amber-400 focus:bg-amber-900/20 placeholder:text-amber-900/40' : ''}`} 
-              />
-              <input 
-                type="text" 
-                inputMode="decimal" 
-                placeholder={isFirst ? "0,00" : ""} 
-                value={row.card} 
-                onChange={(e) => handleInputChange(row.id, 'card', e.target.value)} 
-                onBlur={(e) => handleInputBlur(row.id, 'card', e.target.value)} 
-                className={`w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-purple-400 text-right focus:outline-none focus:bg-indigo-900/20 font-mono font-normal placeholder:text-purple-900/40 transition-colors ${(isCostVisible && !isExpenseCat) ? 'border-r border-slate-700' : ''} ${isExpenseCat ? 'focus:bg-amber-900/20' : ''}`} 
-              />
-              {(isCostVisible && !isExpenseCat) && (
                 <input 
                   type="text" 
                   inputMode="decimal" 
                   placeholder={isFirst ? "0,00" : ""} 
-                  value={row.cost} 
-                  onChange={(e) => handleInputChange(row.id, 'cost', e.target.value)} 
-                  onBlur={(e) => handleInputBlur(row.id, 'cost', e.target.value)} 
-                  className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-rose-400 text-right focus:outline-none focus:bg-indigo-900/20 font-mono font-normal placeholder:text-rose-900/40 transition-colors" 
+                  value={row.cash} 
+                  onChange={(e) => handleInputChange(row.id, 'cash', e.target.value)} 
+                  onBlur={(e) => handleInputBlur(row.id, 'cash', e.target.value)} 
+                  className={`w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-emerald-400 text-right focus:outline-none focus:bg-indigo-900/20 border-r border-slate-700 font-mono font-normal placeholder:text-emerald-900/40 transition-colors ${isExpenseCat ? 'text-amber-400 focus:bg-amber-900/20 placeholder:text-amber-900/40' : ''}`} 
                 />
-              )}
-            </div>
-            )
-          })}
-        </div>
+                <input 
+                  type="text" 
+                  inputMode="decimal" 
+                  placeholder={isFirst ? "0,00" : ""} 
+                  value={row.card} 
+                  onChange={(e) => handleInputChange(row.id, 'card', e.target.value)} 
+                  onBlur={(e) => handleInputBlur(row.id, 'card', e.target.value)} 
+                  className={`w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-purple-400 text-right focus:outline-none focus:bg-indigo-900/20 font-mono font-normal placeholder:text-purple-900/40 transition-colors ${(isCostVisible && !isExpenseCat) ? 'border-r border-slate-700' : ''} ${isExpenseCat ? 'focus:bg-amber-900/20' : ''}`} 
+                />
+                {(isCostVisible && !isExpenseCat) && (
+                  <input 
+                    type="text" 
+                    inputMode="decimal" 
+                    placeholder={isFirst ? "0,00" : ""} 
+                    value={row.cost} 
+                    onChange={(e) => handleInputChange(row.id, 'cost', e.target.value)} 
+                    onBlur={(e) => handleInputBlur(row.id, 'cost', e.target.value)} 
+                    className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-rose-400 text-right focus:outline-none focus:bg-indigo-900/20 font-mono font-normal placeholder:text-rose-900/40 transition-colors" 
+                  />
+                )}
+              </div>
+              )
+            })}
 
-        {category.id === 'servis' && (
+            <div className="pt-1 px-2 pb-0.5 flex justify-start">
+              <button
+                type="button"
+                onClick={() => handleAddEmptyRow(category.id)}
+                className="text-[10px] text-slate-500 hover:text-indigo-400 flex items-center gap-1 transition-colors py-0.5 px-1.5 rounded hover:bg-slate-800/60 cursor-pointer"
+                title="Yeni satır ekle"
+              >
+                <Plus size={11} /> <span>Satır Ekle</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!isCollapsed && category.id === 'servis' && (
           <div className="border-t border-teal-500/20 bg-[#08101d] rounded-b-[7px] p-2 flex flex-col">
             <div className="flex items-center justify-between pb-1 border-b border-slate-800">
               <div className="flex items-center gap-1.5 text-teal-400 font-bold text-[10px]">
@@ -2078,6 +2260,16 @@ export default function RetailPOSPage() {
             <Settings size={16} />
           </button>
 
+          <button 
+            type="button"
+            onClick={toggleAllCategories}
+            className="flex items-center gap-1 px-2.5 py-1 bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-xs font-semibold transition-all shrink-0 cursor-pointer shadow-sm select-none"
+            title={isAllCollapsed ? "Tüm grupları genişlet" : "Tüm grupları daralt (ekran alanından tasarruf et)"}
+          >
+            {isAllCollapsed ? <ChevronDown size={13} className="text-indigo-400" /> : <ChevronRight size={13} className="text-amber-400" />}
+            <span className="hidden sm:inline">{isAllCollapsed ? "Tümünü Aç" : "Tümünü Daralt"}</span>
+          </button>
+
           <div className="flex items-center gap-0.5 bg-[#070b14] border border-slate-700 rounded-lg p-0.5 relative shrink-0">
             <button onClick={() => changeDate(-1)} disabled={isFetching || isSaving || isSyncing} className="p-0.5 hover:bg-slate-800 rounded text-slate-400 transition-colors disabled:opacity-50">
               <ChevronLeft size={15} />
@@ -2166,8 +2358,21 @@ export default function RetailPOSPage() {
             
             {/* GİDER & MASRAF */}
             <div style={{ animation: 'fadeInUp 0.4s both 0.6s' }} className="bg-[#070b14] border border-slate-700 rounded-lg flex flex-col overflow-hidden h-fit shadow-lg w-full hover:border-slate-500/50 transition-colors shrink-0">
-              <div className="bg-amber-600 px-2.5 py-1.5 flex justify-between items-center text-white text-[11px] font-normal">
-                <span className="truncate pr-2 flex-1 min-w-0">Gider & Masraf</span>
+              <div 
+                onClick={() => toggleCategoryCollapse(EXPENSE_CATEGORY_ID)}
+                className={`bg-amber-600 ${isCategoryCollapsed(EXPENSE_CATEGORY_ID) ? 'rounded-[7px]' : 'rounded-t-[7px]'} px-2.5 py-1.5 flex justify-between items-center text-white text-[11px] font-normal cursor-pointer select-none hover:brightness-110 active:opacity-95 transition-all`}
+              >
+                <div className="flex items-center gap-1.5 overflow-hidden pr-2 flex-1 min-w-0">
+                  <div className="p-0.5 rounded bg-black/20 hover:bg-black/40 transition-transform">
+                    {isCategoryCollapsed(EXPENSE_CATEGORY_ID) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                  </div>
+                  <span className="truncate">Gider & Masraf</span>
+                  {expenseRows.filter(r => r.description?.trim() || parseValue(r.cash) > 0 || parseValue(r.card) > 0).length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.2 bg-black/30 text-white/90 text-[9px] rounded-full font-mono font-medium shrink-0">
+                      {expenseRows.filter(r => r.description?.trim() || parseValue(r.cash) > 0 || parseValue(r.card) > 0).length}
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center shrink-0 text-[10px] font-mono font-normal">
                   <div className="w-[55px] flex flex-col items-end pr-1 justify-center">
                     <span className="text-white/80 leading-none mb-0.5 text-[8px] font-sans font-normal">NAKİT</span>
@@ -2180,122 +2385,156 @@ export default function RetailPOSPage() {
                 </div>
               </div>
 
-              <div className="flex flex-col divide-y divide-slate-700 pb-1 transition-all duration-300 relative">
-                {isFetching && (
-                  <div className="absolute inset-0 bg-[#070b14]/50 backdrop-blur-[1px] z-10 flex items-center justify-center">
-                    <Loader2 className="animate-spin text-slate-400" size={16} />
-                  </div>
-                )}
-                {expenseRows.map((row, index) => {
-                  const hasMissingDesc = !row.description.trim() && (parseValue(row.cash) > 0 || parseValue(row.card) > 0);
-                  const expTooltip = hasMissingDesc 
-                    ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı silin.' 
-                    : (row.description?.trim() || undefined);
-                  return (
-                  <div 
-                    key={row.id} 
-                    className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''}`}
-                    title={expTooltip}
-                  >
-                    <input 
-                      type="text" 
-                      placeholder={hasMissingDesc ? "⚠️ Açıklama yazınız..." : (index === 0 ? "Açıklama / Masraf Kalemi..." : "")} 
-                      value={row.description} 
+              {!isCategoryCollapsed(EXPENSE_CATEGORY_ID) && (
+                <div className="flex flex-col divide-y divide-slate-700 pb-1 transition-all duration-300 relative">
+                  {isFetching && (
+                    <div className="absolute inset-0 bg-[#070b14]/50 backdrop-blur-[1px] z-10 flex items-center justify-center">
+                      <Loader2 className="animate-spin text-slate-400" size={16} />
+                    </div>
+                  )}
+                  {expenseRows.map((row, index) => {
+                    const hasMissingDesc = !row.description.trim() && (parseValue(row.cash) > 0 || parseValue(row.card) > 0);
+                    const expTooltip = hasMissingDesc 
+                      ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı silin.' 
+                      : (row.description?.trim() || undefined);
+                    return (
+                    <div 
+                      key={row.id} 
+                      className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''}`}
                       title={expTooltip}
-                      onChange={(e) => handleInputChange(row.id, 'description', e.target.value)} 
-                      className={`flex-1 min-w-[50px] bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 placeholder:text-slate-600 font-sans font-normal transition-colors truncate ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
-                    />
-                    <input 
-                      type="text" 
-                      inputMode="decimal" 
-                      placeholder={index === 0 ? "0,00" : ""} 
-                      value={row.cash} 
-                      onChange={(e) => handleInputChange(row.id, 'cash', e.target.value)} 
-                      onBlur={(e) => handleInputBlur(row.id, 'cash', e.target.value)} 
-                      className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-amber-400 text-right focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 font-mono font-normal placeholder:text-amber-900/40 transition-colors" 
-                    />
-                    <input 
-                      type="text" 
-                      inputMode="decimal" 
-                      placeholder={index === 0 ? "0,00" : ""} 
-                      value={row.card} 
-                      onChange={(e) => handleInputChange(row.id, 'card', e.target.value)} 
-                      onBlur={(e) => handleInputBlur(row.id, 'card', e.target.value)} 
-                      className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-purple-400 text-right focus:outline-none focus:bg-amber-900/20 font-mono font-normal placeholder:text-purple-900/40 transition-colors" 
-                    />
+                    >
+                      <input 
+                        type="text" 
+                        placeholder={hasMissingDesc ? "⚠️ Açıklama yazınız..." : (index === 0 ? "Açıklama / Masraf Kalemi..." : "")} 
+                        value={row.description} 
+                        title={expTooltip}
+                        onChange={(e) => handleInputChange(row.id, 'description', e.target.value)} 
+                        className={`flex-1 min-w-[50px] bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 placeholder:text-slate-600 font-sans font-normal transition-colors truncate ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
+                      />
+                      <input 
+                        type="text" 
+                        inputMode="decimal" 
+                        placeholder={index === 0 ? "0,00" : ""} 
+                        value={row.cash} 
+                        onChange={(e) => handleInputChange(row.id, 'cash', e.target.value)} 
+                        onBlur={(e) => handleInputBlur(row.id, 'cash', e.target.value)} 
+                        className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-amber-400 text-right focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 font-mono font-normal placeholder:text-amber-900/40 transition-colors" 
+                      />
+                      <input 
+                        type="text" 
+                        inputMode="decimal" 
+                        placeholder={index === 0 ? "0,00" : ""} 
+                        value={row.card} 
+                        onChange={(e) => handleInputChange(row.id, 'card', e.target.value)} 
+                        onBlur={(e) => handleInputBlur(row.id, 'card', e.target.value)} 
+                        className="w-[55px] shrink-0 bg-transparent pr-1 pl-0.5 py-1 text-purple-400 text-right focus:outline-none focus:bg-amber-900/20 font-mono font-normal placeholder:text-purple-900/40 transition-colors" 
+                      />
+                    </div>
+                    );
+                  })}
+
+                  <div className="pt-1 px-2 pb-0.5 flex justify-start">
+                    <button
+                      type="button"
+                      onClick={() => handleAddEmptyRow(EXPENSE_CATEGORY_ID)}
+                      className="text-[10px] text-amber-500/80 hover:text-amber-400 flex items-center gap-1 transition-colors py-0.5 px-1.5 rounded hover:bg-amber-950/30 cursor-pointer"
+                      title="Yeni masraf satırı ekle"
+                    >
+                      <Plus size={11} /> <span>Gider Satırı Ekle</span>
+                    </button>
                   </div>
-                  );
-                })}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* GÜNLÜK NOTLAR */}
             <div style={{ animation: 'fadeInUp 0.4s both 0.7s' }} className="bg-[#070b14] border border-slate-700 rounded-lg flex flex-col overflow-hidden shadow-lg w-full relative hover:border-slate-500/50 transition-colors shrink-0">
-              <div className="bg-slate-800/80 px-2.5 py-1.5 flex items-center gap-1.5 text-white text-[11px] font-bold border-b border-slate-700">
-                <StickyNote size={12} className="text-amber-400" />
-                <span className="truncate pr-2 flex-1 min-w-0">Günün Notları</span>
+              <div 
+                onClick={() => toggleCategoryCollapse('notes')}
+                className={`bg-slate-800/80 px-2.5 py-1.5 flex items-center justify-between text-white text-[11px] font-bold ${isCategoryCollapsed('notes') ? '' : 'border-b border-slate-700'} cursor-pointer select-none hover:bg-slate-750 transition-colors`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <div className="p-0.5 rounded bg-black/20 hover:bg-black/40 transition-transform">
+                    {isCategoryCollapsed('notes') ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                  </div>
+                  <StickyNote size={12} className="text-amber-400" />
+                  <span className="truncate">Günün Notları</span>
+                  {dailyNotes.trim() && (
+                    <span className="px-1.5 py-0.2 bg-amber-500/20 text-amber-300 text-[9px] rounded font-medium shrink-0">Dolu</span>
+                  )}
+                </div>
               </div>
-              <textarea 
-                value={dailyNotes} 
-                onChange={(e) => { setDailyNotes(e.target.value); setHasUnsavedChanges(true); setSaveStatus('idle'); }} 
-                disabled={isFetching} 
-                placeholder="Bugüne dair hatırlatmalar, alacaklar, emanetler veya önemli notlar..." 
-                className="w-full bg-transparent p-3 text-slate-300 text-[11px] focus:outline-none resize-y min-h-[140px] custom-scrollbar placeholder:text-slate-600/70 font-sans leading-relaxed disabled:opacity-50 transition-colors focus:bg-slate-900/30" 
-              />
+              {!isCategoryCollapsed('notes') && (
+                <textarea 
+                  value={dailyNotes} 
+                  onChange={(e) => { setDailyNotes(e.target.value); setHasUnsavedChanges(true); setSaveStatus('idle'); }} 
+                  disabled={isFetching} 
+                  placeholder="Bugüne dair hatırlatmalar, alacaklar, emanetler veya önemli notlar..." 
+                  className="w-full bg-transparent p-3 text-slate-300 text-[11px] focus:outline-none resize-y min-h-[120px] custom-scrollbar placeholder:text-slate-600/70 font-sans leading-relaxed disabled:opacity-50 transition-colors focus:bg-slate-900/30" 
+                />
+              )}
             </div>
 
             {/* GÜNLÜK BANKA TRANSFERLERİ LİSTESİ */}
-            <div style={{ animation: 'fadeInUp 0.4s both 0.8s' }} className="bg-[#070b14] border border-slate-700 rounded-lg flex flex-col overflow-hidden shadow-lg w-full relative hover:border-slate-500/50 transition-colors flex-1 min-h-[150px]">
-              <div className="bg-slate-800/80 px-2.5 py-1.5 flex items-center justify-between gap-1.5 text-white text-[11px] font-bold border-b border-slate-700 shrink-0">
+            <div style={{ animation: 'fadeInUp 0.4s both 0.8s' }} className="bg-[#070b14] border border-slate-700 rounded-lg flex flex-col overflow-hidden shadow-lg w-full relative hover:border-slate-500/50 transition-colors flex-1 min-h-fit">
+              <div 
+                onClick={() => toggleCategoryCollapse('transfers')}
+                className={`bg-slate-800/80 px-2.5 py-1.5 flex items-center justify-between gap-1.5 text-white text-[11px] font-bold ${isCategoryCollapsed('transfers') ? '' : 'border-b border-slate-700'} shrink-0 cursor-pointer select-none hover:bg-slate-750 transition-colors`}
+              >
                 <div className="flex items-center gap-1.5">
+                  <div className="p-0.5 rounded bg-black/20 hover:bg-black/40 transition-transform">
+                    {isCategoryCollapsed('transfers') ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                  </div>
                   <ArrowRightLeft size={12} className="text-indigo-400" />
                   <span className="truncate">Günün Banka Hareketleri</span>
                 </div>
                 <span className="bg-slate-900 px-1.5 py-0.5 rounded text-[9px] text-slate-400 border border-slate-700">{transfers.length} İşlem</span>
               </div>
               
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-1.5 flex flex-col relative">
-                {transfers.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center p-4 border border-dashed border-slate-700/60 rounded-lg bg-slate-800/10 text-slate-500 shadow-inner m-1">
-                     <ArrowRightLeft size={24} className="mb-2 opacity-50 animate-bounce text-slate-400" />
-                     <p className="text-[10px] font-bold text-slate-400 text-center">Bugün banka/kasa<br/>işlemi bulunmuyor.</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    {transfers.map((t, index) => {
-                      const bank = activeBanks.find(b => b.id === t.bankId)
-                      const isToBank = t.type === 'to_bank'
-                      return (
-                        <div key={t.id} style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.1 + (index * 0.05)}s` }} className="flex justify-between items-center bg-[#0a0f1d] border border-slate-700/50 p-2 rounded-md hover:border-slate-500 transition-colors group">
-                          <div className="flex flex-col flex-1 min-w-0 pr-2">
-                            <span className="text-[10px] text-slate-200 font-bold truncate flex items-center gap-1.5">
-                              {bank?.bank_name}
-                              {t.isNew && <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-[1px] rounded text-[8px] font-bold uppercase tracking-wider animate-pulse shrink-0">Bekleyen</span>}
-                            </span>
-                            <span className="text-[9px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
-                              {isToBank ? <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span> : <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>}
-                              {t.description || 'Açıklama yok'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <div className="flex flex-col items-end">
-                              <span className={`text-[9px] font-bold font-mono ${isToBank ? 'text-indigo-400' : 'text-amber-400'}`}>
-                                {isToBank ? 'Bankaya' : 'Kasaya'}
+              {!isCategoryCollapsed('transfers') && (
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-1.5 flex flex-col relative max-h-[240px]">
+                  {transfers.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-4 border border-dashed border-slate-700/60 rounded-lg bg-slate-800/10 text-slate-500 shadow-inner m-1">
+                       <ArrowRightLeft size={24} className="mb-2 opacity-50 text-slate-400" />
+                       <p className="text-[10px] font-bold text-slate-400 text-center">Bugün banka/kasa<br/>işlemi bulunmuyor.</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      {transfers.map((t, index) => {
+                        const bank = activeBanks.find(b => b.id === t.bankId)
+                        const isToBank = t.type === 'to_bank'
+                        return (
+                          <div key={t.id} style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.1 + (index * 0.05)}s` }} className="flex justify-between items-center bg-[#0a0f1d] border border-slate-700/50 p-2 rounded-md hover:border-slate-500 transition-colors group">
+                            <div className="flex flex-col flex-1 min-w-0 pr-2">
+                              <span className="text-[10px] text-slate-200 font-bold truncate flex items-center gap-1.5">
+                                {bank?.bank_name}
+                                {t.isNew && <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-[1px] rounded text-[8px] font-bold uppercase tracking-wider animate-pulse shrink-0">Bekleyen</span>}
                               </span>
-                              <span className={`text-[11px] font-mono font-black ${isToBank ? 'text-indigo-400' : 'text-amber-400'}`}>
-                                {formatMoney(t.amount, 'TRY').formatted}
+                              <span className="text-[9px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
+                                {isToBank ? <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span> : <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>}
+                                {t.description || 'Açıklama yok'}
                               </span>
                             </div>
-                            <button onClick={() => handleDeleteTransfer(t.id)} className="text-slate-600 hover:text-rose-500 hover:bg-rose-500/10 p-1.5 rounded transition-colors" title="İptal Et">
-                              <Trash2 size={12} />
-                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="flex flex-col items-end">
+                                <span className={`text-[9px] font-bold font-mono ${isToBank ? 'text-indigo-400' : 'text-amber-400'}`}>
+                                  {isToBank ? 'Bankaya' : 'Kasaya'}
+                                </span>
+                                <span className={`text-[11px] font-mono font-black ${isToBank ? 'text-indigo-400' : 'text-amber-400'}`}>
+                                  {formatMoney(t.amount, 'TRY').formatted}
+                                </span>
+                              </div>
+                              <button onClick={() => handleDeleteTransfer(t.id)} className="text-slate-600 hover:text-rose-500 hover:bg-rose-500/10 p-1.5 rounded transition-colors" title="İptal Et">
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
           </div>
