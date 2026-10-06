@@ -273,12 +273,12 @@ Bazı kayıtlar **açıklama string'i ile** tanınır. Bu metinler değiştirili
 
 `invoice_lines` satır şekli:
 ```json
-{ "id": "…", "itemType": "product|service", "name": "…", "quantity": "1", "unitPrice": "100",
+{ "id": "…", "itemType": "product|service", "name": "…", "quantity": "1", "costPrice": "80", "unitPrice": "120",
   "vatRate": "20", "addToStock": true, "warehouseId": "…",
   "selectedStockId": "…", "selectedServiceId": "…",
   "targetStockId": "…", "stockTxId": "…" }
 ```
-`targetStockId` ve `stockTxId` kaydetme sırasında doldurulur; fatura silinirken/düzenlenirken ilgili `stock_transactions` satırı bunlarla bulunur. `itemType` yalnızca müşteri faturasında vardır.
+`targetStockId` ve `stockTxId` kaydetme sırasında doldurulur; fatura silinirken/düzenlenirken ilgili `stock_transactions` satırı bunlarla bulunur. `costPrice` (Birim Maliyet) stok kartından gelir ve stok çıkışına yazılır; `unitPrice` (Birim Satış Fiyatı) cariye borç olarak yansır. `itemType` yalnızca müşteri faturasında vardır.
 
 ### 5.4 Gider
 
@@ -511,7 +511,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 ### 7.9 Müşteriler (Alacak) `/customers`
 - Tedarikçinin aynası. Tahsilat kaynağı yalnız **kasa veya banka** (kart yok). Kaynağa `CUST-<tx_id>` `in` hareketi yazılır.
 - Müşteri silme: Müşteri silinmeden önce bağlı tüm tahsilatların karşı bacakları (kasa, banka) otomatik olarak tersine çevrilerek silinir ve kaynak bakiyeleri mutlak olarak yeniden hesaplanır.
-- Detaylı satış faturası: satır türü Ürün/Hizmet; ürün seçimi tıklandığında mevcut stoklu ürünler (`quantity > 0`), depo adı, SKU ve birim fiyat bilgisiyle listelenir, Türkçe arama (`toLocaleLowerCase('tr-TR')`) ve hızlı temizleme/açma butonları bulunur; seçilen ürünün deposu ve 'Stoktan Düş' seçeneği otomatik aktifleşir.
+- Detaylı satış faturası: satır türü Ürün/Hizmet; ürün seçimi tıklandığında mevcut stoklu ürünler (`quantity > 0`), depo adı, SKU ve maliyet bilgisiyle listelenir. Her satırda bağımsız **Birim Maliyet** (`costPrice`, stoktan gelir) ve **Birim Satış Fiyatı** (`unitPrice`, cariye borç yazılır) alanları, satır bazında anlık kâr/zarar göstergesi ve fatura altında toplam maliyet, toplam satış ile net kâr/marj özeti bulunur.
 
 ### 7.10 Genel Giderler `/expenses`
 - Üst: Ticari ve Şahsi gider toplamları (tüm zamanlar).

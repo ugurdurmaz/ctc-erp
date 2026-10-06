@@ -31,7 +31,9 @@ type ConsentCustomer = {
 type InvoiceLine = {
   id: string; 
   itemType: 'product' | 'service'; 
-  name: string; quantity: string; unitPrice: string;
+  name: string; quantity: string; 
+  costPrice?: string; 
+  unitPrice: string;
   vatRate: string; addToStock: boolean; warehouseId: string;
   targetStockId?: string; stockTxId?: string;
   selectedStockId?: string; 
@@ -651,7 +653,12 @@ export default function CustomersPage() {
     setEditingTxId(t.id)
     if (t.is_detailed) {
       fetchStocks()
-      setInvDate(t.tx_date); setInvDesc(t.description); setInvLines(t.invoice_lines || []); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
+      const normalizedLines = (t.invoice_lines || []).map((l: any) => ({
+        ...l,
+        costPrice: l.costPrice !== undefined ? l.costPrice : (l.unitPrice || '0'),
+        unitPrice: l.unitPrice || ''
+      }))
+      setInvDate(t.tx_date); setInvDesc(t.description); setInvLines(normalizedLines); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
     } else {
       setTxDate(t.tx_date); setTxType(t.tx_type); setTxDesc(t.description); setTxAmount(t.amount.toString()); setTxCurrency(t.currency as any || 'TRY'); setTxExchangeRate(t.exchange_rate?.toString() || '1'); setTxCompanyId(t.company_id || 'common')
       if (t.payment_source_type && t.payment_source_id) setPaymentSource(`${t.payment_source_type}|${t.payment_source_id}`)
@@ -767,14 +774,14 @@ export default function CustomersPage() {
   function openInvoiceModal() { 
     fetchStocks()
     setEditingTxId(null); setInvDate(getLocalTodayISO()); setInvDesc(''); setInvCurrency('TRY'); setInvExchangeRate('1'); setInvCompanyId('common'); 
-    setInvLines([{ id: Date.now().toString(), itemType: 'product', name: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }]); 
+    setInvLines([{ id: Date.now().toString(), itemType: 'product', name: '', quantity: '1', costPrice: '0', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }]); 
     setActiveDropdown(null); setIsInvoiceModalOpen(true) 
   }
   
   function closeInvoiceModal() { setIsInvoiceModalOpen(false); setActiveDropdown(null); if (editingTxId && transactions.find(t => t.id === editingTxId)?.is_detailed) cancelEditTx() }
   
   function addInvoiceLine() { 
-    setInvLines([...invLines, { id: Date.now().toString(), itemType: 'product', name: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: false, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }]) 
+    setInvLines([...invLines, { id: Date.now().toString(), itemType: 'product', name: '', quantity: '1', costPrice: '0', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }]) 
   }
   
   function removeInvoiceLine(id: string) { setInvLines(invLines.filter(l => l.id !== id)) }
@@ -783,7 +790,7 @@ export default function CustomersPage() {
     setInvLines(prev => prev.map(l => {
       if (l.id === id) {
         if (field === 'itemType' && value === 'service') {
-          return { ...l, [field]: value, addToStock: false, warehouseId: '', selectedStockId: undefined, selectedServiceId: undefined }
+          return { ...l, [field]: value, addToStock: false, warehouseId: '', selectedStockId: undefined, selectedServiceId: undefined, costPrice: '0' }
         }
         return { ...l, [field]: value }
       }
@@ -792,13 +799,32 @@ export default function CustomersPage() {
   }
 
   function selectItemForLine(lineId: string, item: any, type: 'product'|'service') {
-    const convertedPrice = convertCurrency(item.unit_price, item.currency, invCurrency)
+    const convertedCost = convertCurrency(item.unit_price, item.currency, invCurrency)
     setInvLines(prev => prev.map(l => {
       if (l.id === lineId) { 
         if (type === 'product') {
-          return { ...l, itemType: 'product', name: item.name, unitPrice: convertedPrice.toFixed(2), vatRate: item.vat_rate?.toString() || '0', warehouseId: item.warehouse_id, addToStock: true, selectedStockId: item.id } 
+          return { 
+            ...l, 
+            itemType: 'product', 
+            name: item.name, 
+            costPrice: convertedCost.toFixed(2), 
+            unitPrice: l.unitPrice && parseFloat(l.unitPrice) > 0 ? l.unitPrice : '', 
+            vatRate: item.vat_rate?.toString() || '0', 
+            warehouseId: item.warehouse_id, 
+            addToStock: true, 
+            selectedStockId: item.id 
+          } 
         } else {
-          return { ...l, itemType: 'service', name: item.name, unitPrice: convertedPrice.toFixed(2), vatRate: item.vat_rate?.toString() || '0', addToStock: false, selectedServiceId: item.id } 
+          return { 
+            ...l, 
+            itemType: 'service', 
+            name: item.name, 
+            costPrice: '0', 
+            unitPrice: convertedCost > 0 ? convertedCost.toFixed(2) : (l.unitPrice || ''), 
+            vatRate: item.vat_rate?.toString() || '0', 
+            addToStock: false, 
+            selectedServiceId: item.id 
+          } 
         }
       }
       return l
@@ -807,6 +833,22 @@ export default function CustomersPage() {
   }
 
   const calculateInvoiceTotal = () => { return invLines.reduce((acc, line) => { const q = parseFloat(line.quantity) || 0; const p = parseFloat(line.unitPrice) || 0; const v = parseFloat(line.vatRate) || 0; return acc + (q * p * (1 + v / 100)) }, 0) }
+
+  const calculateInvoiceCostTotal = () => {
+    return invLines.reduce((acc, line) => {
+      const q = parseFloat(line.quantity) || 0
+      const c = parseFloat(line.costPrice || '0') || 0
+      return acc + (q * c)
+    }, 0)
+  }
+
+  const calculateInvoiceNetSaleTotal = () => {
+    return invLines.reduce((acc, line) => {
+      const q = parseFloat(line.quantity) || 0
+      const p = parseFloat(line.unitPrice) || 0
+      return acc + (q * p)
+    }, 0)
+  }
 
   async function handleSaveDetailedInvoice(e: React.FormEvent) {
     e.preventDefault()
@@ -838,7 +880,10 @@ export default function CustomersPage() {
         const line = processedLines[i]
         
         if (line.itemType === 'product' && line.addToStock && line.name) {
-          const q = parseFloat(line.quantity) || 0; const p = parseFloat(line.unitPrice) || 0; const v = parseFloat(line.vatRate) || 0
+          const q = parseFloat(line.quantity) || 0; 
+          const salePrice = parseFloat(line.unitPrice) || 0; 
+          const costPrice = parseFloat(line.costPrice || '0') || 0; 
+          const v = parseFloat(line.vatRate) || 0
           
           let targetStockId = line.selectedStockId || null
 
@@ -851,7 +896,7 @@ export default function CustomersPage() {
               targetStockId = existingStock[0].id
               if (targetStockId) affectedStocks.add(targetStockId)
             } else {
-              const { data: newStock } = await supabase.from('stocks').insert([{ warehouse_id: line.warehouseId, name: line.name, currency: invCurrency, quantity: 0, unit_price: p, vat_rate: v, unit: 'Adet', stock_color: 'from-[#1b253b] to-[#121a2a]' }]).select()
+              const { data: newStock } = await supabase.from('stocks').insert([{ warehouse_id: line.warehouseId, name: line.name, currency: invCurrency, quantity: 0, unit_price: costPrice, vat_rate: v, unit: 'Adet', stock_color: 'from-[#1b253b] to-[#121a2a]' }]).select()
               if (newStock && newStock.length > 0) {
                  targetStockId = newStock[0].id
                  if (targetStockId) affectedStocks.add(targetStockId)
@@ -860,7 +905,17 @@ export default function CustomersPage() {
           }
 
           if (targetStockId) {
-            const { data: stTx } = await supabase.from('stock_transactions').insert([{ stock_id: targetStockId, company_id: finalCompId, tx_date: invDate, description: `${invDesc || 'Fatura'} / Satış`, tx_type: 'out', quantity: q, unit_price: p, currency: invCurrency, vat_rate: v }]).select()
+            const { data: stTx } = await supabase.from('stock_transactions').insert([{ 
+              stock_id: targetStockId, 
+              company_id: finalCompId, 
+              tx_date: invDate, 
+              description: `${invDesc || 'Fatura'} / Satış`, 
+              tx_type: 'out', 
+              quantity: q, 
+              unit_price: costPrice, 
+              currency: invCurrency, 
+              vat_rate: v 
+            }]).select()
             processedLines[i].targetStockId = targetStockId
             if (stTx && stTx.length > 0) processedLines[i].stockTxId = stTx[0].id
           }
@@ -1285,17 +1340,21 @@ export default function CustomersPage() {
               <div className="space-y-2">
                 <div className="flex gap-2 text-[10px] font-bold text-slate-500 uppercase px-1">
                   <div className="w-24">Satış Türü</div>
-                  <div className="flex-1">Ürün / Hizmet Adı</div>
-                  <div className="w-20 text-right">Miktar</div>
-                  <div className="w-24 text-right">Net B.Fiyat ({invCurrency})</div>
-                  <div className="w-16 text-center">KDV(%)</div>
-                  <div className="w-24 text-right pr-2">KDV'li Toplam</div>
-                  <div className="w-24 text-center text-rose-400">Stoktan Düş</div>
-                  <div className="w-32">Depo Seçimi</div>
+                  <div className="flex-1 min-w-[200px]">Ürün / Hizmet Adı</div>
+                  <div className="w-16 text-right">Miktar</div>
+                  <div className="w-24 text-right text-amber-400">B. Maliyet ({invCurrency})</div>
+                  <div className="w-24 text-right text-blue-400">B. Satış ({invCurrency})</div>
+                  <div className="w-14 text-center">KDV(%)</div>
+                  <div className="w-28 text-right pr-2">KDV'li Satış T.</div>
+                  <div className="w-20 text-center text-rose-400">Stoktan Düş</div>
+                  <div className="w-28">Depo Seçimi</div>
                   <div className="w-8"></div>
                 </div>
                 {invLines.map((line) => {
-                  const q = parseFloat(line.quantity) || 0; const p = parseFloat(line.unitPrice) || 0; const v = parseFloat(line.vatRate) || 0
+                  const q = parseFloat(line.quantity) || 0; 
+                  const p = parseFloat(line.unitPrice) || 0; 
+                  const costVal = parseFloat(line.costPrice || '0') || 0;
+                  const v = parseFloat(line.vatRate) || 0
                   
                   const query = line.name.trim().toLocaleLowerCase('tr-TR')
                   const filteredItems = line.itemType === 'product'
@@ -1320,7 +1379,7 @@ export default function CustomersPage() {
                          </select>
                       </div>
                       
-                      <div className="flex-1 relative">
+                      <div className="flex-1 min-w-[200px] relative">
                         <div className="flex items-center bg-[#070b14] border border-slate-700 rounded overflow-hidden transition-colors focus-within:border-indigo-500/50">
                            <Search size={12} className="text-slate-500 ml-2 shrink-0" />
                            <input 
@@ -1373,7 +1432,7 @@ export default function CustomersPage() {
                         </div>
                         {selectedStock && (
                           <div className="flex items-center gap-1.5 mt-1 px-1 text-[10px]">
-                            <span className="text-emerald-400 font-mono font-semibold">✓ Stokta {selectedStock.quantity} adet mevcut</span>
+                            <span className="text-emerald-400 font-mono font-semibold">✓ Stokta {selectedStock.quantity} adet</span>
                             <span className="text-slate-500">•</span>
                             <span className="text-slate-400">{warehouses.find(w => w.id === selectedStock.warehouse_id)?.name || 'Depo'}</span>
                           </div>
@@ -1405,7 +1464,7 @@ export default function CustomersPage() {
                                              <div className="flex items-center gap-2 text-[10px] text-slate-400 group-hover:text-indigo-200 mt-0.5">
                                                 {whName && <span className="bg-slate-900/60 px-1 rounded text-slate-300">{whName}</span>}
                                                 {item.sku && <span className="font-mono text-slate-400">SKU: {item.sku}</span>}
-                                                <span className="font-mono text-amber-300">{formatMoney(convertCurrency(item.unit_price, item.currency, invCurrency), invCurrency).formatted}</span>
+                                                <span className="font-mono text-amber-300">Maliyet: {formatMoney(convertCurrency(item.unit_price, item.currency, invCurrency), invCurrency).formatted}</span>
                                              </div>
                                           )}
                                        </div>
@@ -1429,20 +1488,59 @@ export default function CustomersPage() {
                            </div>
                         )}
                       </div>
-                      <div className="w-20"><input type="number" step="0.01" placeholder="0" value={line.quantity} onChange={(e) => updateInvoiceLine(line.id, 'quantity', e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-xs text-white text-right focus:outline-none focus:border-indigo-500/50 transition-colors font-mono" /></div>
-                      <div className="w-24"><input type="number" step="0.01" placeholder="0.00" value={line.unitPrice} onChange={(e) => updateInvoiceLine(line.id, 'unitPrice', e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-xs text-white text-right focus:outline-none focus:border-indigo-500/50 transition-colors font-mono" /></div>
-                      <div className="w-16"><select value={line.vatRate} onChange={(e) => updateInvoiceLine(line.id, 'vatRate', e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-1 py-1.5 text-xs text-white text-center focus:outline-none transition-colors"><option value="20">%20</option><option value="10">%10</option><option value="1">%1</option><option value="0">%0</option></select></div>
-                      <div className="w-24 text-right pr-2 font-mono text-xs font-bold text-slate-300 flex items-center justify-end">{formatMoney(q * p * (1 + v / 100), invCurrency).formatted}</div>
+                      <div className="w-16">
+                        <input type="number" step="0.01" placeholder="0" value={line.quantity} onChange={(e) => updateInvoiceLine(line.id, 'quantity', e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-xs text-white text-right focus:outline-none focus:border-indigo-500/50 transition-colors font-mono" />
+                      </div>
+                      <div className="w-24">
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          placeholder="0.00" 
+                          value={line.costPrice ?? ''} 
+                          onChange={(e) => updateInvoiceLine(line.id, 'costPrice', e.target.value)} 
+                          title="Birim Alış/Stok Maliyeti" 
+                          className="w-full bg-[#070b14] border border-amber-900/40 text-amber-300 rounded px-2 py-1.5 text-xs text-right focus:outline-none focus:border-amber-500/50 transition-colors font-mono" 
+                        />
+                      </div>
+                      <div className="w-24">
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          placeholder="0.00" 
+                          value={line.unitPrice} 
+                          onChange={(e) => updateInvoiceLine(line.id, 'unitPrice', e.target.value)} 
+                          title="Müşteriye Satış Fiyatı" 
+                          className="w-full bg-[#070b14] border border-blue-900/50 text-blue-300 font-bold rounded px-2 py-1.5 text-xs text-right focus:outline-none focus:border-blue-500 transition-colors font-mono" 
+                        />
+                      </div>
+                      <div className="w-14">
+                        <select value={line.vatRate} onChange={(e) => updateInvoiceLine(line.id, 'vatRate', e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-1 py-1.5 text-xs text-white text-center focus:outline-none transition-colors">
+                          <option value="20">%20</option>
+                          <option value="10">%10</option>
+                          <option value="1">%1</option>
+                          <option value="0">%0</option>
+                        </select>
+                      </div>
+                      <div className="w-28 text-right pr-2 flex flex-col justify-center items-end">
+                        <span className="font-mono text-xs font-bold text-slate-200">
+                          {formatMoney(q * p * (1 + v / 100), invCurrency).formatted}
+                        </span>
+                        {line.itemType === 'product' && p > 0 && costVal > 0 && (
+                          <span className={`text-[9px] font-mono leading-none mt-0.5 ${p >= costVal ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {p >= costVal ? '+' : ''}{formatMoney((p - costVal) * q, invCurrency).formatted}
+                          </span>
+                        )}
+                      </div>
                       
                       {line.itemType === 'product' ? (
                         <>
-                          <div className="w-24 flex justify-center"><button type="button" onClick={() => updateInvoiceLine(line.id, 'addToStock', !line.addToStock)} className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold transition-colors ${line.addToStock ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>{line.addToStock ? <CheckSquare size={14}/> : <Square size={14}/>} Düş (- )</button></div>
-                          <div className="w-32">{line.addToStock ? <select disabled={!!line.selectedStockId} title={line.selectedStockId ? "Kayıtlı ürün seçildiği için depo değiştirilemez." : ""} value={line.warehouseId} onChange={(e) => updateInvoiceLine(line.id, 'warehouseId', e.target.value)} className="w-full bg-rose-900/30 border border-rose-500/50 rounded px-1 py-1.5 text-[11px] text-rose-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><option value="" disabled>Depo Seç...</option>{warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select> : <div className="w-full text-center text-[10px] text-slate-600 py-1.5">-</div>}</div>
+                          <div className="w-20 flex justify-center"><button type="button" onClick={() => updateInvoiceLine(line.id, 'addToStock', !line.addToStock)} className={`flex items-center gap-1 px-1.5 py-1 rounded text-[10px] font-bold transition-colors ${line.addToStock ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>{line.addToStock ? <CheckSquare size={13}/> : <Square size={13}/>} Düş (-)</button></div>
+                          <div className="w-28">{line.addToStock ? <select disabled={!!line.selectedStockId} title={line.selectedStockId ? "Kayıtlı ürün seçildiği için depo değiştirilemez." : ""} value={line.warehouseId} onChange={(e) => updateInvoiceLine(line.id, 'warehouseId', e.target.value)} className="w-full bg-rose-900/30 border border-rose-500/50 rounded px-1 py-1.5 text-[11px] text-rose-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><option value="" disabled>Depo...</option>{warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select> : <div className="w-full text-center text-[10px] text-slate-600 py-1.5">-</div>}</div>
                         </>
                       ) : (
                         <>
-                           <div className="w-24 flex justify-center py-1.5"><span className="text-[10px] text-slate-600 font-bold bg-slate-800/30 px-2 py-1 rounded line-through">Stok Yok</span></div>
-                           <div className="w-32 flex justify-center py-1.5"><span className="text-[10px] text-slate-600 font-bold bg-slate-800/30 px-2 py-1 rounded w-full text-center">Hizmet Bedeli</span></div>
+                           <div className="w-20 flex justify-center py-1.5"><span className="text-[10px] text-slate-600 font-bold bg-slate-800/30 px-2 py-1 rounded line-through">Stok Yok</span></div>
+                           <div className="w-28 flex justify-center py-1.5"><span className="text-[10px] text-slate-600 font-bold bg-slate-800/30 px-2 py-1 rounded w-full text-center">Hizmet</span></div>
                         </>
                       )}
 
@@ -1453,11 +1551,32 @@ export default function CustomersPage() {
               </div>
               <button type="button" onClick={addInvoiceLine} className="mt-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[11px] font-bold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all active:scale-95"><Plus size={14} /> Yeni Satır Ekle</button>
             </div>
-            <div className="p-4 border-t border-slate-800 bg-[#0d1322] flex justify-between items-center shrink-0">
-              <div className="flex gap-6 text-xs bg-[#070b14] border border-slate-800 rounded-lg px-4 py-2">
-                <div className="flex flex-col"><span className="text-slate-500 text-[9px] uppercase font-bold">Fatura Genel Toplamı (KDV Dahil)</span><span className="text-blue-400 font-bold font-mono text-lg">{formatMoney(calculateInvoiceTotal(), invCurrency).formatted}</span></div>
+            <div className="p-4 border-t border-slate-800 bg-[#0d1322] flex flex-wrap gap-4 justify-between items-center shrink-0">
+              <div className="flex flex-wrap gap-4 text-xs bg-[#070b14] border border-slate-800 rounded-lg px-4 py-2">
+                <div className="flex flex-col">
+                  <span className="text-slate-500 text-[9px] uppercase font-bold">Fatura Satış Toplamı (KDV Dahil)</span>
+                  <span className="text-blue-400 font-bold font-mono text-lg">{formatMoney(calculateInvoiceTotal(), invCurrency).formatted}</span>
+                </div>
+                <div className="flex flex-col border-l border-slate-800 pl-4">
+                  <span className="text-slate-500 text-[9px] uppercase font-bold">Toplam Maliyet (Net)</span>
+                  <span className="text-amber-400 font-bold font-mono text-lg">{formatMoney(calculateInvoiceCostTotal(), invCurrency).formatted}</span>
+                </div>
+                <div className="flex flex-col border-l border-slate-800 pl-4">
+                  <span className="text-slate-500 text-[9px] uppercase font-bold">Tahmini Kâr (Net)</span>
+                  <span className={`font-bold font-mono text-lg ${calculateInvoiceNetSaleTotal() - calculateInvoiceCostTotal() >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {calculateInvoiceNetSaleTotal() - calculateInvoiceCostTotal() >= 0 ? '+' : ''}{formatMoney(calculateInvoiceNetSaleTotal() - calculateInvoiceCostTotal(), invCurrency).formatted}
+                    {calculateInvoiceNetSaleTotal() > 0 && (
+                      <span className="text-[11px] font-normal ml-1">
+                        ({(((calculateInvoiceNetSaleTotal() - calculateInvoiceCostTotal()) / calculateInvoiceNetSaleTotal()) * 100).toFixed(1)}%)
+                      </span>
+                    )}
+                  </span>
+                </div>
                 {invCurrency !== 'TRY' && (
-                   <div className="flex flex-col border-l border-slate-800 pl-6"><span className="text-slate-500 text-[9px] uppercase font-bold">Cariye İşlenecek Bakiye (₺)</span><span className="text-slate-300 font-bold font-mono text-lg">{formatMoney(calculateInvoiceTotal() * (parseFloat(invExchangeRate) || 1), 'TRY').formatted}</span></div>
+                   <div className="flex flex-col border-l border-slate-800 pl-4">
+                     <span className="text-slate-500 text-[9px] uppercase font-bold">Cariye İşlenecek Satış (₺)</span>
+                     <span className="text-slate-300 font-bold font-mono text-lg">{formatMoney(calculateInvoiceTotal() * (parseFloat(invExchangeRate) || 1), 'TRY').formatted}</span>
+                   </div>
                 )}
               </div>
               <div className="flex gap-2">
