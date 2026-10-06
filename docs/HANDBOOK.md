@@ -511,7 +511,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 ### 7.9 Müşteriler (Alacak) `/customers`
 - Tedarikçinin aynası. Tahsilat kaynağı yalnız **kasa veya banka** (kart yok). Kaynağa `CUST-<tx_id>` `in` hareketi yazılır.
 - Müşteri silme: Müşteri silinmeden önce bağlı tüm tahsilatların karşı bacakları (kasa, banka) otomatik olarak tersine çevrilerek silinir ve kaynak bakiyeleri mutlak olarak yeniden hesaplanır.
-- Detaylı satış faturası: satır türü Ürün/Hizmet; ürünlerde "Stoktan Düş" ve depo seçimi.
+- Detaylı satış faturası: satır türü Ürün/Hizmet; ürün seçimi tıklandığında mevcut stoklu ürünler (`quantity > 0`), depo adı, SKU ve birim fiyat bilgisiyle listelenir, Türkçe arama (`toLocaleLowerCase('tr-TR')`) ve hızlı temizleme/açma butonları bulunur; seçilen ürünün deposu ve 'Stoktan Düş' seçeneği otomatik aktifleşir.
 
 ### 7.10 Genel Giderler `/expenses`
 - Üst: Ticari ve Şahsi gider toplamları (tüm zamanlar).

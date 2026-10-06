@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import toast, { Toaster } from 'react-hot-toast'
-import { Users, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, MessageSquare, Copy, Download, ExternalLink, Check } from 'lucide-react'
+import { Users, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, MessageSquare, Copy, Download, ExternalLink, Check, ChevronDown } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Warehouse = { id: string; name: string }
@@ -48,7 +48,7 @@ type CustomerTransaction = {
 
 type BankAccount = { id: string; bank_name: string; account_name?: string | null; balance: number; currency: string; company_id?: string | null }
 type CashRegister = { id: string; name: string; balance: number; currency: string; company_id?: string | null }
-type StockItem = { id: string; name: string; unit_price: number; vat_rate: number; warehouse_id: string; currency: string; quantity: number }
+type StockItem = { id: string; name: string; sku?: string; unit_price: number; vat_rate: number; warehouse_id: string; currency: string; quantity: number }
 type ServiceItem = { id: string; name: string; unit_price: number; vat_rate: number; currency: string; company_id: string | null } 
 
 function getLocalTodayISO() {
@@ -248,7 +248,7 @@ export default function CustomersPage() {
   }
 
   async function fetchStocks() {
-    const { data } = await supabase.from('stocks').select('id, name, unit_price, vat_rate, warehouse_id, currency, quantity').order('name', { ascending: true }); setStocks(data || [])
+    const { data } = await supabase.from('stocks').select('id, name, sku, unit_price, vat_rate, warehouse_id, currency, quantity').order('name', { ascending: true }); setStocks(data || [])
   }
   
   async function fetchServices() {
@@ -650,6 +650,7 @@ export default function CustomersPage() {
   function handleEditTx(t: CustomerTransaction) {
     setEditingTxId(t.id)
     if (t.is_detailed) {
+      fetchStocks()
       setInvDate(t.tx_date); setInvDesc(t.description); setInvLines(t.invoice_lines || []); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
     } else {
       setTxDate(t.tx_date); setTxType(t.tx_type); setTxDesc(t.description); setTxAmount(t.amount.toString()); setTxCurrency(t.currency as any || 'TRY'); setTxExchangeRate(t.exchange_rate?.toString() || '1'); setTxCompanyId(t.company_id || 'common')
@@ -764,8 +765,9 @@ export default function CustomersPage() {
   }
 
   function openInvoiceModal() { 
+    fetchStocks()
     setEditingTxId(null); setInvDate(getLocalTodayISO()); setInvDesc(''); setInvCurrency('TRY'); setInvExchangeRate('1'); setInvCompanyId('common'); 
-    setInvLines([{ id: Date.now().toString(), itemType: 'product', name: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: false, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }]); 
+    setInvLines([{ id: Date.now().toString(), itemType: 'product', name: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }]); 
     setActiveDropdown(null); setIsInvoiceModalOpen(true) 
   }
   
@@ -1295,10 +1297,19 @@ export default function CustomersPage() {
                 {invLines.map((line) => {
                   const q = parseFloat(line.quantity) || 0; const p = parseFloat(line.unitPrice) || 0; const v = parseFloat(line.vatRate) || 0
                   
-                  const filteredItems = line.name.trim() ? (line.itemType === 'product' 
-                    ? stocks.filter(s => s.name.toLowerCase().includes(line.name.toLowerCase()) && s.quantity > 0)
-                    : services.filter(s => s.name.toLowerCase().includes(line.name.toLowerCase()))
-                  ) : []
+                  const query = line.name.trim().toLocaleLowerCase('tr-TR')
+                  const filteredItems = line.itemType === 'product'
+                    ? stocks.filter(s => {
+                        if (s.quantity <= 0) return false
+                        if (!query) return true
+                        return s.name.toLocaleLowerCase('tr-TR').includes(query) || (s.sku && s.sku.toLocaleLowerCase('tr-TR').includes(query))
+                      })
+                    : services.filter(s => {
+                        if (!query) return true
+                        return s.name.toLocaleLowerCase('tr-TR').includes(query)
+                      })
+
+                  const selectedStock = line.selectedStockId ? stocks.find(s => s.id === line.selectedStockId) : null
 
                   return (
                     <div key={line.id} className="flex gap-2 items-start bg-[#0d1322] border border-slate-700/50 p-2 rounded-lg group transition-colors hover:border-slate-600">
@@ -1312,16 +1323,109 @@ export default function CustomersPage() {
                       <div className="flex-1 relative">
                         <div className="flex items-center bg-[#070b14] border border-slate-700 rounded overflow-hidden transition-colors focus-within:border-indigo-500/50">
                            <Search size={12} className="text-slate-500 ml-2 shrink-0" />
-                           <input type="text" placeholder={line.itemType === 'product' ? "Ürün ara..." : "Hizmet ara..."} value={line.name} onChange={(e) => { updateInvoiceLine(line.id, 'name', e.target.value); updateInvoiceLine(line.id, 'selectedStockId', undefined); updateInvoiceLine(line.id, 'selectedServiceId', undefined); setActiveDropdown(line.id) }} onFocus={() => setActiveDropdown(line.id)} onClick={(e) => e.stopPropagation()} className="w-full bg-transparent px-2 py-1.5 text-xs text-white focus:outline-none" />
+                           <input 
+                             type="text" 
+                             placeholder={line.itemType === 'product' ? "Ürün seçin veya arayın..." : "Hizmet seçin veya arayın..."} 
+                             value={line.name} 
+                             onChange={(e) => { 
+                               updateInvoiceLine(line.id, 'name', e.target.value); 
+                               updateInvoiceLine(line.id, 'selectedStockId', undefined); 
+                               updateInvoiceLine(line.id, 'selectedServiceId', undefined); 
+                               setActiveDropdown(line.id) 
+                             }} 
+                             onFocus={(e) => {
+                               setActiveDropdown(line.id);
+                               (e.target as HTMLInputElement).select();
+                             }} 
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               setActiveDropdown(line.id);
+                             }} 
+                             className="w-full bg-transparent px-2 py-1.5 text-xs text-white focus:outline-none" 
+                           />
+                           {line.name && (
+                             <button
+                               type="button"
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 updateInvoiceLine(line.id, 'name', '');
+                                 updateInvoiceLine(line.id, 'selectedStockId', undefined);
+                                 updateInvoiceLine(line.id, 'selectedServiceId', undefined);
+                                 setActiveDropdown(line.id);
+                               }}
+                               className="text-slate-500 hover:text-slate-300 p-1 mr-0.5 transition-colors"
+                               title="Temizle"
+                             >
+                               <X size={12} />
+                             </button>
+                           )}
+                           <button
+                             type="button"
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               setActiveDropdown(activeDropdown === line.id ? null : line.id);
+                             }}
+                             className="text-slate-500 hover:text-indigo-400 p-1 mr-1 transition-colors"
+                             title="Ürünleri Listele"
+                           >
+                             <ChevronDown size={14} className={`transition-transform duration-200 ${activeDropdown === line.id ? 'rotate-180 text-indigo-400' : ''}`} />
+                           </button>
                         </div>
-                        {activeDropdown === line.id && filteredItems.length > 0 && (
-                           <div className="absolute top-full left-0 right-0 mt-1 bg-[#1b253b] border border-indigo-500/50 rounded-lg shadow-2xl z-50 max-h-48 overflow-y-auto custom-scrollbar animate-in fade-in duration-200">
-                              {filteredItems.map((item: any) => (
-                                 <div key={item.id} onClick={(e) => { e.stopPropagation(); selectItemForLine(line.id, item, line.itemType) }} className="px-3 py-2 text-xs border-b border-slate-700/50 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors flex justify-between items-center">
-                                    <span className="font-medium truncate pr-2">{item.name}</span>
-                                    {line.itemType === 'product' && <span className="text-[10px] bg-slate-900/50 px-1.5 py-0.5 rounded text-emerald-400 border border-slate-700 shrink-0">Stok: {item.quantity}</span>}
-                                 </div>
-                              ))}
+                        {selectedStock && (
+                          <div className="flex items-center gap-1.5 mt-1 px-1 text-[10px]">
+                            <span className="text-emerald-400 font-mono font-semibold">✓ Stokta {selectedStock.quantity} adet mevcut</span>
+                            <span className="text-slate-500">•</span>
+                            <span className="text-slate-400">{warehouses.find(w => w.id === selectedStock.warehouse_id)?.name || 'Depo'}</span>
+                          </div>
+                        )}
+                        {activeDropdown === line.id && (
+                           <div className="absolute top-full left-0 right-0 mt-1 bg-[#1b253b] border border-indigo-500/50 rounded-lg shadow-2xl z-50 max-h-56 overflow-y-auto custom-scrollbar animate-in fade-in duration-200">
+                              {line.itemType === 'product' && (
+                                <div className="px-3 py-1.5 bg-[#141c2e] border-b border-slate-700/60 flex justify-between items-center text-[10px] text-slate-400 font-medium">
+                                  <span>{query ? `Arama Sonuçları (${filteredItems.length})` : `Stoktaki Ürünler (${filteredItems.length})`}</span>
+                                  <span className="text-emerald-400 font-mono font-semibold">Yalnızca Stoklu</span>
+                                </div>
+                              )}
+                              {filteredItems.length > 0 ? (
+                                filteredItems.map((item: any) => {
+                                  const isSelected = line.selectedStockId === item.id || line.selectedServiceId === item.id
+                                  const whName = warehouses.find(w => w.id === item.warehouse_id)?.name
+                                  return (
+                                    <div 
+                                      key={item.id} 
+                                      onClick={(e) => { e.stopPropagation(); selectItemForLine(line.id, item, line.itemType) }} 
+                                      className={`px-3 py-2 text-xs border-b border-slate-700/50 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors flex justify-between items-center group ${isSelected ? 'bg-indigo-950/60 border-l-2 border-l-indigo-500' : ''}`}
+                                    >
+                                       <div className="flex flex-col min-w-0 pr-2">
+                                          <div className="flex items-center gap-1.5">
+                                            {isSelected && <Check size={12} className="text-indigo-400 group-hover:text-white shrink-0" />}
+                                            <span className="font-medium truncate">{item.name}</span>
+                                          </div>
+                                          {line.itemType === 'product' && (
+                                             <div className="flex items-center gap-2 text-[10px] text-slate-400 group-hover:text-indigo-200 mt-0.5">
+                                                {whName && <span className="bg-slate-900/60 px-1 rounded text-slate-300">{whName}</span>}
+                                                {item.sku && <span className="font-mono text-slate-400">SKU: {item.sku}</span>}
+                                                <span className="font-mono text-amber-300">{formatMoney(convertCurrency(item.unit_price, item.currency, invCurrency), invCurrency).formatted}</span>
+                                             </div>
+                                          )}
+                                       </div>
+                                       {line.itemType === 'product' && (
+                                         <span className="text-[10px] bg-emerald-950/80 px-2 py-0.5 rounded text-emerald-400 border border-emerald-500/40 shrink-0 font-mono font-bold">
+                                            Stok: {item.quantity}
+                                         </span>
+                                       )}
+                                    </div>
+                                  )
+                                })
+                              ) : (
+                                <div className="px-3 py-3 text-center text-xs text-slate-400">
+                                  {line.itemType === 'product' 
+                                    ? (stocks.filter(s => s.quantity > 0).length === 0 
+                                        ? 'Depolarda mevcut stoklu ürün bulunmuyor.' 
+                                        : 'Aramaya uygun stokta ürün bulunamadı.') 
+                                    : 'Kayıtlı hizmet bulunamadı.'}
+                                </div>
+                              )}
                            </div>
                         )}
                       </div>
