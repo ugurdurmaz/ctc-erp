@@ -97,6 +97,7 @@ export default function SuppliersPage() {
   const [invExchangeRate, setInvExchangeRate] = useState('1')
   const [invLines, setInvLines] = useState<InvoiceLine[]>([])
   const [activeStockDropdown, setActiveStockDropdown] = useState<string | null>(null) 
+  const [invRoundingAdjustment, setInvRoundingAdjustment] = useState('') 
 
   const invoiceWarehouses = useMemo(() => {
     if (invCompanyId === 'common') {
@@ -580,7 +581,19 @@ export default function SuppliersPage() {
     setEditingTxId(t.id)
     if (t.is_detailed) {
       fetchStocks()
-      setInvDate(t.tx_date); setInvDesc(t.description); setInvLines((t.invoice_lines || []).map((l: any) => ({ ...l, sku: l.sku || '' }))); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
+      fetchWarehouses()
+      const rawLines = Array.isArray(t.invoice_lines) ? t.invoice_lines : []
+      const linesSum = rawLines.reduce((acc: number, l: any) => {
+        const q = parseFloat(l.quantity) || 0
+        const p = parseFloat(l.unitPrice) || 0
+        const v = parseFloat(l.vatRate) || 0
+        return acc + (q * p * (1 + v / 100))
+      }, 0)
+      const diff = Number(((t.amount || 0) - linesSum).toFixed(2))
+      if (Math.abs(diff) >= 0.01) setInvRoundingAdjustment(diff.toString())
+      else setInvRoundingAdjustment('')
+
+      setInvDate(t.tx_date); setInvDesc(t.description); setInvLines(rawLines.map((l: any) => ({ ...l, sku: l.sku || '' }))); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
     } else {
       setTxDate(t.tx_date); setTxType(t.tx_type); setTxDesc(t.description); setTxAmount(t.amount.toString()); setTxCurrency(t.currency as any || 'TRY'); setTxExchangeRate(t.exchange_rate?.toString() || '1'); setTxCompanyId(t.company_id || 'common')
       if (t.payment_source_type && t.payment_source_id) setPaymentSource(`${t.payment_source_type}|${t.payment_source_id}`)
@@ -805,6 +818,7 @@ export default function SuppliersPage() {
     fetchStocks()
     fetchWarehouses()
     setEditingTxId(null); setInvDate(getLocalTodayISO()); setInvDesc(''); setInvCurrency('TRY'); setInvExchangeRate('1')
+    setInvRoundingAdjustment('')
     
     const currSupp = suppliers.find(s => s.id === selectedSupplierId)
     const targetCompId = currSupp?.company_id || 'common'
@@ -847,7 +861,22 @@ export default function SuppliersPage() {
     setActiveStockDropdown(null) 
   }
 
-  const calculateInvoiceTotal = () => { return invLines.reduce((acc, line) => { const q = parseFloat(line.quantity) || 0; const p = parseFloat(line.unitPrice) || 0; const v = parseFloat(line.vatRate) || 0; return acc + (q * p * (1 + v / 100)) }, 0) }
+  const calculateInvoiceLinesTotal = () => { 
+    return invLines.reduce((acc, line) => { 
+      const q = parseFloat(line.quantity) || 0; 
+      const p = parseFloat(line.unitPrice) || 0; 
+      const v = parseFloat(line.vatRate) || 0; 
+      return acc + (q * p * (1 + v / 100)) 
+    }, 0) 
+  }
+
+  const calculateFinalInvoiceTotal = () => {
+    const linesTotal = calculateInvoiceLinesTotal()
+    const roundVal = parseFloat(invRoundingAdjustment) || 0
+    return Math.max(0, Number((linesTotal + roundVal).toFixed(2)))
+  }
+
+  const calculateInvoiceTotal = calculateFinalInvoiceTotal
 
   async function handleSaveDetailedInvoice(e: React.FormEvent) {
     e.preventDefault()
@@ -855,7 +884,7 @@ export default function SuppliersPage() {
     const currentSupplier = suppliers.find(s => s.id === selectedSupplierId); if (!currentSupplier) return
     const finalCompId = invCompanyId === 'common' ? null : invCompanyId
 
-    const totalGross = calculateInvoiceTotal(); if (totalGross <= 0) return toast.error('Fatura toplamı 0 olamaz.')
+    const totalGross = calculateFinalInvoiceTotal(); if (totalGross <= 0) return toast.error('Fatura toplamı 0 olamaz.')
     for (const line of invLines) {
       if (line.addToStock && line.name?.trim() && !line.warehouseId) {
         return toast.error(`"${line.name}" için depo seçimi zorunludur.`)
@@ -1657,18 +1686,83 @@ export default function SuppliersPage() {
               </div>
               <button type="button" onClick={addInvoiceLine} className="mt-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[11px] font-bold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all active:scale-95"><Plus size={14} /> Yeni Satır Ekle</button>
             </div>
-            <div className="p-4 border-t border-slate-800 bg-[#0d1322] flex justify-between items-center shrink-0">
-              <div className="flex gap-6 text-xs bg-[#070b14] border border-slate-800 rounded-lg px-4 py-2">
-                <div className="flex flex-col"><span className="text-slate-500 text-[9px] uppercase font-bold">Fatura Genel Toplamı (KDV Dahil)</span><span className="text-amber-400 font-bold font-mono text-lg">{formatMoney(calculateInvoiceTotal(), invCurrency).formatted}</span></div>
-                {invCurrency !== 'TRY' && (
-                   <div className="flex flex-col border-l border-slate-800 pl-6"><span className="text-slate-500 text-[9px] uppercase font-bold">Cariye İşlenecek Bakiye (₺)</span><span className="text-slate-300 font-bold font-mono text-lg">{formatMoney(calculateInvoiceTotal() * (parseFloat(invExchangeRate) || 1), 'TRY').formatted}</span></div>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={closeInvoiceModal} className="px-5 py-2 rounded-lg text-slate-400 hover:bg-slate-800 text-xs font-bold transition-colors">İptal</button>
-                <button type="button" onClick={handleSaveDetailedInvoice} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-indigo-900/20">{editingTxId ? 'Faturayı Güncelle' : 'Faturayı Kaydet'}</button>
-              </div>
-            </div>
+            {(() => {
+              const linesSum = calculateInvoiceLinesTotal()
+              const roundNum = parseFloat(invRoundingAdjustment) || 0
+              const finalSum = calculateFinalInvoiceTotal()
+              return (
+                <div className="p-4 border-t border-slate-800 bg-[#0d1322] flex flex-wrap justify-between items-center gap-4 shrink-0">
+                  <div className="flex flex-wrap items-center gap-4 text-xs bg-[#070b14] border border-slate-800 rounded-lg p-2.5">
+                    {/* 1. Kalemler Toplamı */}
+                    <div className="flex flex-col px-2">
+                      <span className="text-slate-500 text-[9px] uppercase font-bold tracking-wider">Kalemler Toplamı</span>
+                      <span className="text-slate-300 font-semibold font-mono text-sm">{formatMoney(linesSum, invCurrency).formatted}</span>
+                    </div>
+
+                    {/* 2. Yuvarlama / İskonto Input */}
+                    <div className="flex flex-col border-l border-slate-800 pl-4 pr-2">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="text-slate-400 text-[9px] uppercase font-bold tracking-wider">Yuvarlama / İskonto (±)</span>
+                        <span className="text-[10px] text-slate-500 cursor-help" title="Faturadaki küsurat farkı veya yuvarlama için: Artı (+) veya eksi (-) tutar girebilirsiniz. Örn: -1.45 veya +2.00">ⓘ</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="relative flex items-center">
+                          <input 
+                            type="number" 
+                            step="0.01" 
+                            placeholder="0.00" 
+                            value={invRoundingAdjustment} 
+                            onChange={(e) => setInvRoundingAdjustment(e.target.value)} 
+                            className={`w-24 bg-[#0a0f1d] border rounded px-2 py-1 text-xs font-mono text-right focus:outline-none transition-colors ${
+                              roundNum < 0 
+                                ? 'text-rose-400 border-rose-500/50 focus:border-rose-400' 
+                                : roundNum > 0 
+                                ? 'text-emerald-400 border-emerald-500/50 focus:border-emerald-400' 
+                                : 'text-slate-200 border-slate-700 focus:border-indigo-500'
+                            }`}
+                          />
+                          {invRoundingAdjustment && (
+                            <button
+                              type="button"
+                              onClick={() => setInvRoundingAdjustment('')}
+                              className="ml-1 text-slate-500 hover:text-rose-400 text-xs px-1"
+                              title="Sıfırla"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                        {roundNum !== 0 && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded font-mono ${
+                            roundNum < 0 ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          }`}>
+                            {roundNum > 0 ? `+${roundNum.toFixed(2)}` : roundNum.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 3. Fatura Genel Toplamı (KDV Dahil) */}
+                    <div className="flex flex-col border-l border-slate-800 pl-4 px-2">
+                      <span className="text-slate-500 text-[9px] uppercase font-bold tracking-wider">Fatura Genel Toplamı</span>
+                      <span className="text-amber-400 font-bold font-mono text-lg">{formatMoney(finalSum, invCurrency).formatted}</span>
+                    </div>
+
+                    {/* 4. Cariye İşlenecek Bakiye (₺) */}
+                    {invCurrency !== 'TRY' && (
+                      <div className="flex flex-col border-l border-slate-800 pl-4 px-2">
+                        <span className="text-slate-500 text-[9px] uppercase font-bold tracking-wider">Cariye İşlenecek Bakiye (₺)</span>
+                        <span className="text-slate-300 font-bold font-mono text-lg">{formatMoney(finalSum * (parseFloat(invExchangeRate) || 1), 'TRY').formatted}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={closeInvoiceModal} className="px-5 py-2 rounded-lg text-slate-400 hover:bg-slate-800 text-xs font-bold transition-colors">İptal</button>
+                    <button type="button" onClick={handleSaveDetailedInvoice} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg shadow-indigo-900/20">{editingTxId ? 'Faturayı Güncelle' : 'Faturayı Kaydet'}</button>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
       )}
