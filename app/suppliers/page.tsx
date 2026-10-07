@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Building2, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, Store } from 'lucide-react'
+import { Building2, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, Store, Check, ChevronDown } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Warehouse = { id: string; name: string }
@@ -20,7 +20,7 @@ type Supplier = {
 }
 
 type InvoiceLine = {
-  id: string; name: string; quantity: string; unitPrice: string;
+  id: string; name: string; sku?: string; quantity: string; unitPrice: string;
   vatRate: string; addToStock: boolean; warehouseId: string;
   targetStockId?: string; stockTxId?: string;
   selectedStockId?: string; 
@@ -37,7 +37,7 @@ type SupplierTransaction = {
 type BankAccount = { id: string; bank_name: string; account_name?: string | null; balance: number; currency: string; company_id?: string | null }
 type CashRegister = { id: string; name: string; balance: number; currency: string; company_id?: string | null }
 type CreditCardItem = { id: string; name: string; current_debt: number; company_id?: string | null }
-type StockItem = { id: string; name: string; unit_price: number; vat_rate: number; warehouse_id: string; currency: string; quantity: number }
+type StockItem = { id: string; name: string; sku?: string | null; unit_price: number; vat_rate: number; warehouse_id: string; currency: string; quantity: number }
 
 function getLocalTodayISO() {
   const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
@@ -198,7 +198,7 @@ export default function SuppliersPage() {
   }
 
   async function fetchStocks() {
-    const { data } = await supabase.from('stocks').select('id, name, unit_price, vat_rate, warehouse_id, currency, quantity').order('name', { ascending: true }); setStocks(data || [])
+    const { data } = await supabase.from('stocks').select('id, name, sku, unit_price, vat_rate, warehouse_id, currency, quantity').order('name', { ascending: true }); setStocks(data || [])
   }
 
   async function fetchTransactions(suppId: string) {
@@ -570,7 +570,8 @@ export default function SuppliersPage() {
     }
     setEditingTxId(t.id)
     if (t.is_detailed) {
-      setInvDate(t.tx_date); setInvDesc(t.description); setInvLines(t.invoice_lines || []); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
+      fetchStocks()
+      setInvDate(t.tx_date); setInvDesc(t.description); setInvLines((t.invoice_lines || []).map((l: any) => ({ ...l, sku: l.sku || '' }))); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
     } else {
       setTxDate(t.tx_date); setTxType(t.tx_type); setTxDesc(t.description); setTxAmount(t.amount.toString()); setTxCurrency(t.currency as any || 'TRY'); setTxExchangeRate(t.exchange_rate?.toString() || '1'); setTxCompanyId(t.company_id || 'common')
       if (t.payment_source_type && t.payment_source_id) setPaymentSource(`${t.payment_source_type}|${t.payment_source_id}`)
@@ -791,16 +792,32 @@ export default function SuppliersPage() {
     })
   }
 
-  function openInvoiceModal() { setEditingTxId(null); setInvDate(getLocalTodayISO()); setInvDesc(''); setInvCurrency('TRY'); setInvExchangeRate('1'); setInvCompanyId('common'); setInvLines([{ id: Date.now().toString(), name: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: false, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }]); setActiveStockDropdown(null); setIsInvoiceModalOpen(true) }
+  function openInvoiceModal() { 
+    fetchStocks()
+    setEditingTxId(null); setInvDate(getLocalTodayISO()); setInvDesc(''); setInvCurrency('TRY'); setInvExchangeRate('1'); setInvCompanyId('common')
+    setInvLines([{ id: Date.now().toString(), name: '', sku: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }])
+    setActiveStockDropdown(null); setIsInvoiceModalOpen(true) 
+  }
   function closeInvoiceModal() { setIsInvoiceModalOpen(false); setActiveStockDropdown(null); if (editingTxId && transactions.find(t => t.id === editingTxId)?.is_detailed) cancelEditTx() }
-  function addInvoiceLine() { setInvLines([...invLines, { id: Date.now().toString(), name: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: false, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }]) }
+  function addInvoiceLine() { setInvLines(prev => [...prev, { id: Date.now().toString(), name: '', sku: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }]) }
   function removeInvoiceLine(id: string) { setInvLines(invLines.filter(l => l.id !== id)) }
   function updateInvoiceLine(id: string, field: keyof InvoiceLine, value: any) { setInvLines(prev => prev.map(l => l.id === id ? { ...l, [field]: value } : l)) }
 
   function selectStockForLine(lineId: string, stock: StockItem) {
     const convertedPrice = convertCurrency(stock.unit_price, stock.currency, invCurrency)
     setInvLines(prev => prev.map(l => {
-      if (l.id === lineId) { return { ...l, name: stock.name, unitPrice: convertedPrice.toFixed(2), vatRate: stock.vat_rate?.toString() || '0', warehouseId: stock.warehouse_id, addToStock: true, selectedStockId: stock.id } }
+      if (l.id === lineId) { 
+        return { 
+          ...l, 
+          name: stock.name, 
+          sku: stock.sku || '', 
+          unitPrice: convertedPrice > 0 ? convertedPrice.toFixed(2) : l.unitPrice, 
+          vatRate: (stock.vat_rate !== undefined && stock.vat_rate !== null) ? stock.vat_rate.toString() : (l.vatRate || '20'), 
+          warehouseId: stock.warehouse_id || l.warehouseId, 
+          addToStock: true, 
+          selectedStockId: stock.id 
+        } 
+      }
       return l
     }))
     setActiveStockDropdown(null) 
@@ -815,6 +832,11 @@ export default function SuppliersPage() {
     const finalCompId = invCompanyId === 'common' ? null : invCompanyId
 
     const totalGross = calculateInvoiceTotal(); if (totalGross <= 0) return toast.error('Fatura toplamı 0 olamaz.')
+    for (const line of invLines) {
+      if (line.addToStock && line.name?.trim() && !line.warehouseId) {
+        return toast.error(`"${line.name}" için depo seçimi zorunludur.`)
+      }
+    }
     const rateNum = invCurrency === 'TRY' ? 1 : (parseFloat(invExchangeRate) || 1)
 
     try {
@@ -836,21 +858,46 @@ export default function SuppliersPage() {
       const processedLines = [...invLines]
       for (let i = 0; i < processedLines.length; i++) {
         const line = processedLines[i]
-        if (line.addToStock && line.name) {
+        if (line.addToStock && line.name?.trim()) {
           const q = parseFloat(line.quantity) || 0; const p = parseFloat(line.unitPrice) || 0; const v = parseFloat(line.vatRate) || 0
           
           let targetStockId = line.selectedStockId || null
 
           if (targetStockId) {
              affectedStocks.add(targetStockId)
+             if (line.sku?.trim()) {
+               const ex = stocks.find(s => s.id === targetStockId)
+               if (ex && !ex.sku) {
+                 await supabase.from('stocks').update({ sku: line.sku.trim() }).eq('id', targetStockId)
+               }
+             }
           } else if (line.warehouseId) {
-            const { data: existingStock } = await supabase.from('stocks').select('*').eq('warehouse_id', line.warehouseId).ilike('name', line.name).limit(1)
+            const { data: existingStock } = await supabase.from('stocks').select('*').eq('warehouse_id', line.warehouseId).ilike('name', line.name.trim()).limit(1)
 
             if (existingStock && existingStock.length > 0) {
               targetStockId = existingStock[0].id
-              if (targetStockId) affectedStocks.add(targetStockId)
+              if (targetStockId) {
+                affectedStocks.add(targetStockId)
+                if (!existingStock[0].sku && line.sku?.trim()) {
+                  await supabase.from('stocks').update({ sku: line.sku.trim() }).eq('id', targetStockId)
+                }
+              }
             } else {
-              const { data: newStock } = await supabase.from('stocks').insert([{ warehouse_id: line.warehouseId, name: line.name, currency: invCurrency, quantity: 0, unit_price: p, vat_rate: v, unit: 'Adet', stock_color: 'from-[#1b253b] to-[#121a2a]' }]).select()
+              const { data: newStock, error: newStockErr } = await supabase.from('stocks').insert([{ 
+                warehouse_id: line.warehouseId, 
+                name: line.name.trim(), 
+                sku: line.sku?.trim() || null, 
+                currency: invCurrency, 
+                quantity: 0, 
+                unit_price: p, 
+                vat_rate: v, 
+                unit: 'Adet', 
+                stock_color: 'from-[#1b253b] to-[#121a2a]' 
+              }]).select()
+              if (newStockErr) {
+                console.error("Yeni stok oluşturma hatası:", newStockErr)
+                throw new Error(`Yeni stok (${line.name}) oluşturulamadı: ${newStockErr.message}`)
+              }
               if (newStock && newStock.length > 0) {
                  targetStockId = newStock[0].id
                  if (targetStockId) affectedStocks.add(targetStockId)
@@ -1293,7 +1340,7 @@ export default function SuppliersPage() {
       {/* --- DETAYLI FATURA MODALI --- */}
       {isInvoiceModalOpen && selectedSupplier && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 9999 }}>
-          <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-[1400px] flex flex-col max-h-[90vh] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200" onClick={() => setActiveStockDropdown(null)}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-[1440px] flex flex-col h-[85vh] min-h-[580px] max-h-[900px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200" onClick={() => setActiveStockDropdown(null)}>
             <div className="p-4 border-b border-slate-800 bg-[#0a0f1d] flex justify-between items-center shrink-0">
               <div><h3 className="text-base font-bold text-white flex items-center gap-2"><ListPlus className="text-indigo-400" size={18} />{editingTxId ? 'Faturayı Düzenle' : 'Yeni Alım Faturası'}</h3><p className="text-[10px] text-slate-400 mt-0.5">Tedarikçi: <strong className="text-amber-400">{selectedSupplier.company_name}</strong></p></div><button onClick={closeInvoiceModal} className="text-slate-400 hover:text-white transition-colors"><X size={20} /></button>
             </div>
@@ -1313,24 +1360,219 @@ export default function SuppliersPage() {
                 <div className="w-24"><label className="block text-[10px] text-slate-400 mb-1">Mutabakat Kuru</label><input type="number" step="0.0001" value={invExchangeRate} onChange={(e) => setInvExchangeRate(e.target.value)} className="w-full bg-indigo-900/20 text-indigo-300 border border-indigo-500/50 rounded px-2 py-1.5 text-xs focus:outline-none font-mono transition-colors" /></div>
               )}
             </div>
-            <div className="p-4 overflow-y-auto custom-scrollbar flex-1 bg-[#0a0f1d]">
+            <div className="p-4 overflow-y-auto custom-scrollbar flex-1 bg-[#0a0f1d] min-h-[360px] pb-52">
               <div className="space-y-2">
-                <div className="flex gap-2 text-[10px] font-bold text-slate-500 uppercase px-1"><div className="flex-1">Ürün / Hizmet Adı</div><div className="w-20 text-right">Miktar</div><div className="w-24 text-right">Net B.Fiyat ({invCurrency})</div><div className="w-16 text-center">KDV(%)</div><div className="w-24 text-right pr-2">KDV'li Toplam</div><div className="w-20 text-center">Stoğa Ekle</div><div className="w-32">Depo Seçimi</div><div className="w-8"></div></div>
+                <div className="flex gap-2 text-[10px] font-bold text-slate-500 uppercase px-1">
+                  <div className="flex-1 min-w-[220px]">Ürün / Hizmet Adı</div>
+                  <div className="w-28 text-left">Ürün Kodu (SKU)</div>
+                  <div className="w-20 text-right">Miktar</div>
+                  <div className="w-24 text-right">Net B.Fiyat ({invCurrency})</div>
+                  <div className="w-16 text-center">KDV(%)</div>
+                  <div className="w-24 text-right pr-2">KDV'li Toplam</div>
+                  <div className="w-20 text-center">Stoğa Ekle</div>
+                  <div className="w-32">Depo Seçimi</div>
+                  <div className="w-8"></div>
+                </div>
                 {invLines.map((line) => {
                   const q = parseFloat(line.quantity) || 0; const p = parseFloat(line.unitPrice) || 0; const v = parseFloat(line.vatRate) || 0
-                  const filteredStocks = line.name.trim() ? stocks.filter(s => s.name.toLowerCase().includes(line.name.toLowerCase())) : []
+                  const query = line.name.trim().toLocaleLowerCase('tr-TR')
+                  const filteredStocks = stocks.filter(s => {
+                    if (!query) return true
+                    const matchName = s.name.toLocaleLowerCase('tr-TR').includes(query)
+                    const matchSku = s.sku ? s.sku.toLocaleLowerCase('tr-TR').includes(query) : false
+                    return matchName || matchSku
+                  })
+                  const exactMatch = stocks.find(s => s.name.trim().toLocaleLowerCase('tr-TR') === query)
+                  const selectedStock = line.selectedStockId ? stocks.find(s => s.id === line.selectedStockId) : null
+
                   return (
                     <div key={line.id} className="flex gap-2 items-start bg-[#0d1322] border border-slate-700/50 p-2 rounded-lg group transition-colors hover:border-slate-600">
-                      <div className="flex-1 relative">
-                        <div className="flex items-center bg-[#070b14] border border-slate-700 rounded overflow-hidden transition-colors focus-within:border-indigo-500/50"><Search size={12} className="text-slate-500 ml-2 shrink-0" /><input type="text" placeholder="Ürün ara veya yeni yaz..." value={line.name} onChange={(e) => { updateInvoiceLine(line.id, 'name', e.target.value); updateInvoiceLine(line.id, 'selectedStockId', undefined); setActiveStockDropdown(line.id) }} onFocus={() => setActiveStockDropdown(line.id)} onClick={(e) => e.stopPropagation()} className="w-full bg-transparent px-2 py-1.5 text-xs text-white focus:outline-none" /></div>
-                        {activeStockDropdown === line.id && filteredStocks.length > 0 && (<div className="absolute top-full left-0 right-0 mt-1 bg-[#1b253b] border border-indigo-500/50 rounded-lg shadow-2xl z-50 max-h-48 overflow-y-auto custom-scrollbar animate-in fade-in duration-200">{filteredStocks.map(s => (<div key={s.id} onClick={(e) => { e.stopPropagation(); selectStockForLine(line.id, s) }} className="px-3 py-2 text-xs border-b border-slate-700/50 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors flex justify-between items-center"><span className="font-medium truncate pr-2">{s.name}</span><span className="text-[10px] bg-slate-900/50 px-1.5 py-0.5 rounded text-emerald-400 border border-slate-700 shrink-0">Stok: {s.quantity}</span></div>))}</div>)}
+                      {/* ÜRÜN ADI VE AÇILIR LİSTE */}
+                      <div className="flex-1 min-w-[220px] relative">
+                        <div className="flex items-center bg-[#070b14] border border-slate-700 rounded overflow-hidden transition-colors focus-within:border-indigo-500/50">
+                          <Search size={12} className="text-slate-500 ml-2 shrink-0" />
+                          <input 
+                            type="text" 
+                            placeholder="Ürün ara veya yeni yaz..." 
+                            value={line.name} 
+                            onChange={(e) => { 
+                              updateInvoiceLine(line.id, 'name', e.target.value)
+                              updateInvoiceLine(line.id, 'selectedStockId', undefined)
+                              setActiveStockDropdown(line.id) 
+                            }} 
+                            onFocus={() => setActiveStockDropdown(line.id)} 
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setActiveStockDropdown(line.id)
+                            }} 
+                            className="w-full bg-transparent px-2 py-1.5 text-xs text-white focus:outline-none" 
+                          />
+                          {line.name && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                updateInvoiceLine(line.id, 'name', '')
+                                updateInvoiceLine(line.id, 'sku', '')
+                                updateInvoiceLine(line.id, 'selectedStockId', undefined)
+                                setActiveStockDropdown(line.id)
+                              }}
+                              className="text-slate-500 hover:text-slate-300 p-1 mr-0.5 transition-colors"
+                              title="Temizle"
+                            >
+                              <X size={12} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setActiveStockDropdown(activeStockDropdown === line.id ? null : line.id)
+                            }}
+                            className="text-slate-500 hover:text-indigo-400 p-1 mr-1 transition-colors"
+                            title="Stok Ürünlerini Listele"
+                          >
+                            <ChevronDown size={14} className={`transition-transform duration-200 ${activeStockDropdown === line.id ? 'rotate-180 text-indigo-400' : ''}`} />
+                          </button>
+                        </div>
+
+                        {/* Bilgi Rozeti */}
+                        {selectedStock ? (
+                          <div className="flex items-center gap-1.5 mt-1 px-1 text-[10px]">
+                            <span className="text-emerald-400 font-mono font-semibold">✓ Stokta: {selectedStock.quantity} adet</span>
+                            {selectedStock.sku && (
+                              <>
+                                <span className="text-slate-500">•</span>
+                                <span className="text-slate-300 font-mono bg-slate-800/80 px-1 py-0.2 rounded border border-slate-700/80">Kod: {selectedStock.sku}</span>
+                              </>
+                            )}
+                            <span className="text-slate-500">•</span>
+                            <span className="text-slate-400">{warehouses.find(w => w.id === selectedStock.warehouse_id)?.name || 'Depo'}</span>
+                          </div>
+                        ) : line.name.trim() ? (
+                          <div className="flex items-center gap-1.5 mt-1 px-1 text-[10px]">
+                            <span className="text-amber-400 font-medium">✨ Yeni Ürün</span>
+                            <span className="text-slate-500">•</span>
+                            <span className="text-slate-400">{line.addToStock ? 'Fatura kaydedildiğinde depoya yeni stok olarak eklenecek' : 'Sadece faturaya yazılacak'}</span>
+                          </div>
+                        ) : null}
+
+                        {/* DROPDOWN LİSTE */}
+                        {activeStockDropdown === line.id && (
+                          <div 
+                            onClick={(e) => e.stopPropagation()} 
+                            className="absolute top-full left-0 right-0 mt-1 bg-[#1b253b] border border-indigo-500/50 rounded-lg shadow-2xl z-50 max-h-64 overflow-y-auto custom-scrollbar animate-in fade-in duration-200"
+                          >
+                            <div className="px-3 py-1.5 bg-[#141c2e] border-b border-slate-700/60 flex justify-between items-center text-[10px] text-slate-400 font-medium sticky top-0 z-10 backdrop-blur-sm">
+                              <span>{query ? `Arama Sonuçları (${filteredStocks.length})` : `Kayıtlı Stok Ürünleri (${filteredStocks.length})`}</span>
+                              <span className="text-indigo-400 font-mono text-[9px]">Ürün Adı veya SKU</span>
+                            </div>
+
+                            {/* Yeni Stok Ekleme Hızlı Seçeneği */}
+                            {query && !exactMatch && (
+                              <div 
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  updateInvoiceLine(line.id, 'addToStock', true)
+                                  if (!line.warehouseId && warehouses.length > 0) {
+                                    updateInvoiceLine(line.id, 'warehouseId', warehouses[0].id)
+                                  }
+                                  setActiveStockDropdown(null)
+                                }} 
+                                className="px-3 py-2 text-xs bg-indigo-950/50 hover:bg-indigo-900/80 border-b border-indigo-500/40 text-indigo-200 cursor-pointer flex items-center justify-between transition-colors group/new"
+                              >
+                                <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                                  <Plus size={13} className="text-emerald-400 shrink-0 group-hover/new:scale-110 transition-transform" />
+                                  <span className="truncate">Yeni Stok Olarak Ekle: <strong className="text-white font-semibold">"{line.name.trim()}"</strong></span>
+                                </div>
+                                <span className="text-[10px] bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 px-1.5 py-0.5 rounded shrink-0 font-medium">
+                                  + Yeni Stok
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Stok Öğeleri */}
+                            {filteredStocks.length > 0 ? (
+                              filteredStocks.map(s => {
+                                const isSelected = line.selectedStockId === s.id
+                                const whName = warehouses.find(w => w.id === s.warehouse_id)?.name
+                                return (
+                                  <div 
+                                    key={s.id} 
+                                    onClick={(e) => { 
+                                      e.stopPropagation()
+                                      selectStockForLine(line.id, s) 
+                                    }} 
+                                    className={`px-3 py-2 text-xs border-b border-slate-700/50 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors flex justify-between items-center group ${isSelected ? 'bg-indigo-950/60 border-l-2 border-l-indigo-500' : ''}`}
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0 pr-2 flex-1">
+                                      {isSelected && <Check size={12} className="text-indigo-400 group-hover:text-white shrink-0" />}
+                                      <span className="font-medium truncate text-slate-200 group-hover:text-white">{s.name}</span>
+                                      {s.sku ? (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-400 font-mono shrink-0 border border-slate-700/80 group-hover:bg-indigo-700 group-hover:text-indigo-100 group-hover:border-indigo-400/50">
+                                          {s.sku}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[9px] px-1 py-0.2 rounded text-slate-600 font-mono shrink-0">
+                                          SKU Yok
+                                        </span>
+                                      )}
+                                      {whName && (
+                                        <span className="text-[9px] text-slate-500 group-hover:text-indigo-200 shrink-0">
+                                          • {whName}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0 font-mono">
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border shrink-0 ${s.quantity > 0 ? 'bg-emerald-950/60 text-emerald-400 border-emerald-500/40' : 'bg-slate-900/60 text-slate-400 border-slate-700'}`}>
+                                        Stok: {s.quantity}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )
+                              })
+                            ) : (
+                              <div className="p-4 text-center text-xs text-slate-400">
+                                <div className="mb-2">"{line.name}" için kayıtlı ürün bulunamadı.</div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    updateInvoiceLine(line.id, 'addToStock', true)
+                                    if (!line.warehouseId && warehouses.length > 0) {
+                                      updateInvoiceLine(line.id, 'warehouseId', warehouses[0].id)
+                                    }
+                                    setActiveStockDropdown(null)
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-900/30 transition-all active:scale-95"
+                                >
+                                  <Plus size={14} /> Bu Ürünü Yeni Stok Olarak Ekle
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
+
+                      {/* ÜRÜN KODU (SKU) SÜTUNU */}
+                      <div className="w-28">
+                        <input 
+                          type="text" 
+                          placeholder="Örn: SKU-101" 
+                          value={line.sku || ''} 
+                          onChange={(e) => updateInvoiceLine(line.id, 'sku', e.target.value)} 
+                          disabled={!!line.selectedStockId} 
+                          title={line.selectedStockId ? "Kayıtlı ürün kodu (stok kartından gelir)" : "Yeni ürün stok kodu (opsiyonel)"} 
+                          className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 disabled:opacity-60 disabled:cursor-not-allowed font-mono transition-colors" 
+                        />
+                      </div>
+
                       <div className="w-20"><input type="number" step="0.01" placeholder="0" value={line.quantity} onChange={(e) => updateInvoiceLine(line.id, 'quantity', e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-xs text-white text-right focus:outline-none focus:border-indigo-500/50 transition-colors font-mono" /></div>
                       <div className="w-24"><input type="number" step="0.01" placeholder="0.00" value={line.unitPrice} onChange={(e) => updateInvoiceLine(line.id, 'unitPrice', e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-xs text-white text-right focus:outline-none focus:border-indigo-500/50 transition-colors font-mono" /></div>
                       <div className="w-16"><select value={line.vatRate} onChange={(e) => updateInvoiceLine(line.id, 'vatRate', e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-1 py-1.5 text-xs text-white text-center focus:outline-none transition-colors"><option value="20">%20</option><option value="10">%10</option><option value="1">%1</option><option value="0">%0</option></select></div>
                       <div className="w-24 text-right pr-2 font-mono text-xs font-bold text-slate-300 flex items-center justify-end">{formatMoney(q * p * (1 + v / 100), invCurrency).formatted}</div>
                       <div className="w-20 flex justify-center"><button type="button" onClick={() => updateInvoiceLine(line.id, 'addToStock', !line.addToStock)} className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold transition-colors ${line.addToStock ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>{line.addToStock ? <CheckSquare size={14}/> : <Square size={14}/>} Stok</button></div>
-                      <div className="w-32">{line.addToStock ? <select disabled={!!line.selectedStockId} title={line.selectedStockId ? "Kayıtlı ürün seçildiği için depo değiştirilemez." : ""} value={line.warehouseId} onChange={(e) => updateInvoiceLine(line.id, 'warehouseId', e.target.value)} className="w-full bg-indigo-900/30 border border-indigo-500/50 rounded px-1 py-1.5 text-[11px] text-indigo-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><option value="" disabled>Depo Seç...</option>{warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select> : <div className="w-full text-center text-[10px] text-slate-600 py-1.5">-</div>}</div>
+                      <div className="w-32">{line.addToStock ? <select disabled={!!line.selectedStockId} title={line.selectedStockId ? "Kayıtlı ürün seçildiği için depo değiştirilemez." : "Ürünün ekleneceği depo"} value={line.warehouseId} onChange={(e) => updateInvoiceLine(line.id, 'warehouseId', e.target.value)} className="w-full bg-indigo-900/30 border border-indigo-500/50 rounded px-1 py-1.5 text-[11px] text-indigo-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><option value="" disabled>Depo Seç...</option>{warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select> : <div className="w-full text-center text-[10px] text-slate-600 py-1.5">-</div>}</div>
                       <div className="w-8 flex justify-center pt-1.5">{invLines.length > 1 && <button onClick={() => removeInvoiceLine(line.id)} className="text-slate-500 hover:text-rose-400 transition-colors"><Trash2 size={14} /></button>}</div>
                     </div>
                   )

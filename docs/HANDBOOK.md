@@ -342,11 +342,11 @@ Yani TRY→döviz hesaba yansıtmada **formdaki kur değil anlık kur** kullanı
 ### 6.4 Detaylı Fatura Kuralları
 
 - Satır toplamı: `qty × unitPrice × (1 + vat/100)`; fatura toplamı KDV dahil brüt; cariye `toplam × exchange_rate` TRY işlenir.
-- **Tedarikçi faturası** (`suppliers`): `addToStock` işaretli satır için
-  1. `selectedStockId` varsa o stok,
-  2. yoksa aynı depoda `ilike name` ile eşleşen ilk stok,
-  3. yoksa **yeni stok kartı oluşturulur** (`unit:'Adet'`, `quantity:0`, fatura para biriminde),
-  ardından `stock_transactions` `in` hareketi eklenir.
+- **Tedarikçi faturası** (`suppliers`): `addToStock` varsayılan olarak seçilidir (`true`). Satırda bağımsız **Ürün Kodu (SKU)** sütunu bulunur. Ürün arama dropdown'unda stok kartlarının adının yanında ürün kodları (SKU) `/stocks` sayfasındaki gibi badge olarak gösterilir ve Türkçe karakter destekli arama (`name` ve `sku`) yapılır. Listede olmayan ürünler için dropdown içinden tek tıkla `+ Yeni Stok Olarak Ekle` seçeneği bulunur.
+  1. `selectedStockId` varsa o stok (SKU varsa mevcut stoktan gelir),
+  2. yoksa aynı depoda `ilike name` ile eşleşen ilk stok (SKU girilmişse ve stokta yoksa SKU güncellenir),
+  3. yoksa **yeni stok kartı oluşturulur** (kullanıcının girdiği `sku`, `unit:'Adet'`, `quantity:0`, fatura para biriminde),
+  ardından `stock_transactions` `in` hareketi eklenir. Modal sabit minimum yükseklik ve padding ile dropdown kırpılmasını önleyecek şekilde tasarlanmıştır.
 - **Müşteri faturası** (`customers`): aynı mantık, hareket `out`. Ürün arama dropdown'u yalnız `quantity > 0` stokları listeler. `itemType: 'service'` satırlar stok etkilemez, `services` tablosundan seçilebilir.
 - Fatura düzenlenince eski satırların `stockTxId` hareketleri silinir, yeni hareketler yazılır.
 - Fatura silinince `stockTxId` hareketleri silinir ve etkilenen stoklar yeniden hesaplanır.
@@ -504,7 +504,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Hareket: Borç/Fatura (+) veya Ödeme (−). Ödemede kaynak zorunlu: kasa, banka **veya kredi kartı**. Kaynağa `SUPP-<tx_id>` hareketi yazılır.
 - Hareket düzenleme: eski kaynak hareketi silinir, yeni yazılır.
 - Tedarikçi silme: Tedarikçi silinmeden önce bağlı tüm ödemelerin karşı bacakları (kasa, banka, kredi kartı) otomatik olarak tersine çevrilerek silinir ve kaynak bakiyeleri mutlak olarak yeniden hesaplanır (yetim kayıt oluşması engellenir).
-- Detaylı fatura: §6.4.
+- Detaylı fatura: §6.4. Açılır ürün arama dropdown'unda stok ürün adının yanında SKU rozeti, depo ve mevcut miktar gösterilir. Arama Türkçe karakter destekli hem ad hem SKU üzerinden yapılır. Stokta olmayan yeni bir ürün girildiğinde tek tıkla yeni stok olarak kaydetme seçeneği, satır bazında `Ürün Kodu (SKU)` alanı ve varsayılan `Stoğa Ekle: Açık` mantığıyla doğrudan depoya yeni stok kartı girişi sağlanır. Modal minimum yüksekliği ve genişletilmiş alt boşluğu ile dropdown listesi hiçbir zaman kırpılmaz.
 - Tedarikçi kartı: açılış bakiyesi + hangi merkeze ait olduğu.
 - Abonelik modülü kredi yüklemelerini bu carilere `debt` olarak yazar.
 
