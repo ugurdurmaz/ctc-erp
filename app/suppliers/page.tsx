@@ -8,7 +8,7 @@ import toast, { Toaster } from 'react-hot-toast'
 import { Building2, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, Store, Check, ChevronDown } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
-type Warehouse = { id: string; name: string }
+type Warehouse = { id: string; name: string; company_id?: string | null }
 
 type Supplier = {
   id: string; company_name: string; contact_name: string; phone: string;
@@ -97,6 +97,15 @@ export default function SuppliersPage() {
   const [invExchangeRate, setInvExchangeRate] = useState('1')
   const [invLines, setInvLines] = useState<InvoiceLine[]>([])
   const [activeStockDropdown, setActiveStockDropdown] = useState<string | null>(null) 
+
+  const invoiceWarehouses = useMemo(() => {
+    if (invCompanyId === 'common') {
+      return warehouses
+    }
+    const filtered = warehouses.filter(w => w.company_id === invCompanyId)
+    if (filtered.length > 0) return filtered
+    return warehouses.filter(w => !w.company_id)
+  }, [warehouses, invCompanyId])
 
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean; title: string; message: string; confirmText: string; cancelText: string; isDanger: boolean; onConfirm: () => void;
@@ -194,7 +203,7 @@ export default function SuppliersPage() {
   }
 
   async function fetchWarehouses() {
-    const { data } = await supabase.from('warehouses').select('id, name').order('created_at', { ascending: true }); setWarehouses(data || [])
+    const { data } = await supabase.from('warehouses').select('id, name, company_id').order('created_at', { ascending: true }); setWarehouses(data || [])
   }
 
   async function fetchStocks() {
@@ -794,12 +803,27 @@ export default function SuppliersPage() {
 
   function openInvoiceModal() { 
     fetchStocks()
-    setEditingTxId(null); setInvDate(getLocalTodayISO()); setInvDesc(''); setInvCurrency('TRY'); setInvExchangeRate('1'); setInvCompanyId('common')
-    setInvLines([{ id: Date.now().toString(), name: '', sku: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }])
+    fetchWarehouses()
+    setEditingTxId(null); setInvDate(getLocalTodayISO()); setInvDesc(''); setInvCurrency('TRY'); setInvExchangeRate('1')
+    
+    const currSupp = suppliers.find(s => s.id === selectedSupplierId)
+    const targetCompId = currSupp?.company_id || 'common'
+    setInvCompanyId(targetCompId)
+
+    const targetWhs = targetCompId === 'common' 
+      ? warehouses 
+      : warehouses.filter(w => w.company_id === targetCompId)
+    const validWhs = targetWhs.length > 0 ? targetWhs : warehouses.filter(w => !w.company_id)
+    const initialWhId = validWhs[0]?.id || warehouses[0]?.id || ''
+
+    setInvLines([{ id: Date.now().toString(), name: '', sku: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: initialWhId, selectedStockId: undefined }])
     setActiveStockDropdown(null); setIsInvoiceModalOpen(true) 
   }
   function closeInvoiceModal() { setIsInvoiceModalOpen(false); setActiveStockDropdown(null); if (editingTxId && transactions.find(t => t.id === editingTxId)?.is_detailed) cancelEditTx() }
-  function addInvoiceLine() { setInvLines(prev => [...prev, { id: Date.now().toString(), name: '', sku: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: warehouses[0]?.id || '', selectedStockId: undefined }]) }
+  function addInvoiceLine() { 
+    const defaultWhId = invoiceWarehouses[0]?.id || ''
+    setInvLines(prev => [...prev, { id: Date.now().toString(), name: '', sku: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: defaultWhId, selectedStockId: undefined }]) 
+  }
   function removeInvoiceLine(id: string) { setInvLines(invLines.filter(l => l.id !== id)) }
   function updateInvoiceLine(id: string, field: keyof InvoiceLine, value: any) { setInvLines(prev => prev.map(l => l.id === id ? { ...l, [field]: value } : l)) }
 
@@ -1347,7 +1371,35 @@ export default function SuppliersPage() {
             <div className="p-4 bg-[#0d1322] flex flex-wrap gap-4 shrink-0 border-b border-slate-800 items-end">
               <div className="w-36">
                  <label className="block text-[10px] text-slate-400 mb-1">İlgili Merkez *</label>
-                 <select value={invCompanyId} onChange={(e) => setInvCompanyId(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none transition-colors">
+                 <select 
+                   value={invCompanyId} 
+                   onChange={(e) => {
+                     const newCompId = e.target.value
+                     setInvCompanyId(newCompId)
+                     const newWhs = newCompId === 'common' 
+                       ? warehouses 
+                       : (warehouses.filter(w => w.company_id === newCompId).length > 0
+                           ? warehouses.filter(w => w.company_id === newCompId)
+                           : warehouses.filter(w => !w.company_id))
+                     const fallbackWhId = newWhs[0]?.id || ''
+
+                     setInvLines(prev => prev.map(l => {
+                       if (!l.selectedStockId) {
+                         const isCurrentValid = newWhs.some(w => w.id === l.warehouseId)
+                         return isCurrentValid ? l : { ...l, warehouseId: fallbackWhId }
+                       } else {
+                         const stock = stocks.find(s => s.id === l.selectedStockId)
+                         const isStockValid = stock ? newWhs.some(w => w.id === stock.warehouse_id) : true
+                         if (!isStockValid) {
+                           return { ...l, selectedStockId: undefined, warehouseId: fallbackWhId }
+                         }
+                         return l
+                       }
+                     }))
+                   }} 
+                   required 
+                   className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none transition-colors"
+                 >
                    {!isRestricted && <option value="common">🌍 Ortak İşlem</option>}
                    <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
                    <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal && (!isRestricted || hasCompanyAccess(c.id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
@@ -1376,7 +1428,11 @@ export default function SuppliersPage() {
                 {invLines.map((line) => {
                   const q = parseFloat(line.quantity) || 0; const p = parseFloat(line.unitPrice) || 0; const v = parseFloat(line.vatRate) || 0
                   const query = line.name.trim().toLocaleLowerCase('tr-TR')
+                  const invoiceWarehouseIds = new Set(invoiceWarehouses.map(w => w.id))
                   const filteredStocks = stocks.filter(s => {
+                    if (invCompanyId !== 'common' && !invoiceWarehouseIds.has(s.warehouse_id)) {
+                      return false
+                    }
                     if (!query) return true
                     const matchName = s.name.toLocaleLowerCase('tr-TR').includes(query)
                     const matchSku = s.sku ? s.sku.toLocaleLowerCase('tr-TR').includes(query) : false
@@ -1474,8 +1530,8 @@ export default function SuppliersPage() {
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   updateInvoiceLine(line.id, 'addToStock', true)
-                                  if (!line.warehouseId && warehouses.length > 0) {
-                                    updateInvoiceLine(line.id, 'warehouseId', warehouses[0].id)
+                                  if (!line.warehouseId || !invoiceWarehouses.some(w => w.id === line.warehouseId)) {
+                                    updateInvoiceLine(line.id, 'warehouseId', invoiceWarehouses[0]?.id || '')
                                   }
                                   setActiveStockDropdown(null)
                                 }} 
@@ -1539,8 +1595,8 @@ export default function SuppliersPage() {
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     updateInvoiceLine(line.id, 'addToStock', true)
-                                    if (!line.warehouseId && warehouses.length > 0) {
-                                      updateInvoiceLine(line.id, 'warehouseId', warehouses[0].id)
+                                    if (!line.warehouseId || !invoiceWarehouses.some(w => w.id === line.warehouseId)) {
+                                      updateInvoiceLine(line.id, 'warehouseId', invoiceWarehouses[0]?.id || '')
                                     }
                                     setActiveStockDropdown(null)
                                   }}
@@ -1572,7 +1628,28 @@ export default function SuppliersPage() {
                       <div className="w-16"><select value={line.vatRate} onChange={(e) => updateInvoiceLine(line.id, 'vatRate', e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-1 py-1.5 text-xs text-white text-center focus:outline-none transition-colors"><option value="20">%20</option><option value="10">%10</option><option value="1">%1</option><option value="0">%0</option></select></div>
                       <div className="w-24 text-right pr-2 font-mono text-xs font-bold text-slate-300 flex items-center justify-end">{formatMoney(q * p * (1 + v / 100), invCurrency).formatted}</div>
                       <div className="w-20 flex justify-center"><button type="button" onClick={() => updateInvoiceLine(line.id, 'addToStock', !line.addToStock)} className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold transition-colors ${line.addToStock ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>{line.addToStock ? <CheckSquare size={14}/> : <Square size={14}/>} Stok</button></div>
-                      <div className="w-32">{line.addToStock ? <select disabled={!!line.selectedStockId} title={line.selectedStockId ? "Kayıtlı ürün seçildiği için depo değiştirilemez." : "Ürünün ekleneceği depo"} value={line.warehouseId} onChange={(e) => updateInvoiceLine(line.id, 'warehouseId', e.target.value)} className="w-full bg-indigo-900/30 border border-indigo-500/50 rounded px-1 py-1.5 text-[11px] text-indigo-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors"><option value="" disabled>Depo Seç...</option>{warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select> : <div className="w-full text-center text-[10px] text-slate-600 py-1.5">-</div>}</div>
+                      <div className="w-32">
+                        {line.addToStock ? (
+                          <select 
+                            disabled={!!line.selectedStockId || invoiceWarehouses.length === 0} 
+                            title={line.selectedStockId ? "Kayıtlı ürün seçildiği için depo değiştirilemez." : (invoiceWarehouses.length === 0 ? "Bu merkeze ait depo bulunamadı." : "Ürünün ekleneceği depo")} 
+                            value={line.warehouseId} 
+                            onChange={(e) => updateInvoiceLine(line.id, 'warehouseId', e.target.value)} 
+                            className="w-full bg-indigo-900/30 border border-indigo-500/50 rounded px-1 py-1.5 text-[11px] text-indigo-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {invoiceWarehouses.length === 0 ? (
+                              <option value="" disabled>Depo Yok</option>
+                            ) : (
+                              <>
+                                <option value="" disabled>Depo Seç...</option>
+                                {invoiceWarehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                              </>
+                            )}
+                          </select>
+                        ) : (
+                          <div className="w-full text-center text-[10px] text-slate-600 py-1.5">-</div>
+                        )}
+                      </div>
                       <div className="w-8 flex justify-center pt-1.5">{invLines.length > 1 && <button onClick={() => removeInvoiceLine(line.id)} className="text-slate-500 hover:text-rose-400 transition-colors"><Trash2 size={14} /></button>}</div>
                     </div>
                   )
