@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney } from '@/lib/utils'
-import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, TrendingUp, ChevronDown, ChevronUp, Building, Home as HomeIcon, Filter, BarChart4, ArrowUpRightFromSquare, ArrowDownRightFromSquare, Sparkles, Activity, FileText, Scale, Users, User, Building2, Search, X, Lock, Wrench, Calendar, Clock, AlertTriangle, CheckCircle2, Zap, BadgePercent, ArrowRightLeft } from 'lucide-react'
+import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, TrendingUp, TrendingDown, ChevronDown, ChevronUp, Building, Home as HomeIcon, Filter, BarChart4, ArrowUpRightFromSquare, ArrowDownRightFromSquare, Sparkles, Activity, FileText, Scale, Users, User, Building2, Search, X, Lock, Wrench, Calendar, Clock, AlertTriangle, CheckCircle2, Zap, BadgePercent, ArrowRightLeft } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import { logActivity } from '@/lib/audit'
 
@@ -23,14 +23,14 @@ type CardTx = { id: string; card_id: string; company_id?: string | null; tx_date
 type LoanDetail = { id: string; loan_name: string; bank_name: string; principal_amount: number; remaining_principal: number; monthly_installment: number; currency?: string; company_id: string | null; status: string; installments_plan: any[] }
 type CustomerDetail = { id: string; name: string; balance: number; currency: string }
 type SupplierDetail = { id: string; company_name: string; balance: number; currency: string }
-type RawStock = { quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
+type RawStock = { id?: string; quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
 type Warehouse = { id: string; name: string; company_id: string | null }
 type ExpenseTransaction = { id: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; tx_date: string; description?: string; created_at: string; transfer_id?: string | null; category_id?: string | null; payment_source_type?: string | null; payment_source_id?: string | null; category?: any }
 type Company = { id: string; name: string; is_personal: boolean }
 
 type CustTx = { id: string; tx_date: string; description: string; customer_id: string; tx_type: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; invoice_lines?: any[]; created_at: string }
 type SuppTx = { id: string; tx_date: string; description: string; supplier_id: string; tx_type: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; created_at: string }
-type StockTx = { tx_date: string; tx_type: string; quantity: number; unit_price: number; currency: string; company_id: string | null }
+type StockTx = { id?: string; stock_id?: string | null; tx_date: string; tx_type: string; quantity: number; unit_price: number; currency: string; vat_rate?: number; company_id: string | null }
 type SubTx = { start_date: string; cost_price: number; sale_price: number; currency: string; company_id: string | null }
 type PosTx = { id: string; date: string; category_id: string; cash: number; card: number; cost: number; stock_id: string | null; company_id: string | null; description?: string | null }
 type TechTicket = { id: string; ticket_no: string; brand_model: string; customer_name: string; status: string; total_cost: number; parts_cost: number; labor_cost: number; delivered_at: string | null; company_id: string | null; created_at: string }
@@ -114,6 +114,10 @@ export default function Home() {
 
   // Kâr / Zarar (P&L) ve Performans Analizi Periyodu
   const [pnlPeriod, setPnlPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
+
+  // Ana Analiz Sekmesi: 'pnl' (Kâr/Zarar) | 'stock' (Depo & Stok Değer Analizi)
+  const [analyticsTab, setAnalyticsTab] = useState<'pnl' | 'stock'>('pnl')
+  const [selectedStockWhId, setSelectedStockWhId] = useState<string>('all')
 
   // Cari Borç & Alacak Dağılımı ve Geçmiş Dönem Kıyaslama State'leri
   const [cariTab, setCariTab] = useState<'payables' | 'receivables'>('payables')
@@ -218,7 +222,7 @@ export default function Home() {
       const { data: whData } = await supabase.from('warehouses').select('id, name, company_id')
       setWarehouses(whData || [])
 
-      const { data: stockData } = await supabase.from('stocks').select('quantity, unit_price, vat_rate, currency, warehouse_id')
+      const { data: stockData } = await supabase.from('stocks').select('id, quantity, unit_price, vat_rate, currency, warehouse_id')
       setRawStocks(stockData || [])
 
       const { data: expData } = await supabase.from('expense_transactions').select('id, amount, currency, exchange_rate, company_id, tx_date, description, created_at, transfer_id, category_id, payment_source_type, payment_source_id, category:expense_categories(name)')
@@ -227,7 +231,7 @@ export default function Home() {
       const { data: compData } = await supabase.from('companies').select('id, name, is_personal')
       setCompanies(compData || [])
 
-      const { data: stxData } = await supabase.from('stock_transactions').select('tx_date, tx_type, quantity, unit_price, currency, company_id')
+      const { data: stxData } = await supabase.from('stock_transactions').select('id, stock_id, tx_date, tx_type, quantity, unit_price, currency, vat_rate, company_id')
       setStockTxs(stxData || [])
 
       const { data: subData } = await supabase.from('credit_subscriptions').select('start_date, cost_price, sale_price, currency, company_id')
@@ -517,6 +521,12 @@ export default function Home() {
   const validWhIds = filteredWarehouses.map(w => w.id)
   const filteredStocks = rawStocks.filter(s => validWhIds.includes(s.warehouse_id))
   const filteredExpenses = expenses.filter(e => isMatch(e.company_id))
+
+  useEffect(() => {
+    if (selectedStockWhId !== 'all' && !filteredWarehouses.some(w => w.id === selectedStockWhId)) {
+      setSelectedStockWhId('all')
+    }
+  }, [filteredWarehouses, selectedStockWhId])
 
   const activeCustomers = (!isRestricted && effectiveCompanyId === 'all') 
     ? customers.filter(c => Math.abs(c.balance) > 0.01)
@@ -877,6 +887,246 @@ export default function Home() {
       posProfitTrend
     }
   }, [pnlPeriod, customerTxs, subscriptions, stockTxs, commercialExpensesList, posTxs, techTickets, isMatch, rates])
+
+  const stockValuationData = useMemo(() => {
+    const now = new Date()
+    const todayISO = getLocalTodayISO()
+    const currentYear = now.getFullYear()
+    const currentMonth = now.getMonth()
+    const todayDate = now.getDate()
+
+    const shortMonthNames = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"]
+    const fullMonthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+    const dayNames = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"]
+
+    type StockPoint = {
+      key: string
+      label: string
+      summaryLabel: string
+      fullLabel: string
+      startDate: string
+      endDate: string
+      inVal: number
+      outVal: number
+      netChange: number
+      stockValuation: number
+      changeFromPrev: number
+      isCurrent: boolean
+      isFuture?: boolean
+    }
+
+    const points: StockPoint[] = []
+
+    const formatISO = (d: Date) => {
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      return `${y}-${m}-${day}`
+    }
+
+    if (pnlPeriod === 'monthly') {
+      // Son 12 Ay
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+        const yyyy = d.getFullYear()
+        const mm = String(d.getMonth() + 1).padStart(2, '0')
+        const key = `${yyyy}-${mm}`
+        const lastDay = new Date(yyyy, d.getMonth() + 1, 0).getDate()
+        const startDate = `${yyyy}-${mm}-01`
+        const endDate = `${yyyy}-${mm}-${String(lastDay).padStart(2, '0')}`
+        const label = `${shortMonthNames[d.getMonth()]} ${String(yyyy).slice(2)}`
+        const fullLabel = `${fullMonthNames[d.getMonth()]} ${yyyy}`
+        const summaryLabel = label
+
+        points.push({
+          key,
+          label,
+          summaryLabel,
+          fullLabel,
+          startDate,
+          endDate,
+          inVal: 0,
+          outVal: 0,
+          netChange: 0,
+          stockValuation: 0,
+          changeFromPrev: 0,
+          isCurrent: i === 0
+        })
+      }
+    } else if (pnlPeriod === 'weekly') {
+      // Son 16 Hafta
+      const currentDayOfWeek = now.getDay()
+      const distToMonday = currentDayOfWeek === 0 ? 6 : currentDayOfWeek - 1
+      const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - distToMonday)
+
+      for (let i = 15; i >= 0; i--) {
+        const mon = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - i * 7)
+        const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6)
+        const startDate = formatISO(mon)
+        const endDate = formatISO(sun)
+        const key = `W_${startDate}`
+
+        const label = mon.getMonth() === sun.getMonth()
+          ? `${mon.getDate()}-${sun.getDate()} ${shortMonthNames[sun.getMonth()]}`
+          : `${mon.getDate()} ${shortMonthNames[mon.getMonth()]}-${sun.getDate()} ${shortMonthNames[sun.getMonth()]}`
+
+        const fullLabel = `${mon.getDate()} ${fullMonthNames[mon.getMonth()]} - ${sun.getDate()} ${fullMonthNames[sun.getMonth()]} ${sun.getFullYear()}`
+        const summaryLabel = label
+
+        points.push({
+          key,
+          label,
+          summaryLabel,
+          fullLabel,
+          startDate,
+          endDate,
+          inVal: 0,
+          outVal: 0,
+          netChange: 0,
+          stockValuation: 0,
+          changeFromPrev: 0,
+          isCurrent: i === 0
+        })
+      }
+    } else {
+      // Günlük: Mevcut Ayın Günleri
+      const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const d = new Date(currentYear, currentMonth, day)
+        const dateStr = formatISO(d)
+        const key = dateStr
+        const label = String(day)
+        const summaryLabel = `${day} ${shortMonthNames[currentMonth]}`
+        const fullLabel = `${day} ${fullMonthNames[currentMonth]} ${currentYear} (${dayNames[d.getDay()]})`
+        const isToday = day === todayDate && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+        const isFuture = day > todayDate
+
+        points.push({
+          key,
+          label,
+          summaryLabel,
+          fullLabel,
+          startDate: dateStr,
+          endDate: dateStr,
+          inVal: 0,
+          outVal: 0,
+          netChange: 0,
+          stockValuation: 0,
+          changeFromPrev: 0,
+          isCurrent: isToday,
+          isFuture
+        })
+      }
+    }
+
+    // İlgili Depo / Depolar
+    const targetWhIds = selectedStockWhId === 'all'
+      ? filteredWarehouses.map(w => w.id)
+      : [selectedStockWhId]
+
+    const targetStocks = filteredStocks.filter(s => targetWhIds.includes(s.warehouse_id))
+    const targetStockIds = new Set(targetStocks.map(s => s.id).filter(Boolean))
+
+    // Güncel Anlık Stok Değeri (TRY)
+    const currentValuation = targetStocks.reduce((acc, s) => {
+      const vat = (s.vat_rate !== undefined && s.vat_rate !== null) ? Number(s.vat_rate) : 0
+      const gross = Number(s.quantity || 0) * Number(s.unit_price || 0) * (1 + vat / 100)
+      return acc + getTryEquivalent(gross, s.currency || 'TRY')
+    }, 0)
+
+    // İlgili Stok Hareketleri
+    const relevantTxs = stockTxs.filter(tx => {
+      if (tx.stock_id && targetStockIds.size > 0) {
+        return targetStockIds.has(tx.stock_id)
+      }
+      if (selectedStockWhId === 'all' && tx.company_id) {
+        return isMatch(tx.company_id)
+      }
+      return false
+    })
+
+    const getTxVal = (tx: StockTx) => {
+      const vat = (tx.vat_rate !== undefined && tx.vat_rate !== null) ? Number(tx.vat_rate) : 0
+      const gross = Number(tx.quantity || 0) * Number(tx.unit_price || 0) * (1 + vat / 100)
+      return getTryEquivalent(gross, tx.currency || 'TRY')
+    }
+
+    // Her döneme ait giriş/çıkış hareketlerini topla
+    points.forEach(pt => {
+      relevantTxs.forEach(tx => {
+        const dStr = (tx.tx_date || '').substring(0, 10)
+        if (dStr >= pt.startDate && dStr <= pt.endDate) {
+          const val = getTxVal(tx)
+          if (tx.tx_type === 'in') pt.inVal += val
+          else if (tx.tx_type === 'out') pt.outVal += val
+        }
+      })
+      pt.netChange = pt.inVal - pt.outVal
+    })
+
+    // Geriye dönük kümülatif envanter değeri hesaplama
+    points.forEach(pt => {
+      if (pt.isFuture) {
+        pt.stockValuation = currentValuation
+      } else {
+        let netMovementAfterPt = 0
+        relevantTxs.forEach(tx => {
+          const dStr = (tx.tx_date || '').substring(0, 10)
+          if (dStr > pt.endDate && dStr <= todayISO) {
+            const val = getTxVal(tx)
+            if (tx.tx_type === 'in') netMovementAfterPt += val
+            else if (tx.tx_type === 'out') netMovementAfterPt -= val
+          }
+        })
+        pt.stockValuation = Math.max(0, currentValuation - netMovementAfterPt)
+      }
+    })
+
+    // Önceki döneme göre fark (changeFromPrev)
+    points.forEach((pt, idx) => {
+      if (idx === 0) {
+        pt.changeFromPrev = pt.netChange
+      } else {
+        pt.changeFromPrev = pt.stockValuation - points[idx - 1].stockValuation
+      }
+    })
+
+    // Dönem başı değeri: ilk gerçekleşen noktanın başlangıcı
+    const firstNonFuturePt = points.find(p => !p.isFuture) || points[0]
+    const periodStartValuation = firstNonFuturePt ? Math.max(0, firstNonFuturePt.stockValuation - firstNonFuturePt.netChange) : currentValuation
+    const periodEndValuation = currentValuation
+    const totalChange = periodEndValuation - periodStartValuation
+    const changePercent = periodStartValuation > 0
+      ? Math.abs((totalChange / periodStartValuation) * 100)
+      : (totalChange > 0 ? 100 : 0)
+
+    const nonFuturePoints = points.filter(p => !p.isFuture)
+    const totalIn = nonFuturePoints.reduce((acc, p) => acc + p.inVal, 0)
+    const totalOut = nonFuturePoints.reduce((acc, p) => acc + p.outVal, 0)
+
+    let maxVal = Math.max(...points.map(p => Math.max(p.stockValuation, p.inVal, p.outVal)), 100)
+    if (maxVal <= 0) maxVal = 100
+
+    const targetWhName = selectedStockWhId === 'all'
+      ? `Tüm Depolar (${filteredWarehouses.length})`
+      : (filteredWarehouses.find(w => w.id === selectedStockWhId)?.name || 'Seçili Depo')
+
+    return {
+      points,
+      maxVal,
+      currentValuation,
+      periodStartValuation,
+      periodEndValuation,
+      totalChange,
+      changePercent,
+      isIncreasing: totalChange >= 0,
+      totalIn,
+      totalOut,
+      targetWhName,
+      targetWhIds
+    }
+  }, [pnlPeriod, selectedStockWhId, filteredWarehouses, filteredStocks, stockTxs, rates, isMatch])
 
   const allTimelineItems: TimelineItem[] = []
   
@@ -1521,211 +1771,506 @@ export default function Home() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* SOL 2 KOLON: P&L VE PERFORMANS ANALİZİ */}
+          {/* SOL 2 KOLON: P&L VE STOK DEĞER ANALİZİ SEKMELERİ */}
           <div style={{ animation: 'fadeInUp 0.5s both 0.15s' }} className="lg:col-span-2 bg-[#0d1322] border border-slate-800/80 rounded-xl p-4 shadow-xl relative overflow-hidden flex flex-col h-full min-h-[616px] justify-between">
-            <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+            <div className={`absolute top-0 left-0 h-1 w-full transition-all duration-300 ${
+              analyticsTab === 'pnl'
+                ? 'bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500'
+                : 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500'
+            }`} />
             
             <div>
+              {/* ÜST BAŞLIK, SEKME SEÇİCİ VE FİLTRELER */}
               <div className="flex flex-wrap justify-between items-center gap-2 mb-3 shrink-0">
-                <h3 className="text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2">
-                  <BarChart4 size={15} className="text-indigo-400" /> Kâr / Zarar (P&L) ve Performans Analizi
-                </h3>
-
-                {/* Periyot Seçici: Günlük, Haftalık, Aylık */}
-                <div className="flex items-center bg-[#070b14] border border-slate-800 rounded p-0.5 text-[9px] font-bold">
+                {/* ANA SEKME SEÇİCİ */}
+                <div className="flex items-center bg-[#070b14] border border-slate-800/80 rounded-lg p-0.5 text-xs font-bold shadow-xs">
                   <button
-                    onClick={() => setPnlPeriod('daily')}
-                    className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                      pnlPeriod === 'daily' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                    type="button"
+                    onClick={() => setAnalyticsTab('pnl')}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-all cursor-pointer ${
+                      analyticsTab === 'pnl'
+                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                     }`}
                   >
-                    Günlük ({pnlPeriod === 'daily' ? pnlData.points.length : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()} Gün)
+                    <BarChart4 size={14} className={analyticsTab === 'pnl' ? 'text-white' : 'text-indigo-400'} />
+                    <span>Kâr / Zarar (P&L)</span>
                   </button>
                   <button
-                    onClick={() => setPnlPeriod('weekly')}
-                    className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                      pnlPeriod === 'weekly' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                    type="button"
+                    onClick={() => setAnalyticsTab('stock')}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-all cursor-pointer ${
+                      analyticsTab === 'stock'
+                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                     }`}
                   >
-                    Haftalık (16 Hafta)
-                  </button>
-                  <button
-                    onClick={() => setPnlPeriod('monthly')}
-                    className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                      pnlPeriod === 'monthly' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Aylık (12 Ay)
+                    <Package size={14} className={analyticsTab === 'stock' ? 'text-white' : 'text-emerald-400'} />
+                    <span>Stok & Depo Değeri</span>
                   </button>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4 shrink-0">
-                <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
-                    {pnlPeriod === 'daily' ? 'Bugünkü Ciro' : pnlPeriod === 'weekly' ? 'Bu Haftaki Ciro' : 'Bu Ayki Ciro'}
-                  </p>
-                  <div className="text-sm font-black font-mono text-blue-400">{formatMoney(pnlData.currPoint.revenue, 'TRY').formatted}</div>
-                  <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${pnlData.revenueTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {pnlData.revenueTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {pnlData.revenueTrend.percent.toFixed(1)} {pnlData.revenueTrend.isUp ? 'Artış' : 'Düşüş'}
-                  </div>
-                </div>
-                <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
-                      {pnlPeriod === 'daily' ? 'Günlük SMM & Mlyt.' : pnlPeriod === 'weekly' ? 'Haftalık SMM & Mlyt.' : 'Bu Ayki SMM & Mlyt.'}
-                    </p>
-                    <div className="text-sm font-black font-mono text-orange-400">{formatMoney(pnlData.currPoint.cost, 'TRY').formatted}</div>
-                </div>
-                <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
-                      {pnlPeriod === 'daily' ? 'Günlük İşletme Gid.' : pnlPeriod === 'weekly' ? 'Haftalık İşletme Gid.' : 'Bu Ayki İşletme Gid.'}
-                    </p>
-                    <div className="text-sm font-black font-mono text-purple-400">{formatMoney(pnlData.currPoint.expense, 'TRY').formatted}</div>
-                </div>
-                
-                {/* MAĞAZA POS KARI KARTI */}
-                <div className="bg-cyan-950/20 border border-cyan-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                    <p className="text-[9px] text-cyan-400/90 font-bold uppercase tracking-wider mb-0.5">
-                      {pnlPeriod === 'daily' ? 'Bugünkü Mağaza Kârı' : pnlPeriod === 'weekly' ? 'Bu Haftaki Mağaza Kârı' : 'Bu Ayki Mağaza Kârı'}
-                    </p>
-                    <div className="text-sm font-black font-mono text-cyan-400">{formatMoney(pnlData.currPoint.posProfit, 'TRY').formatted}</div>
-                    <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${pnlData.posProfitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {pnlData.posProfitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {pnlData.posProfitTrend.percent.toFixed(1)} {pnlData.posProfitTrend.isUp ? 'Artış' : 'Düşüş'}
+                {/* SAĞ TARAF KONTROLLERİ: DEPO SEÇİCİ (Sadece Stok Sekmesi) + PERİYOT SEÇİCİ */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {analyticsTab === 'stock' && (
+                    <div className="flex items-center gap-1.5 bg-[#070b14] border border-slate-800 rounded-lg px-2 py-0.5 text-[10px]">
+                      <span className="text-slate-400 font-bold flex items-center gap-1">
+                        <Building size={11} className="text-emerald-400" /> Depo:
+                      </span>
+                      <select
+                        value={selectedStockWhId}
+                        onChange={(e) => setSelectedStockWhId(e.target.value)}
+                        className="bg-transparent text-white font-bold focus:outline-none cursor-pointer py-0.5 text-[10px]"
+                      >
+                        <option value="all" className="bg-[#0f172a] text-white">
+                          Tüm Depolar ({filteredWarehouses.length})
+                        </option>
+                        {filteredWarehouses.map(w => (
+                          <option key={w.id} value={w.id} className="bg-[#0f172a] text-white">
+                            {w.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                </div>
+                  )}
 
-                <div className="bg-emerald-950/20 border border-emerald-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
-                    <p className="text-[9px] text-emerald-400/90 font-bold uppercase tracking-wider mb-0.5">
-                      {pnlPeriod === 'daily' ? 'Bugünkü Net Kâr' : pnlPeriod === 'weekly' ? 'Bu Haftaki Net Kâr' : 'Bu Ayki Net Ticari Kâr'}
-                    </p>
-                    <div className={`text-sm font-black font-mono ${pnlData.currPoint.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {formatMoney(pnlData.currPoint.profit, 'TRY').formatted}
-                    </div>
-                    <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${pnlData.profitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {pnlData.profitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {pnlData.profitTrend.percent.toFixed(1)} {pnlData.profitTrend.isUp ? 'Artış' : 'Düşüş'}
-                    </div>
-                </div>
-              </div>
-            </div>
-
-            {/* ORTA: DİNAMİK ÇUBUK GRAFİĞİ */}
-            <div className="pt-3 border-t border-slate-800/60 flex-1 flex items-end min-h-[160px] pb-2">
-              <div className={`flex items-end h-full w-full ${pnlPeriod === 'daily' ? 'gap-0.5 sm:gap-1' : 'gap-1 sm:gap-1.5 md:gap-2'}`}>
-                {pnlData.points.map((pt) => {
-                  const totalOut = pt.cost + pt.expense
-                  const revHeight = Math.max((pt.revenue / pnlData.maxVal) * 100, 2)
-                  const outHeight = Math.max((totalOut / pnlData.maxVal) * 100, 2)
-                  return (
-                    <div key={pt.key} className="flex-1 flex flex-col justify-end items-center gap-1 group relative h-full min-w-0">
-                        <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#070b14] border border-slate-700 rounded-lg p-2 text-[10px] font-mono shadow-2xl z-20 w-44 pointer-events-none">
-                          <div className="text-white font-bold pb-1 mb-1 border-b border-slate-800 text-[10px]">{pt.fullLabel}</div>
-                          <div className="text-blue-400">Ciro: {formatMoney(pt.revenue, 'TRY').formatted}</div>
-                          <div className="text-orange-400">Maliyet: {formatMoney(pt.cost, 'TRY').formatted}</div>
-                          <div className="text-purple-400 border-b border-slate-700/50 pb-1 mb-1">Gider: {formatMoney(pt.expense, 'TRY').formatted}</div>
-                          {pt.posRev > 0 && (
-                            <div className="text-cyan-400 text-[9px] mb-1">Mağaza Kârı: {formatMoney(pt.posProfit, 'TRY').formatted}</div>
-                          )}
-                          <div className={pt.profit >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                            Net: {formatMoney(pt.profit, 'TRY').formatted}
-                          </div>
-                          {pt.revenue > 0 && (
-                            <div className="text-slate-400 text-[9px] mt-0.5">Marj: %{pt.marginPct.toFixed(1)}</div>
-                          )}
-                        </div>
-                        <div className={`w-full flex justify-center ${pnlPeriod === 'daily' ? 'gap-0.5' : 'gap-1 sm:gap-1.5'} items-end h-full relative`}>
-                          <div
-                            className={`w-1/2 max-w-[22px] rounded-t transition-all duration-700 ease-out shadow-sm ${
-                              pt.isCurrent
-                                ? 'bg-blue-400 ring-1 ring-blue-300'
-                                : pt.isFuture
-                                ? 'bg-blue-500/20'
-                                : 'bg-blue-500'
-                            }`}
-                            style={{ height: `${revHeight}%` }}
-                          />
-                          <div
-                            className={`w-1/2 max-w-[22px] rounded-t transition-all duration-700 ease-out delay-75 shadow-sm ${
-                              pt.isCurrent
-                                ? 'bg-orange-400 ring-1 ring-orange-300'
-                                : pt.isFuture
-                                ? 'bg-orange-500/20'
-                                : 'bg-orange-500'
-                            }`}
-                            style={{ height: `${outHeight}%` }}
-                          />
-                        </div>
-                        <div className={`${pnlPeriod === 'daily' ? 'text-[7px] sm:text-[8px] md:text-[9px]' : pnlPeriod === 'weekly' ? 'text-[7px] sm:text-[8px]' : 'text-[8px] sm:text-[9px]'} font-bold mt-1 text-center truncate w-full shrink-0 transition-colors ${
-                          pt.isCurrent ? 'text-indigo-400 font-black' : pt.isFuture ? 'text-slate-600' : 'text-slate-500 group-hover:text-slate-300'
-                        }`}>
-                          {pt.label}
-                        </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* ALT: FİNANSAL ÖZET TABLOSU */}
-            <div className="pt-2.5 border-t border-slate-800/80 shrink-0">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <FileText size={12} className="text-indigo-400" />
-                  {pnlPeriod === 'daily'
-                    ? `Günlük Finansal Özet Tablosu (Bu Ay - ${pnlData.points.length} Gün)`
-                    : pnlPeriod === 'weekly'
-                    ? 'Haftalık Finansal Özet Tablosu (Son 16 Hafta)'
-                    : '12 Aylık Finansal Özet Tablosu (Son 1 Yıl)'}
-                </span>
-                <span className="text-[9px] text-slate-500 font-mono">Ciro • Net Kâr • Kâr Marjı</span>
-              </div>
-              <div className="overflow-x-auto custom-scrollbar flex gap-1.5 pb-1">
-                {pnlData.points.map((pt) => {
-                  const isCurrent = pt.isCurrent
-                  return (
-                    <div
-                      key={pt.key}
-                      className={`flex-1 min-w-[70px] p-1.5 rounded-lg border text-center font-mono transition-colors shrink-0 ${
-                        isCurrent
-                          ? 'bg-indigo-950/40 border-indigo-500/60 ring-1 ring-indigo-500/30'
-                          : pt.isFuture
-                          ? 'bg-[#070b14]/40 border-slate-800/40 opacity-60'
-                          : 'bg-[#070b14]/70 border-slate-800/70 hover:border-slate-700'
+                  {/* Periyot Seçici: Günlük, Haftalık, Aylık */}
+                  <div className="flex items-center bg-[#070b14] border border-slate-800 rounded p-0.5 text-[9px] font-bold">
+                    <button
+                      onClick={() => setPnlPeriod('daily')}
+                      className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                        pnlPeriod === 'daily'
+                          ? (analyticsTab === 'stock' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-indigo-600 text-white shadow-xs')
+                          : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      <span className={`text-[8px] font-sans font-bold block truncate ${
-                        isCurrent ? 'text-indigo-300 font-black' : pt.isFuture ? 'text-slate-500' : 'text-slate-400'
-                      }`}>
-                        {pt.summaryLabel}
-                      </span>
-                      <span className={`text-[9px] font-bold block mt-0.5 truncate ${pt.isFuture ? 'text-blue-400/50' : 'text-blue-400'}`} title={`Ciro: ${formatMoney(pt.revenue, 'TRY').formatted}`}>
-                        {formatMoney(pt.revenue, 'TRY').formatted}
-                      </span>
-                      <span
-                        className={`text-[9px] font-bold block mt-0.5 truncate ${
-                          pt.isFuture
-                            ? 'text-slate-500'
-                            : pt.profit >= 0
-                            ? 'text-emerald-400'
-                            : 'text-rose-400'
-                        }`}
-                        title={`Net Kâr: ${formatMoney(pt.profit, 'TRY').formatted}`}
-                      >
-                        {pt.profit >= 0 ? '+' : ''}{formatMoney(pt.profit, 'TRY').formatted}
-                      </span>
-                      <span className={`text-[8px] block mt-0.5 font-sans ${
-                        pt.isFuture
-                          ? 'text-slate-600'
-                          : pt.marginPct >= 0
-                          ? 'text-emerald-400/90'
-                          : 'text-rose-400/90'
-                      }`}>
-                        %{pt.marginPct.toFixed(0)} Marj
-                      </span>
-                    </div>
-                  )
-                })}
+                      Günlük ({pnlPeriod === 'daily' ? (analyticsTab === 'stock' ? stockValuationData.points.length : pnlData.points.length) : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()} Gün)
+                    </button>
+                    <button
+                      onClick={() => setPnlPeriod('weekly')}
+                      className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                        pnlPeriod === 'weekly'
+                          ? (analyticsTab === 'stock' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-indigo-600 text-white shadow-xs')
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Haftalık (16 Hafta)
+                    </button>
+                    <button
+                      onClick={() => setPnlPeriod('monthly')}
+                      className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                        pnlPeriod === 'monthly'
+                          ? (analyticsTab === 'stock' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-indigo-600 text-white shadow-xs')
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Aylık (12 Ay)
+                    </button>
+                  </div>
+                </div>
               </div>
+
+              {analyticsTab === 'pnl' ? (
+                <>
+                  {/* --- SEKME 1: P&L 5'Lİ KPI SAYAÇLARI --- */}
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4 shrink-0">
+                    <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
+                        {pnlPeriod === 'daily' ? 'Bugünkü Ciro' : pnlPeriod === 'weekly' ? 'Bu Haftaki Ciro' : 'Bu Ayki Ciro'}
+                      </p>
+                      <div className="text-sm font-black font-mono text-blue-400">{formatMoney(pnlData.currPoint.revenue, 'TRY').formatted}</div>
+                      <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${pnlData.revenueTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {pnlData.revenueTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {pnlData.revenueTrend.percent.toFixed(1)} {pnlData.revenueTrend.isUp ? 'Artış' : 'Düşüş'}
+                      </div>
+                    </div>
+                    <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
+                          {pnlPeriod === 'daily' ? 'Günlük SMM & Mlyt.' : pnlPeriod === 'weekly' ? 'Haftalık SMM & Mlyt.' : 'Bu Ayki SMM & Mlyt.'}
+                        </p>
+                        <div className="text-sm font-black font-mono text-orange-400">{formatMoney(pnlData.currPoint.cost, 'TRY').formatted}</div>
+                    </div>
+                    <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
+                          {pnlPeriod === 'daily' ? 'Günlük İşletme Gid.' : pnlPeriod === 'weekly' ? 'Haftalık İşletme Gid.' : 'Bu Ayki İşletme Gid.'}
+                        </p>
+                        <div className="text-sm font-black font-mono text-purple-400">{formatMoney(pnlData.currPoint.expense, 'TRY').formatted}</div>
+                    </div>
+                    
+                    {/* MAĞAZA POS KARI KARTI */}
+                    <div className="bg-cyan-950/20 border border-cyan-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                        <p className="text-[9px] text-cyan-400/90 font-bold uppercase tracking-wider mb-0.5">
+                          {pnlPeriod === 'daily' ? 'Bugünkü Mağaza Kârı' : pnlPeriod === 'weekly' ? 'Bu Haftaki Mağaza Kârı' : 'Bu Ayki Mağaza Kârı'}
+                        </p>
+                        <div className="text-sm font-black font-mono text-cyan-400">{formatMoney(pnlData.currPoint.posProfit, 'TRY').formatted}</div>
+                        <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${pnlData.posProfitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {pnlData.posProfitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {pnlData.posProfitTrend.percent.toFixed(1)} {pnlData.posProfitTrend.isUp ? 'Artış' : 'Düşüş'}
+                        </div>
+                    </div>
+
+                    <div className="bg-emerald-950/20 border border-emerald-500/30 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                        <p className="text-[9px] text-emerald-400/90 font-bold uppercase tracking-wider mb-0.5">
+                          {pnlPeriod === 'daily' ? 'Bugünkü Net Kâr' : pnlPeriod === 'weekly' ? 'Bu Haftaki Net Kâr' : 'Bu Ayki Net Ticari Kâr'}
+                        </p>
+                        <div className={`text-sm font-black font-mono ${pnlData.currPoint.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {formatMoney(pnlData.currPoint.profit, 'TRY').formatted}
+                        </div>
+                        <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${pnlData.profitTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {pnlData.profitTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {pnlData.profitTrend.percent.toFixed(1)} {pnlData.profitTrend.isUp ? 'Artış' : 'Düşüş'}
+                        </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* --- SEKME 2: STOK DEĞERİ 5'Lİ KPI SAYAÇLARI --- */}
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4 shrink-0">
+                    {/* 1. GÜNCEL STOK DEĞERİ */}
+                    <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
+                        Güncel Stok Değeri
+                      </p>
+                      <div className="text-sm font-black font-mono text-emerald-400">
+                        {formatMoney(stockValuationData.currentValuation, 'TRY').formatted}
+                      </div>
+                      <div className="text-[9px] text-slate-400 font-bold truncate mt-1.5" title={stockValuationData.targetWhName}>
+                        {stockValuationData.targetWhName}
+                      </div>
+                    </div>
+
+                    {/* 2. DÖNEM BAŞI DEĞERİ */}
+                    <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
+                        {pnlPeriod === 'daily' ? 'Ay Başı Değer' : pnlPeriod === 'weekly' ? '16 Hafta Önce' : '12 Ay Önce'}
+                      </p>
+                      <div className="text-sm font-black font-mono text-slate-300">
+                        {formatMoney(stockValuationData.periodStartValuation, 'TRY').formatted}
+                      </div>
+                      <div className="text-[9px] text-slate-500 font-bold mt-1.5">
+                        Başlangıç Envanteri
+                      </div>
+                    </div>
+
+                    {/* 3. DEĞER TRENDİ (ARTIYOR MU AZALIYOR MU?) */}
+                    <div className={`p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5 border ${
+                      stockValuationData.totalChange >= 0
+                        ? 'bg-emerald-950/20 border-emerald-500/30'
+                        : 'bg-rose-950/20 border-rose-500/30'
+                    }`}>
+                      <p className={`text-[9px] font-bold uppercase tracking-wider mb-0.5 ${
+                        stockValuationData.totalChange >= 0 ? 'text-emerald-400/90' : 'text-rose-400/90'
+                      }`}>
+                        Değer Değişimi & Trend
+                      </p>
+                      <div className={`text-sm font-black font-mono ${
+                        stockValuationData.totalChange >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      }`}>
+                        {stockValuationData.totalChange >= 0 ? '+' : ''}{formatMoney(stockValuationData.totalChange, 'TRY').formatted}
+                      </div>
+                      <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${
+                        stockValuationData.totalChange >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                      }`}>
+                        {stockValuationData.totalChange >= 0 ? <TrendingUp size={11}/> : <TrendingDown size={11}/>}
+                        %{stockValuationData.changePercent.toFixed(1)} {stockValuationData.totalChange >= 0 ? 'Değer Artıyor' : 'Değer Azalıyor'}
+                      </div>
+                    </div>
+
+                    {/* 4. DÖNEM İÇİ GİRİŞLER */}
+                    <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
+                        {pnlPeriod === 'daily' ? 'Ay İçi Giriş (+)' : pnlPeriod === 'weekly' ? '16 Hf. Giriş (+)' : 'Yıllık Giriş (+)'}
+                      </p>
+                      <div className="text-sm font-black font-mono text-cyan-400">
+                        {formatMoney(stockValuationData.totalIn, 'TRY').formatted}
+                      </div>
+                      <div className="text-[9px] text-cyan-400/80 font-bold mt-1.5 flex items-center gap-1">
+                        <ArrowUpRight size={10} /> Alım / Yeni Giriş
+                      </div>
+                    </div>
+
+                    {/* 5. DÖNEM İÇİ ÇIKIŞLAR */}
+                    <div className="bg-[#070b14]/80 border border-slate-800/60 p-3 rounded-lg shadow-inner transition-transform hover:-translate-y-0.5">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">
+                        {pnlPeriod === 'daily' ? 'Ay İçi Çıkış (-)' : pnlPeriod === 'weekly' ? '16 Hf. Çıkış (-)' : 'Yıllık Çıkış (-)'}
+                      </p>
+                      <div className="text-sm font-black font-mono text-orange-400">
+                        {formatMoney(stockValuationData.totalOut, 'TRY').formatted}
+                      </div>
+                      <div className="text-[9px] text-orange-400/80 font-bold mt-1.5 flex items-center gap-1">
+                        <ArrowDownLeft size={10} /> Satış / SMM / Çıkış
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
+
+            {analyticsTab === 'pnl' ? (
+              <>
+                {/* --- ORTA: P&L DİNAMİK ÇUBUK GRAFİĞİ --- */}
+                <div className="pt-3 border-t border-slate-800/60 flex-1 flex items-end min-h-[160px] pb-2">
+                  <div className={`flex items-end h-full w-full ${pnlPeriod === 'daily' ? 'gap-0.5 sm:gap-1' : 'gap-1 sm:gap-1.5 md:gap-2'}`}>
+                    {pnlData.points.map((pt) => {
+                      const totalOut = pt.cost + pt.expense
+                      const revHeight = Math.max((pt.revenue / pnlData.maxVal) * 100, 2)
+                      const outHeight = Math.max((totalOut / pnlData.maxVal) * 100, 2)
+                      return (
+                        <div key={pt.key} className="flex-1 flex flex-col justify-end items-center gap-1 group relative h-full min-w-0">
+                            <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#070b14] border border-slate-700 rounded-lg p-2 text-[10px] font-mono shadow-2xl z-20 w-44 pointer-events-none">
+                              <div className="text-white font-bold pb-1 mb-1 border-b border-slate-800 text-[10px]">{pt.fullLabel}</div>
+                              <div className="text-blue-400">Ciro: {formatMoney(pt.revenue, 'TRY').formatted}</div>
+                              <div className="text-orange-400">Maliyet: {formatMoney(pt.cost, 'TRY').formatted}</div>
+                              <div className="text-purple-400 border-b border-slate-700/50 pb-1 mb-1">Gider: {formatMoney(pt.expense, 'TRY').formatted}</div>
+                              {pt.posRev > 0 && (
+                                <div className="text-cyan-400 text-[9px] mb-1">Mağaza Kârı: {formatMoney(pt.posProfit, 'TRY').formatted}</div>
+                              )}
+                              <div className={pt.profit >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                                Net: {formatMoney(pt.profit, 'TRY').formatted}
+                              </div>
+                              {pt.revenue > 0 && (
+                                <div className="text-slate-400 text-[9px] mt-0.5">Marj: %{pt.marginPct.toFixed(1)}</div>
+                              )}
+                            </div>
+                            <div className={`w-full flex justify-center ${pnlPeriod === 'daily' ? 'gap-0.5' : 'gap-1 sm:gap-1.5'} items-end h-full relative`}>
+                              <div
+                                className={`w-1/2 max-w-[22px] rounded-t transition-all duration-700 ease-out shadow-sm ${
+                                  pt.isCurrent
+                                    ? 'bg-blue-400 ring-1 ring-blue-300'
+                                    : pt.isFuture
+                                    ? 'bg-blue-500/20'
+                                    : 'bg-blue-500'
+                                }`}
+                                style={{ height: `${revHeight}%` }}
+                              />
+                              <div
+                                className={`w-1/2 max-w-[22px] rounded-t transition-all duration-700 ease-out delay-75 shadow-sm ${
+                                  pt.isCurrent
+                                    ? 'bg-orange-400 ring-1 ring-orange-300'
+                                    : pt.isFuture
+                                    ? 'bg-orange-500/20'
+                                    : 'bg-orange-500'
+                                }`}
+                                style={{ height: `${outHeight}%` }}
+                              />
+                            </div>
+                            <div className={`${pnlPeriod === 'daily' ? 'text-[7px] sm:text-[8px] md:text-[9px]' : pnlPeriod === 'weekly' ? 'text-[7px] sm:text-[8px]' : 'text-[8px] sm:text-[9px]'} font-bold mt-1 text-center truncate w-full shrink-0 transition-colors ${
+                              pt.isCurrent ? 'text-indigo-400 font-black' : pt.isFuture ? 'text-slate-600' : 'text-slate-500 group-hover:text-slate-300'
+                            }`}>
+                              {pt.label}
+                            </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* --- ALT: P&L FİNANSAL ÖZET TABLOSU --- */}
+                <div className="pt-2.5 border-t border-slate-800/80 shrink-0">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <FileText size={12} className="text-indigo-400" />
+                      {pnlPeriod === 'daily'
+                        ? `Günlük Finansal Özet Tablosu (Bu Ay - ${pnlData.points.length} Gün)`
+                        : pnlPeriod === 'weekly'
+                        ? 'Haftalık Finansal Özet Tablosu (Son 16 Hafta)'
+                        : '12 Aylık Finansal Özet Tablosu (Son 1 Yıl)'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 font-mono">Ciro • Net Kâr • Kâr Marjı</span>
+                  </div>
+                  <div className="overflow-x-auto custom-scrollbar flex gap-1.5 pb-1">
+                    {pnlData.points.map((pt) => {
+                      const isCurrent = pt.isCurrent
+                      return (
+                        <div
+                          key={pt.key}
+                          className={`flex-1 min-w-[70px] p-1.5 rounded-lg border text-center font-mono transition-colors shrink-0 ${
+                            isCurrent
+                              ? 'bg-indigo-950/40 border-indigo-500/60 ring-1 ring-indigo-500/30'
+                              : pt.isFuture
+                              ? 'bg-[#070b14]/40 border-slate-800/40 opacity-60'
+                              : 'bg-[#070b14]/70 border-slate-800/70 hover:border-slate-700'
+                          }`}
+                        >
+                          <span className={`text-[8px] font-sans font-bold block truncate ${
+                            isCurrent ? 'text-indigo-300 font-black' : pt.isFuture ? 'text-slate-500' : 'text-slate-400'
+                          }`}>
+                            {pt.summaryLabel}
+                          </span>
+                          <span className={`text-[9px] font-bold block mt-0.5 truncate ${pt.isFuture ? 'text-blue-400/50' : 'text-blue-400'}`} title={`Ciro: ${formatMoney(pt.revenue, 'TRY').formatted}`}>
+                            {formatMoney(pt.revenue, 'TRY').formatted}
+                          </span>
+                          <span
+                            className={`text-[9px] font-bold block mt-0.5 truncate ${
+                              pt.isFuture
+                                ? 'text-slate-500'
+                                : pt.profit >= 0
+                                ? 'text-emerald-400'
+                                : 'text-rose-400'
+                            }`}
+                            title={`Net Kâr: ${formatMoney(pt.profit, 'TRY').formatted}`}
+                          >
+                            {pt.profit >= 0 ? '+' : ''}{formatMoney(pt.profit, 'TRY').formatted}
+                          </span>
+                          <span className={`text-[8px] block mt-0.5 font-sans ${
+                            pt.isFuture
+                              ? 'text-slate-600'
+                              : pt.marginPct >= 0
+                              ? 'text-emerald-400/90'
+                              : 'text-rose-400/90'
+                          }`}>
+                            %{pt.marginPct.toFixed(0)} Marj
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* --- ORTA: STOK DEĞER ÇUBUK VE TREND GRAFİĞİ --- */}
+                <div className="pt-3 border-t border-slate-800/60 flex-1 flex items-end min-h-[160px] pb-2">
+                  <div className={`flex items-end h-full w-full ${pnlPeriod === 'daily' ? 'gap-0.5 sm:gap-1' : 'gap-1 sm:gap-1.5 md:gap-2'}`}>
+                    {stockValuationData.points.map((pt) => {
+                      const valHeight = Math.max((pt.stockValuation / stockValuationData.maxVal) * 100, 3)
+                      const flowVal = Math.max(pt.inVal, pt.outVal)
+                      const flowHeight = flowVal > 0 ? Math.max((flowVal / stockValuationData.maxVal) * 100, 3) : 1
+
+                      return (
+                        <div key={pt.key} className="flex-1 flex flex-col justify-end items-center gap-1 group relative h-full min-w-0">
+                          {/* Tooltip Hover Popover */}
+                          <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#070b14] border border-slate-700 rounded-lg p-2.5 text-[10px] font-mono shadow-2xl z-20 w-48 pointer-events-none">
+                            <div className="text-white font-bold pb-1 mb-1.5 border-b border-slate-800 text-[10px] flex items-center justify-between">
+                              <span className="truncate">{pt.fullLabel}</span>
+                              {pt.isCurrent && <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1 py-0.5 rounded font-sans shrink-0">Bugün</span>}
+                            </div>
+                            <div className="text-emerald-400 font-bold mb-1 flex justify-between">
+                              <span className="text-slate-400 font-sans">Envanter:</span>
+                              <span>{formatMoney(pt.stockValuation, 'TRY').formatted}</span>
+                            </div>
+                            <div className="text-cyan-400 flex justify-between">
+                              <span className="text-slate-400 font-sans">Giriş (+):</span>
+                              <span>+{formatMoney(pt.inVal, 'TRY').formatted}</span>
+                            </div>
+                            <div className="text-orange-400 flex justify-between">
+                              <span className="text-slate-400 font-sans">Çıkış (-):</span>
+                              <span>-{formatMoney(pt.outVal, 'TRY').formatted}</span>
+                            </div>
+                            <div className={`pt-1 mt-1 border-t border-slate-800 flex justify-between font-bold ${
+                              pt.netChange > 0 ? 'text-emerald-400' : pt.netChange < 0 ? 'text-rose-400' : 'text-slate-400'
+                            }`}>
+                              <span className="font-sans">Net Akış:</span>
+                              <span>{pt.netChange > 0 ? '+' : ''}{formatMoney(pt.netChange, 'TRY').formatted}</span>
+                            </div>
+                            {pt.changeFromPrev !== 0 && (
+                              <div className={`text-[9px] mt-0.5 flex justify-between font-sans ${
+                                pt.changeFromPrev > 0 ? 'text-emerald-400' : 'text-rose-400'
+                              }`}>
+                                <span>Öncekine Göre:</span>
+                                <span>{pt.changeFromPrev > 0 ? '▲ Artış' : '▼ Azalış'}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Barlar: Sol Envanter Değeri, Sağ Net Giriş/Çıkış */}
+                          <div className={`w-full flex justify-center ${pnlPeriod === 'daily' ? 'gap-0.5' : 'gap-1 sm:gap-1.5'} items-end h-full relative`}>
+                            {/* Sol Bar: Envanter Değeri */}
+                            <div
+                              className={`w-1/2 max-w-[22px] rounded-t transition-all duration-700 ease-out shadow-sm ${
+                                pt.isCurrent
+                                  ? 'bg-emerald-400 ring-1 ring-emerald-300'
+                                  : pt.isFuture
+                                  ? 'bg-emerald-500/20'
+                                  : pt.netChange > 0
+                                  ? 'bg-gradient-to-t from-emerald-600 to-teal-400'
+                                  : pt.netChange < 0
+                                  ? 'bg-gradient-to-t from-amber-600 to-rose-400'
+                                  : 'bg-teal-500'
+                              }`}
+                              style={{ height: `${valHeight}%` }}
+                            />
+                            {/* Sağ Bar: Dönem Giriş/Çıkış Akışı */}
+                            <div
+                              className={`w-1/2 max-w-[22px] rounded-t transition-all duration-700 ease-out delay-75 shadow-sm ${
+                                pt.isFuture
+                                  ? 'bg-slate-700/20'
+                                  : pt.inVal >= pt.outVal && pt.inVal > 0
+                                  ? 'bg-cyan-500'
+                                  : pt.outVal > 0
+                                  ? 'bg-orange-500'
+                                  : 'bg-slate-700/40'
+                              }`}
+                              style={{ height: `${flowHeight}%` }}
+                            />
+                          </div>
+
+                          <div className={`${pnlPeriod === 'daily' ? 'text-[7px] sm:text-[8px] md:text-[9px]' : pnlPeriod === 'weekly' ? 'text-[7px] sm:text-[8px]' : 'text-[8px] sm:text-[9px]'} font-bold mt-1 text-center truncate w-full shrink-0 transition-colors ${
+                            pt.isCurrent ? 'text-emerald-400 font-black' : pt.isFuture ? 'text-slate-600' : 'text-slate-500 group-hover:text-slate-300'
+                          }`}>
+                            {pt.label}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* --- ALT: DÖNEMSEL STOK ÖZET TABLOSU --- */}
+                <div className="pt-2.5 border-t border-slate-800/80 shrink-0">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Package size={12} className="text-emerald-400" />
+                      {pnlPeriod === 'daily'
+                        ? `Günlük Envanter Değer Tablosu (Bu Ay - ${stockValuationData.points.length} Gün)`
+                        : pnlPeriod === 'weekly'
+                        ? 'Haftalık Envanter Değer Tablosu (Son 16 Hafta)'
+                        : '12 Aylık Envanter Değer Tablosu (Son 1 Yıl)'}
+                    </span>
+                    <span className="text-[9px] text-slate-500 font-mono">Envanter Değeri • Net Değişim • Giriş / Çıkış</span>
+                  </div>
+                  <div className="overflow-x-auto custom-scrollbar flex gap-1.5 pb-1">
+                    {stockValuationData.points.map((pt) => {
+                      const isCurrent = pt.isCurrent
+                      return (
+                        <div
+                          key={pt.key}
+                          className={`flex-1 min-w-[70px] p-1.5 rounded-lg border text-center font-mono transition-colors shrink-0 ${
+                            isCurrent
+                              ? 'bg-emerald-950/40 border-emerald-500/60 ring-1 ring-emerald-500/30'
+                              : pt.isFuture
+                              ? 'bg-[#070b14]/40 border-slate-800/40 opacity-60'
+                              : 'bg-[#070b14]/70 border-slate-800/70 hover:border-slate-700'
+                          }`}
+                        >
+                          <span className={`text-[8px] font-sans font-bold block truncate ${
+                            isCurrent ? 'text-emerald-300 font-black' : pt.isFuture ? 'text-slate-500' : 'text-slate-400'
+                          }`}>
+                            {pt.summaryLabel}
+                          </span>
+                          <span className={`text-[9px] font-bold block mt-0.5 truncate ${pt.isFuture ? 'text-emerald-400/50' : 'text-emerald-400'}`} title={`Stok Değeri: ${formatMoney(pt.stockValuation, 'TRY').formatted}`}>
+                            {formatMoney(pt.stockValuation, 'TRY').formatted}
+                          </span>
+                          <span
+                            className={`text-[9px] font-bold block mt-0.5 truncate ${
+                              pt.isFuture
+                                ? 'text-slate-500'
+                                : pt.netChange >= 0
+                                ? 'text-emerald-400'
+                                : 'text-rose-400'
+                            }`}
+                            title={`Net Değişim: ${formatMoney(pt.netChange, 'TRY').formatted}`}
+                          >
+                            {pt.netChange >= 0 ? '+' : ''}{formatMoney(pt.netChange, 'TRY').formatted}
+                          </span>
+                          <span className="text-[8px] block mt-0.5 font-sans text-slate-500 truncate" title={`Giriş: ${formatMoney(pt.inVal, 'TRY').formatted} / Çıkış: ${formatMoney(pt.outVal, 'TRY').formatted}`}>
+                            G:{Math.round(pt.inVal / 1000)}k • Ç:{Math.round(pt.outVal / 1000)}k
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* SAĞ KOLON: 1. YAKLAŞAN VE AY SONU VADELERİ + 2. CARİ BORÇ & ALACAK KIYASLAMA */}

@@ -404,8 +404,9 @@ Geriye dönük hesaplama: `closing = current − future_in + future_out`, `openi
 Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetiklediği yan etkiler**.
 
 ### 7.1 Genel Durum `/`
-- **Üst:** Şirket filtresi (Holding / Ortak / şirketler), Net Finansal Durum = banka + kasa + müşteri alacağı − tedarikçi borcu − kart borcu.
-- **Orta (Sol 2 Kolon):** 6 aylık P&L bar grafiği + 5 KPI kartı (Ciro, SMM, Gider, POS Kârı, Net Kâr, aylık trend %) + altta **6 Aylık Finansal Özet Tablosu** (aylık ciro, maliyet/gider, net kâr ve kâr marjı).
+- **Orta (Sol 2 Kolon - Sekmeli Analiz Kartı):**
+  - **Sekme 1: `📊 Kâr / Zarar (P&L)`:** Günlük (Ayın günleri), Haftalık (Son 16 Hafta) ve Aylık (Son 12 Ay) P&L bar grafiği + 5 KPI kartı (Ciro, SMM, Gider, POS Kârı, Net Kâr, trend %) + altta Dönemsel Finansal Özet Tablosu (ciro, net kâr, kâr marjı).
+  - **Sekme 2: `📦 Stok & Depo Değeri`:** Günlük, Haftalık ve Aylık zaman serisinde envanter varlık değerinin zamansal değişim trendi. Tüm depolar veya seçilen münferit depo bazında dinamik filtreleme (`selectedStockWhId`). 5 KPI kartı (Güncel Stok Değeri, Dönem Başı Değer, Değer Değişimi & Artıyor/Azalıyor Trendi, Dönem İçi Girişler +, Dönem İçi Çıkışlar -). Orta alanda çift sütunlu interaktif envanter değer ve akış grafiği (Envanter Varlık Seviyesi, Dönem Net Akışı, zengin detay popover tooltip'i) ve altta Dönemsel Stok Değer Tablosu.
 - **Sağ (1 Kolon):**
   1. **Yaklaşan ve Ay Sonu Vadeleri (Sabit Gider Takibi):** Mevcut ayın sabit gider şablonlarının (kira, aidat, fatura, SGK, BağKur vb.) vadesine kalan gün / ay sonu durumu, ödenen/kalan bütçe; geçmiş dönemlerden ödenmemiş sarkan sabit borçlar için acil uyarı şeridi ve hızlı ödeme yönlendirmesi.
   2. **Cari Borç & Alacak Kıyaslama Widget'ı:**
