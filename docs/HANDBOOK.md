@@ -333,11 +333,16 @@ converted   = accCurr==='TRY' ? amountInTry
 ```
 Yani TRY→döviz hesaba yansıtmada **formdaki kur değil anlık kur** kullanılır; iki kur farklıysa küçük sapma oluşur.
 
-### 6.3 Stok Değerlemesi
+### 6.3 Stok Değerlemesi & Mutlak Hesaplama Motoru (`lib/stock-ledger.ts`)
 
 - Depo/stok toplam değeri: `quantity × unit_price × (1 + vat_rate/100)` → TRY'ye anlık kurla.
 - `stocks.unit_price`, **her `in` hareketinde** hareketin birim fiyatına (stok para birimine çevrilmiş) **üzerine yazılır** (son alış fiyatı yöntemi, ortalama değil).
 - Stok kartı düzenlenirken `quantity` alanı formda gösterilir ama **kaydedilmez**; miktar yalnız hareketlerden gelir.
+- **Mutlak Stok Motoru (`recalculateAbsoluteStock`):** Stok hareketlerinde (`stock_transactions`) herhangi bir ekleme, düzenleme veya silme yapıldığında tek merkezden (`lib/stock-ledger.ts`) çalışır:
+  1. `quantity = Σ in.quantity − Σ out.quantity` mutlak bakiye olarak toplanır.
+  2. Pozitif birim fiyatlı en son `in` hareketi (`tx_date DESC, created_at DESC`) bulunur ve stok para birimine çevrilerek `stocks.unit_price` alanına yazılır.
+  3. Böylece fatura silindiğinde veya iptal edildiğinde ürünün birim maliyeti otomatik olarak bir önceki geçerli alış fiyatına (veya açılış stoğuna) geri döner.
+- **Kronoloji Kuralı:** Aynı tarihte gerçekleşen hareketlerde `Açılış Stoğu` her zaman günün başlangıcı (en eski taban) olarak sıralanır; servis parça çıkışları veya satışlar açılış stoğunun altında kalamaz.
 
 ### 6.4 Detaylı Fatura Kuralları
 
@@ -496,6 +501,10 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Kategori adı değişince aynı depodaki stokların `category` string'i toplu güncellenir.
 - **F2 Hızlı Stok Kartı Düzenleme:** ERP standartlarına uygun olarak ürün listesinde, hızlı aramada veya analiz tablolarında herhangi bir ürünün üzerindeyken (fare ile üzerine gelindiğinde `hover` veya ürün seçildiğinde) klavyeden **`F2`** tuşuna basıldığında doğrudan o ürünün "Stok Kartını Düzenle" penceresi açılır. Modal açıkken `Escape` tuşu ile kapatılabilir.
 - **Rol ve Depo Yetkilendirmesi:** Kasiyer / Satış personeli sol menüden Stok Yönetimi modülüne erişebilir. Personelin yetkili olduğu şirket kısıtlaması (`allowed_companies`) varsa, ekranda **yalnızca o mağazaya ait depolar** listelenir; başka mağaza veya şirketlerin depoları gizlenir. Personel yalnızca kendi mağazasının deposuna yeni stok kartı açabilir ve **Stok Girişi (`tx_type = 'in'`) / Sayım** yapabilir.
+- **Çapraz Modül Stok Hareket Koruması & Yetim Temizliği:**
+  - Harici modüllerden yansıyan stok hareketleri (`Alım Faturası`, `Satış Faturası`, `Mağaza POS`, `Teknik Servis`) tabloda renkli modül rozetleri ve kilit simgesi (`🔒`) ile gösterilir.
+  - Bu hareketlerin stok ekranından doğrudan düzenlenmesi (fiyat/miktar) cari ve bilet tutarlılığını bozmamak için engellenir; kullanıcı ilgili modüle yönlendirilir.
+  - Silme anında: Bağlı kaynak fatura/servis fişi sistemde aktifse silme reddedilir ve kaynak modül adı gösterilir. Ancak kaynak fiş/fatura sistemde bulunamazsa (yetim kayıt), ekran kullanıcıya **"Yetim Stok Hareketini Sil"** onayı sunarak kaydın güvenle temizlenmesine ve stok bakiyesi/son alış maliyetinin onarılmasına izin verir.
 
 ### 7.7 Hizmet Yönetimi `/services`
 - Kart ızgarası: ad, sahip merkez, net fiyat, KDV, KDV dahil fiyat. Arama, ekle/düzenle/sil.

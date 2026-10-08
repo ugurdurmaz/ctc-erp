@@ -4,6 +4,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
+import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
 import toast, { Toaster } from 'react-hot-toast'
 import { 
   Wrench, Plus, Search, Filter, RefreshCw, Printer, MessageSquare, 
@@ -415,11 +416,9 @@ export default function TechnicalServicePage() {
   }
 
   async function recalculateAbsoluteStock(stockId: string) {
-    const { data: txs } = await supabase.from('stock_transactions').select('quantity, tx_type').eq('stock_id', stockId)
-    let absoluteQty = 0
-    txs?.forEach(t => { absoluteQty += t.tx_type === 'in' ? Number(t.quantity) : -Number(t.quantity) })
-    await supabase.from('stocks').update({ quantity: absoluteQty }).eq('id', stockId)
-    setStocks(prev => prev.map(s => s.id === stockId ? { ...s, quantity: absoluteQty } : s))
+    const res = await recalculateStockLedger(supabase, stockId)
+    setStocks(prev => prev.map(s => s.id === stockId ? { ...s, quantity: res.quantity, unit_price: res.unit_price } : s))
+    return res
   }
 
   const handleDeleteTicket = (ticket: TechnicalTicket) => {

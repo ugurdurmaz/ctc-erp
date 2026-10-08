@@ -3,13 +3,14 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
+import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
 import toast, { Toaster } from 'react-hot-toast'
 import { 
   Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe, 
   AlertTriangle, RefreshCw, Filter, Settings, Tags, ChevronLeft, ChevronRight, 
   ChevronDown, ChevronUp, ChevronsUpDown, Tag, ArrowUpDown, Check, Folder, FolderPlus,
   BarChart3, PieChart, Clock, Zap, CheckCircle2, TrendingDown, ExternalLink,
-  ShieldAlert, Moon, Eye, ArrowRight, AlertCircle, ShoppingCart
+  ShieldAlert, Moon, Eye, ArrowRight, AlertCircle, ShoppingCart, Lock
 } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
@@ -602,9 +603,25 @@ export default function StocksPage() {
 
   async function fetchTransactions(stockId: string) {
     try {
-      const { data, error } = await supabase.from('stock_transactions').select('*, company:companies(name, is_personal)').eq('stock_id', stockId).order('tx_date', { ascending: false })
+      const { data, error } = await supabase
+        .from('stock_transactions')
+        .select('*, company:companies(name, is_personal)')
+        .eq('stock_id', stockId)
+        .order('tx_date', { ascending: false })
+        .order('created_at', { ascending: false })
       if (error) throw error
-      setTransactions(data || [])
+
+      // Kronolojik sıralama: Aynı günde açılış stoğu daima tabanda (en eski) yer almalıdır
+      const sorted = [...(data || [])].sort((a, b) => {
+        if (a.tx_date !== b.tx_date) {
+          return b.tx_date.localeCompare(a.tx_date)
+        }
+        if (a.description === 'Açılış Stoğu') return 1
+        if (b.description === 'Açılış Stoğu') return -1
+        return (b.created_at || '').localeCompare(a.created_at || '')
+      })
+
+      setTransactions(sorted)
     } catch (err) { console.error(err) }
   }
 
@@ -945,10 +962,7 @@ export default function StocksPage() {
   // --- MUTLAK HESAPLAMA MOTORU (ABSOLUTE LEDGER RECALCULATOR) ---
   // =========================================================================================
   async function recalculateAbsoluteStock(stockId: string) {
-    const { data: txs } = await supabase.from('stock_transactions').select('quantity, tx_type').eq('stock_id', stockId)
-    let absoluteQty = 0
-    txs?.forEach(t => { absoluteQty += t.tx_type === 'in' ? Number(t.quantity) : -Number(t.quantity) })
-    await supabase.from('stocks').update({ quantity: absoluteQty }).eq('id', stockId)
+    return await recalculateStockLedger(supabase, stockId, rates)
   }
   // =========================================================================================
 
@@ -1322,6 +1336,24 @@ export default function StocksPage() {
   }
 
   function handleEditTx(t: StockTransaction) {
+    const desc = t.description || ''
+    if (desc.includes('/ Alım') || desc.includes('Fatura / Alım')) {
+      toast.error('Bu hareket Satıcı Alım Faturası kaynaklıdır. Miktar veya birim fiyat düzenlemesini Satıcılar sayfasındaki faturadan yapınız.')
+      return
+    }
+    if (desc.includes('/ Satış') || desc.includes('Fatura / Satış')) {
+      toast.error('Bu hareket Müşteri Satış Faturası kaynaklıdır. Düzenlemeyi Müşteriler sayfasındaki faturadan yapınız.')
+      return
+    }
+    if (desc.includes('POS-') || desc.includes('Z-Raporu') || desc.includes('Mağaza Satışı') || desc.includes('Müşteri Ürün İadesi')) {
+      toast.error('Bu hareket Mağaza POS Z-Raporu kaynaklıdır. Düzenlemeyi Mağaza Satış sayfasından yapınız.')
+      return
+    }
+    if (desc.includes('Servis Parça Çıkışı') || desc.includes('SRV-')) {
+      toast.error('Bu hareket Teknik Servis fişi kaynaklıdır. Düzenlemeyi Teknik Servis sayfasından ilgili fiş üzerinden yapınız.')
+      return
+    }
+
     setEditingTxId(t.id)
     setTxDate(t.tx_date)
     setTxType(t.tx_type)
@@ -1363,49 +1395,130 @@ export default function StocksPage() {
         toast.success(txType === 'in' ? 'Stok girişi eklendi.' : 'Stok çıkışı yapıldı.')
       }
       
+      // Mutlak miktar ve son alış fiyatını otomatik senkronize et
       await recalculateAbsoluteStock(selectedStockId)
-
-      if (txType === 'in') {
-        let basePrice = priceNum
-        if (txCurrency !== currentItem.currency) {
-          let tryValue = priceNum
-          if (txCurrency === 'USD') tryValue = priceNum * rates.USD
-          if (txCurrency === 'EUR') tryValue = priceNum * rates.EUR
-          if (currentItem.currency === 'USD') basePrice = tryValue / rates.USD
-          else if (currentItem.currency === 'EUR') basePrice = tryValue / rates.EUR
-          else basePrice = tryValue
-        }
-        await supabase.from('stocks').update({ unit_price: basePrice }).eq('id', selectedStockId)
-      }
 
       cancelEditTx()
       fetchTransactions(selectedStockId); fetchAllStocks()
     } catch (err: any) { toast.error('İşlem kaydedilemedi: ' + err.message) }
   }
 
-  function handleDeleteTransaction(txId: string, qty: number, type: 'in' | 'out') {
+  async function executeDeleteTransaction(txId: string) {
+    try {
+      const oldTx = transactions.find(t => t.id === txId)
+      await supabase.from('stock_transactions').delete().eq('id', txId)
+      
+      if (selectedStockId) {
+        await recalculateAbsoluteStock(selectedStockId)
+      }
+      
+      await logActivity('stock_tx', 'DELETE', `Stok hareketi iptal edildi: ${oldTx?.description}`, txId, oldTx?.unit_price, oldTx?.currency || '', { ...oldTx }, null, oldTx?.company_id)
+
+      toast.success('İşlem silindi ve stok başarıyla güncellendi.')
+      if (selectedStockId) fetchTransactions(selectedStockId)
+      fetchAllStocks()
+    } catch (err: any) { toast.error('Silme başarısız: ' + err.message) }
+  }
+
+  async function handleDeleteTransaction(txId: string, qty: number, type: 'in' | 'out', desc?: string) {
+    const txToDelete = transactions.find(t => t.id === txId)
+    const txDesc = desc || txToDelete?.description || ''
+
+    // Çapraz modül kontrolü
+    let isExternal = false
+    let externalModule = ''
+    let isOrphan = false
+
+    // 1. Satıcı / Alım Faturası Kontrolü
+    if (txDesc.includes('/ Alım') || txDesc.includes('Fatura / Alım')) {
+      isExternal = true
+      externalModule = 'Satıcı Alım Faturası'
+      const { data: suppInvoices } = await supabase
+        .from('supplier_transactions')
+        .select('id, description, tx_date, invoice_lines')
+        .eq('is_detailed', true)
+
+      const linked = suppInvoices?.find(inv => 
+        Array.isArray(inv.invoice_lines) && inv.invoice_lines.some((l: any) => l.stockTxId === txId)
+      )
+      if (linked) {
+        toast.error(`Bu stok hareketi Satıcı Alım Faturasına (${linked.description || 'Fatura'} - ${linked.tx_date}) bağlıdır. Faturayı Satıcılar sayfasından düzenleyebilir veya silebilirsiniz.`)
+        return
+      } else {
+        isOrphan = true
+      }
+    }
+    // 2. Müşteri / Satış Faturası Kontrolü
+    else if (txDesc.includes('/ Satış') || txDesc.includes('Fatura / Satış')) {
+      isExternal = true
+      externalModule = 'Müşteri Satış Faturası'
+      const { data: custInvoices } = await supabase
+        .from('customer_transactions')
+        .select('id, description, tx_date, invoice_lines')
+        .eq('is_detailed', true)
+
+      const linked = custInvoices?.find(inv => 
+        Array.isArray(inv.invoice_lines) && inv.invoice_lines.some((l: any) => l.stockTxId === txId)
+      )
+      if (linked) {
+        toast.error(`Bu stok hareketi Müşteri Satış Faturasına (${linked.description || 'Fatura'} - ${linked.tx_date}) bağlıdır. Faturayı Müşteriler sayfasından düzenleyebilir veya silebilirsiniz.`)
+        return
+      } else {
+        isOrphan = true
+      }
+    }
+    // 3. Mağaza POS Z-Raporu / İade Kontrolü
+    else if (txDesc.includes('POS-') || txDesc.includes('Z-Raporu') || txDesc.includes('Mağaza Satışı') || txDesc.includes('Müşteri Ürün İadesi')) {
+      toast.error('Bu stok hareketi Mağaza POS modülünden otomatik yansımıştır. Lütfen işlemi Mağaza sayfasındaki Z-Raporu veya İade ekranından yönetin.')
+      return
+    }
+    // 4. Teknik Servis Parça Çıkışı Kontrolü
+    else if (txDesc.includes('Servis Parça Çıkışı') || txDesc.includes('SRV-')) {
+      isExternal = true
+      externalModule = 'Teknik Servis Fişi'
+      const match = txDesc.match(/SRV-\d{2}-\d+/)
+      const ticketNo = match ? match[0] : null
+      if (ticketNo) {
+        const { data: srvTicket } = await supabase
+          .from('technical_service_tickets')
+          .select('id, ticket_no, brand_model')
+          .eq('ticket_no', ticketNo)
+          .maybeSingle()
+        if (srvTicket) {
+          toast.error(`Bu stok hareketi ${srvTicket.ticket_no} numaralı Teknik Servis fişine bağlıdır. Lütfen işlemi Teknik Servis sayfasından ilgili fişi düzenleyerek yönetin.`)
+          return
+        } else {
+          isOrphan = true
+        }
+      }
+    }
+
+    if (isExternal && isOrphan) {
+      setConfirmDialog({
+        isOpen: true,
+        title: 'Yetim Stok Hareketini Sil',
+        message: `DİKKAT: Bu stok hareketinin bağlı olduğu kaynak (${externalModule}) sistemde bulunamadı (Yetim Kayıt). Bu kaydı silip stoğu düzeltmek istiyor musunuz?`,
+        confirmText: 'Evet, Yetim Kaydı Sil',
+        cancelText: 'Vazgeç',
+        isDanger: true,
+        onConfirm: () => {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+          executeDeleteTransaction(txId)
+        }
+      })
+      return
+    }
+
     setConfirmDialog({
       isOpen: true,
       title: 'İşlemi Sil',
-      message: 'Bu stok hareketini silmek istediğinize emin misiniz? İşlem miktarı stoka iade edilecektir.',
+      message: 'Bu stok hareketini silmek istediğinize emin misiniz? İşlem miktarı stoka iade edilecek ve son alış maliyeti otomatik güncellenecektir.',
       confirmText: 'Evet, Sil',
       cancelText: 'Vazgeç',
       isDanger: true,
-      onConfirm: async () => {
+      onConfirm: () => {
         setConfirmDialog(prev => ({ ...prev, isOpen: false }))
-        try {
-          const oldTx = transactions.find(t => t.id === txId)
-          await supabase.from('stock_transactions').delete().eq('id', txId)
-          
-          if (selectedStockId) {
-             await recalculateAbsoluteStock(selectedStockId)
-          }
-          
-          await logActivity('stock_tx', 'DELETE', `Stok hareketi iptal edildi: ${oldTx?.description}`, txId, oldTx?.unit_price, oldTx?.currency || '', { ...oldTx }, null, oldTx?.company_id)
-
-          toast.success('İşlem silindi ve stok güncellendi.')
-          fetchTransactions(selectedStockId!); fetchAllStocks()
-        } catch (err: any) { toast.error('Silme başarısız: ' + err.message) }
+        executeDeleteTransaction(txId)
       }
     })
   }
@@ -2423,7 +2536,28 @@ export default function StocksPage() {
                             >
                               <td className="p-2.5 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
                               <td className="p-2.5 text-slate-200 font-sans align-top" title={t.description}>
-                                 <div className="mb-1">{t.description}</div>
+                                 <div className="mb-1 flex items-center gap-1.5 flex-wrap">
+                                   <span>{t.description}</span>
+                                   {(() => {
+                                     const desc = t.description || ''
+                                     if (desc.includes('/ Alım') || desc.includes('Fatura / Alım')) {
+                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30 font-bold">Alım Faturası</span>
+                                     }
+                                     if (desc.includes('/ Satış') || desc.includes('Fatura / Satış')) {
+                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/30 font-bold">Satış Faturası</span>
+                                     }
+                                     if (desc.includes('POS-') || desc.includes('Z-Raporu') || desc.includes('Mağaza Satışı') || desc.includes('Müşteri Ürün İadesi')) {
+                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/30 font-bold">Mağaza POS</span>
+                                     }
+                                     if (desc.includes('Servis Parça Çıkışı') || desc.includes('SRV-')) {
+                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-bold">Teknik Servis</span>
+                                     }
+                                     if (desc === 'Açılış Stoğu') {
+                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-300 border border-slate-600/40 font-bold">Açılış Stoğu</span>
+                                     }
+                                     return null
+                                   })()}
+                                 </div>
                                  <div className="flex items-center gap-1 text-[9px] text-slate-500">
                                    {t.company ? (t.company.is_personal ? <Home size={10} className="text-slate-400"/> : <Building size={10} className="text-indigo-400"/>) : <Globe size={10} className="text-emerald-500/70"/>}
                                    {t.company ? t.company.name : 'Ortak İşlem'}
@@ -2458,10 +2592,20 @@ export default function StocksPage() {
                               </td>
 
                               <td className="p-2.5 text-center align-top">
-                                <div className="flex items-center justify-center gap-2">
-                                  <button onClick={() => handleEditTx(t)} className="text-slate-500 hover:text-indigo-400 transition" title="Düzenle"><Edit3 size={12} /></button>
-                                  <button onClick={() => handleDeleteTransaction(t.id, t.quantity, t.tx_type)} className="text-slate-600 hover:text-rose-400 transition" title="Sil"><Trash2 size={12} /></button>
-                                </div>
+                                {(() => {
+                                  const desc = t.description || ''
+                                  const isExternal = desc.includes('/ Alım') || desc.includes('/ Satış') || desc.includes('POS-') || desc.includes('Z-Raporu') || desc.includes('Servis Parça Çıkışı') || desc.includes('SRV-')
+                                  return (
+                                    <div className="flex items-center justify-center gap-2">
+                                      {isExternal ? (
+                                        <button onClick={() => handleEditTx(t)} className="text-slate-600 hover:text-amber-400 transition" title="Harici modülden yönetilir (Kilitli)"><Lock size={12} /></button>
+                                      ) : (
+                                        <button onClick={() => handleEditTx(t)} className="text-slate-500 hover:text-indigo-400 transition" title="Düzenle"><Edit3 size={12} /></button>
+                                      )}
+                                      <button onClick={() => handleDeleteTransaction(t.id, t.quantity, t.tx_type, t.description)} className="text-slate-600 hover:text-rose-400 transition" title={isExternal ? "Kaynağa Bağlı / Yetim Sil" : "Sil"}><Trash2 size={12} /></button>
+                                    </div>
+                                  )
+                                })()}
                               </td>
                             </tr>
                           )

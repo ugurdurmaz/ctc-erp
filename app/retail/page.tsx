@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Calendar, ChevronLeft, ChevronRight, ChevronDown, Plus, Save, Wallet, CreditCard, Eye, EyeOff, Landmark, X, Trash2, StickyNote, Loader2, AlertTriangle, Settings, ArrowRightLeft, Package, Search, Wrench, ExternalLink, RotateCcw, CheckCircle2, TrendingUp, Percent, ArrowDownLeft } from 'lucide-react'
 import { formatMoney } from '@/lib/utils'
+import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
 import { supabase } from '@/lib/supabase'
 import { logActivity } from '@/lib/audit'
 import { useAuth } from '@/lib/auth-context'
@@ -484,10 +485,7 @@ export default function RetailPOSPage() {
   }
 
   async function recalculateAbsoluteStock(stockId: string) {
-    const { data: txs } = await supabase.from('stock_transactions').select('quantity, tx_type').eq('stock_id', stockId)
-    let absoluteQty = 0
-    txs?.forEach(t => { absoluteQty += t.tx_type === 'in' ? Number(t.quantity) : -Number(t.quantity) })
-    await supabase.from('stocks').update({ quantity: absoluteQty }).eq('id', stockId)
+    return await recalculateStockLedger(supabase, stockId, rates)
   }
 
   const handleExecuteReturn = async () => {

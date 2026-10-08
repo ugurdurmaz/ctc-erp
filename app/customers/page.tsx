@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
+import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
 import { useAuth } from '@/lib/auth-context'
 import toast, { Toaster } from 'react-hot-toast'
 import { Users, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, MessageSquare, Copy, Download, ExternalLink, Check, ChevronDown } from 'lucide-react'
@@ -391,10 +392,7 @@ export default function CustomersPage() {
   }
 
   async function recalculateAbsoluteStock(stockId: string) {
-    const { data: txs } = await supabase.from('stock_transactions').select('quantity, tx_type').eq('stock_id', stockId)
-    let absoluteQty = 0
-    txs?.forEach(t => { absoluteQty += t.tx_type === 'in' ? Number(t.quantity) : -Number(t.quantity) })
-    await supabase.from('stocks').update({ quantity: absoluteQty }).eq('id', stockId)
+    return await recalculateStockLedger(supabase, stockId, rates)
   }
   // =========================================================================================
 
@@ -909,7 +907,7 @@ export default function CustomersPage() {
               stock_id: targetStockId, 
               company_id: finalCompId, 
               tx_date: invDate, 
-              description: `${invDesc || 'Fatura'} / Satış`, 
+              description: `${invDesc || 'Fatura'} / Satış (${currentCustomer?.name || 'Müşteri'})`, 
               tx_type: 'out', 
               quantity: q, 
               unit_price: costPrice, 
