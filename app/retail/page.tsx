@@ -2182,7 +2182,7 @@ export default function RetailPOSPage() {
                 </div>
                 <div className="flex items-center justify-between text-[10px] font-mono font-bold text-slate-200 mt-0.5">
                   <span className="text-slate-400 font-sans text-[9px]">Günün Toplam Servis Hacmi:</span>
-                  <span className="text-emerald-400">{formatMoney(catCash + catCard + deliveredTicketsTotal, 'TRY').formatted}</span>
+                  <span className="text-emerald-400">{formatMoney(catCash + catCard, 'TRY').formatted}</span>
                 </div>
               </>
             ) : (
