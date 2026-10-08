@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
-import { formatMoney, formatPhoneNumber } from '@/lib/utils'
+import { formatMoney, formatPhoneNumber, convertTxToEntityCurrency } from '@/lib/utils'
 import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
 import toast, { Toaster } from 'react-hot-toast'
 import { Building2, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, Store, Check, ChevronDown } from 'lucide-react'
@@ -149,16 +149,38 @@ export default function SuppliersPage() {
 
 
   useEffect(() => {
-    if (txCurrency === 'USD') setTxExchangeRate(rates.USD.toString())
-    else if (txCurrency === 'EUR') setTxExchangeRate(rates.EUR.toString())
-    else setTxExchangeRate('1')
-  }, [txCurrency, rates])
+    if (editingTxId) return
+    const supp = suppliers.find(s => s.id === selectedSupplierId)
+    const sCurr = supp?.currency || 'TRY'
+    
+    if (txCurrency === sCurr) {
+      setTxExchangeRate('1')
+    } else {
+      if (txCurrency === 'USD' || sCurr === 'USD') {
+        setTxExchangeRate(rates.USD > 0 ? rates.USD.toString() : '1')
+      } else if (txCurrency === 'EUR' || sCurr === 'EUR') {
+        setTxExchangeRate(rates.EUR > 0 ? rates.EUR.toString() : '1')
+      } else {
+        setTxExchangeRate('1')
+      }
+    }
+  }, [txCurrency, selectedSupplierId, suppliers, rates, editingTxId])
 
   useEffect(() => {
-    if (invCurrency === 'USD') setInvExchangeRate(rates.USD.toString())
-    else if (invCurrency === 'EUR') setInvExchangeRate(rates.EUR.toString())
-    else setInvExchangeRate('1')
-  }, [invCurrency, rates])
+    if (editingTxId) return
+    const supp = suppliers.find(s => s.id === selectedSupplierId)
+    const sCurr = supp?.currency || 'TRY'
+
+    if (invCurrency === sCurr && invCurrency === 'TRY') {
+      setInvExchangeRate('1')
+    } else if (invCurrency === 'USD' || sCurr === 'USD') {
+      setInvExchangeRate(rates.USD > 0 ? rates.USD.toString() : '1')
+    } else if (invCurrency === 'EUR' || sCurr === 'EUR') {
+      setInvExchangeRate(rates.EUR > 0 ? rates.EUR.toString() : '1')
+    } else {
+      setInvExchangeRate('1')
+    }
+  }, [invCurrency, selectedSupplierId, suppliers, rates, editingTxId])
 
   async function fetchExchangeRates() {
     try {
@@ -228,19 +250,13 @@ export default function SuppliersPage() {
     const { data: txs } = await supabase.from('supplier_transactions').select('amount, tx_type, currency, exchange_rate').eq('supplier_id', supplierId)
     let absoluteBal = 0
     txs?.forEach(t => {
-      let val = Number(t.amount || 0)
-      const txCurr = t.currency || 'TRY'
-      const rate = Number(t.exchange_rate) || 1
-
-      if (suppCurr === 'USD') {
-        if (txCurr === 'TRY') val = Number((val / (rate || rates.USD || 1)).toFixed(2))
-        else if (txCurr === 'EUR') val = Number(((val * (rate || rates.EUR || 1)) / (rates.USD || 1)).toFixed(2))
-      } else if (suppCurr === 'EUR') {
-        if (txCurr === 'TRY') val = Number((val / (rate || rates.EUR || 1)).toFixed(2))
-        else if (txCurr === 'USD') val = Number(((val * (rate || rates.USD || 1)) / (rates.EUR || 1)).toFixed(2))
-      } else {
-        if (txCurr !== 'TRY') val = Number((val * rate).toFixed(2))
-      }
+      const val = convertTxToEntityCurrency(
+        t.amount,
+        t.currency || 'TRY',
+        suppCurr,
+        Number(t.exchange_rate) || 1,
+        rates
+      )
 
       if (t.tx_type === 'debt') absoluteBal += val
       else absoluteBal -= val
@@ -603,10 +619,25 @@ export default function SuppliersPage() {
 
   async function handleAddTransaction(e: React.FormEvent) {
     e.preventDefault()
-    const amountNum = parseFloat(txAmount); const rateNum = txCurrency === 'TRY' ? 1 : (parseFloat(txExchangeRate) || 1)
+    const amountNum = parseFloat(txAmount)
     if (!amountNum || !selectedSupplierId || !txCompanyId) return
     const currentSupplier = suppliers.find(s => s.id === selectedSupplierId); if (!currentSupplier) return
     const finalCompId = txCompanyId === 'common' ? null : txCompanyId
+
+    const suppCurr = currentSupplier.currency || 'TRY'
+    const isCross = txCurrency !== suppCurr
+    let rateNum = 1
+    if (isCross) {
+      const enteredRate = parseFloat(txExchangeRate)
+      if (enteredRate && enteredRate > 0) {
+        rateNum = enteredRate
+      } else {
+        if (suppCurr === 'USD' || txCurrency === 'USD') rateNum = rates.USD || 1
+        else if (suppCurr === 'EUR' || txCurrency === 'EUR') rateNum = rates.EUR || 1
+      }
+    } else if (txCurrency !== 'TRY') {
+      rateNum = parseFloat(txExchangeRate) || (txCurrency === 'USD' ? rates.USD : rates.EUR) || 1
+    }
 
     if (txType === 'payment' && !paymentSource) return toast.error("Lütfen ödeme kaynağı seçin.")
 
@@ -908,7 +939,18 @@ export default function SuppliersPage() {
         return toast.error(`"${line.name}" için depo seçimi zorunludur.`)
       }
     }
-    const rateNum = invCurrency === 'TRY' ? 1 : (parseFloat(invExchangeRate) || 1)
+    const isInvoiceCross = invCurrency !== (currentSupplier.currency || 'TRY')
+    let rateNum = 1
+    if (isInvoiceCross) {
+      const enteredRate = parseFloat(invExchangeRate)
+      if (enteredRate && enteredRate > 0) rateNum = enteredRate
+      else {
+        if (currentSupplier.currency === 'USD' || invCurrency === 'USD') rateNum = rates.USD || 1
+        else if (currentSupplier.currency === 'EUR' || invCurrency === 'EUR') rateNum = rates.EUR || 1
+      }
+    } else if (invCurrency !== 'TRY') {
+      rateNum = parseFloat(invExchangeRate) || (invCurrency === 'USD' ? rates.USD : rates.EUR) || 1
+    }
 
     try {
       const affectedStocks = new Set<string>();
@@ -1065,19 +1107,13 @@ export default function SuppliersPage() {
   let currentRunningBalance = selectedSupplier ? selectedSupplier.balance : 0
   const displayTransactions = transactions.map((t) => {
     const rowBalance = currentRunningBalance
-    let valInSuppCurr = Number(t.amount || 0)
-    const txCurr = t.currency || 'TRY'
-    const rate = Number(t.exchange_rate) || 1
-
-    if (suppCurr === 'USD') {
-      if (txCurr === 'TRY') valInSuppCurr = Number((valInSuppCurr / (rate || rates.USD || 1)).toFixed(2))
-      else if (txCurr === 'EUR') valInSuppCurr = Number(((valInSuppCurr * (rate || rates.EUR || 1)) / (rates.USD || 1)).toFixed(2))
-    } else if (suppCurr === 'EUR') {
-      if (txCurr === 'TRY') valInSuppCurr = Number((valInSuppCurr / (rate || rates.EUR || 1)).toFixed(2))
-      else if (txCurr === 'USD') valInSuppCurr = Number(((valInSuppCurr * (rate || rates.USD || 1)) / (rates.EUR || 1)).toFixed(2))
-    } else {
-      if (txCurr !== 'TRY') valInSuppCurr = Number((valInSuppCurr * rate).toFixed(2))
-    }
+    const valInSuppCurr = convertTxToEntityCurrency(
+      t.amount,
+      t.currency || 'TRY',
+      suppCurr,
+      Number(t.exchange_rate) || 1,
+      rates
+    )
 
     if (t.tx_type === 'debt') currentRunningBalance -= valInSuppCurr
     else currentRunningBalance += valInSuppCurr
@@ -1304,8 +1340,13 @@ export default function SuppliersPage() {
                     )}
                     <div className="flex-1 min-w-[120px]"><label className="block text-[9px] text-slate-400 mb-0.5">Açıklama</label><input type="text" required placeholder="Fatura / Tahsilat Açıklaması" value={txDesc} onChange={(e) => setTxDesc(e.target.value)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors" /></div>
                     <div className="w-20"><label className="block text-[9px] text-slate-400 mb-0.5">Döviz</label><select value={txCurrency} onChange={(e) => setTxCurrency(e.target.value as any)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-1.5 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors"><option value="TRY">₺</option><option value="USD">$</option><option value="EUR">€</option></select></div>
-                    {txCurrency !== 'TRY' && (
-                      <div className="w-20"><label className="block text-[9px] text-slate-400 mb-0.5">M. Kur</label><input type="number" step="0.0001" required value={txExchangeRate} onChange={(e) => setTxExchangeRate(e.target.value)} className="w-full bg-indigo-900/20 text-indigo-300 border border-indigo-500/30 rounded px-2 py-1.5 text-[11px] focus:outline-none font-mono transition-colors" title="Mutabakat Kuru (Değiştirebilirsiniz)" /></div>
+                    {txCurrency !== suppCurr && (
+                      <div className="w-28">
+                        <label className="block text-[9px] text-indigo-400 font-bold mb-0.5">
+                          Kur {suppCurr === 'USD' || txCurrency === 'USD' ? '(1$ = ? ₺)' : suppCurr === 'EUR' || txCurrency === 'EUR' ? '(1€ = ? ₺)' : ''}
+                        </label>
+                        <input type="number" step="0.0001" required value={txExchangeRate} onChange={(e) => setTxExchangeRate(e.target.value)} className="w-full bg-indigo-900/30 text-indigo-200 border border-indigo-500/50 rounded px-2 py-1.5 text-[11px] focus:outline-none font-mono font-bold transition-colors" title="Mutabakat Kuru" />
+                      </div>
                     )}
                     <div className="w-24"><label className="block text-[9px] text-slate-400 mb-0.5">Tutar</label><input type="number" step="0.01" required placeholder="0.00" value={txAmount} onChange={(e) => setTxAmount(e.target.value)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none font-mono transition-colors" /></div>
                     <div className="flex items-center gap-1">
@@ -1313,6 +1354,19 @@ export default function SuppliersPage() {
                       <button type="submit" className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-1.5 rounded text-[11px] font-bold transition-all active:scale-95 h-[26px]">{editingTxId ? 'Güncelle' : 'Ekle'}</button>
                     </div>
                     {!editingTxId && (<><div className="w-px h-6 bg-slate-700 mx-1"></div><button type="button" onClick={openInvoiceModal} className="bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/50 text-indigo-300 hover:text-white px-3 py-1.5 rounded text-[11px] font-bold transition-all active:scale-95 h-[26px] flex items-center gap-1.5"><ListPlus size={14} /> Detaylı Fatura Gir</button></>)}
+                    
+                    {txCurrency !== suppCurr && parseFloat(txAmount) > 0 && (
+                      <div className="w-full mt-1.5 py-1 px-2.5 rounded bg-indigo-950/40 border border-indigo-500/30 text-[10.5px] font-mono flex items-center justify-between text-indigo-300">
+                        <span>
+                          İşlem Tutarı: <strong>{formatMoney(parseFloat(txAmount) || 0, txCurrency).formatted}</strong>
+                          {' '}➔ Cariye Yansıyacak Tutar:{' '}
+                          <strong className="text-amber-400 font-bold">{formatMoney(convertTxToEntityCurrency(parseFloat(txAmount) || 0, txCurrency, suppCurr, parseFloat(txExchangeRate) || 1, rates), suppCurr as any).formatted}</strong>
+                        </span>
+                        <span className="text-[9px] text-indigo-400/80">
+                          (Kur: {parseFloat(txExchangeRate) || 1})
+                        </span>
+                      </div>
+                    )}
                   </form>
                 )}
 
@@ -1332,8 +1386,15 @@ export default function SuppliersPage() {
                           </td>
                         </tr>
                       ) : displayTransactions.map((t, index) => {
-                          const rateStr = t.exchange_rate && t.exchange_rate !== 1 ? `Kur: ${t.exchange_rate} ➔ ` : ''
-                          const tryEquivalent = t.amount * (t.exchange_rate || 1)
+                          const txCurr = t.currency || 'TRY'
+                          const isCross = txCurr !== suppCurr
+                          const convertedInSuppCurr = convertTxToEntityCurrency(
+                            t.amount,
+                            txCurr,
+                            suppCurr,
+                            Number(t.exchange_rate) || 1,
+                            rates
+                          )
                           const isPersonal = t.company?.is_personal
                           return (
                           <tr 
@@ -1355,10 +1416,28 @@ export default function SuppliersPage() {
                               </div>
                             </td>
                             <td className="p-2.5 text-right text-rose-400 font-medium align-top leading-tight">
-                              {t.tx_type === 'debt' ? (<div className="flex flex-col"><span>{formatMoney(t.amount, (t.currency as any) || 'TRY').formatted}</span>{t.currency !== 'TRY' && <span className="text-[9px] text-rose-400/50 mt-0.5">{rateStr}{formatMoney(tryEquivalent, 'TRY').formatted}</span>}</div>) : '-'}
+                              {t.tx_type === 'debt' ? (
+                                <div className="flex flex-col">
+                                  <span>{formatMoney(t.amount, (txCurr as any) || 'TRY').formatted}</span>
+                                  {isCross && (
+                                    <span className="text-[9px] text-rose-400/60 mt-0.5">
+                                      Kur: {t.exchange_rate} ➔ {formatMoney(convertedInSuppCurr, (suppCurr as any) || 'TRY').formatted}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : '-'}
                             </td>
                             <td className="p-2.5 text-right text-emerald-400 font-medium align-top leading-tight">
-                              {t.tx_type === 'payment' ? (<div className="flex flex-col"><span>{formatMoney(t.amount, (t.currency as any) || 'TRY').formatted}</span>{t.currency !== 'TRY' && <span className="text-[9px] text-emerald-400/50 mt-0.5">{rateStr}{formatMoney(tryEquivalent, 'TRY').formatted}</span>}</div>) : '-'}
+                              {t.tx_type === 'payment' ? (
+                                <div className="flex flex-col">
+                                  <span>{formatMoney(t.amount, (txCurr as any) || 'TRY').formatted}</span>
+                                  {isCross && (
+                                    <span className="text-[9px] text-emerald-400/60 mt-0.5">
+                                      Kur: {t.exchange_rate} ➔ {formatMoney(convertedInSuppCurr, (suppCurr as any) || 'TRY').formatted}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : '-'}
                             </td>
                             <td className="p-2.5 text-right text-slate-300 font-medium align-top bg-slate-800/10">
                               <div className="flex flex-col">

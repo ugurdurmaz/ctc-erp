@@ -62,4 +62,68 @@ export function formatPhoneNumber(value: string | null | undefined): string {
     return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`
   }
   return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7, 9)} ${digits.slice(9, 11)}`
-}
+}
+
+/**
+ * Çoklu Döviz Çevirici (Universal Multi-Currency Converter)
+ * Bir cari hareketin (ödeme / borç / tahsilat) tutarını, cari kartın (tedarikçi / müşteri)
+ * ana para birimine dönüştürür.
+ * 
+ * Türkiye muhasebe standardı gereği döviz kurları "1 Döviz = X TL" (örn: 1 USD = 38.50 TL) olarak tutulur.
+ * - Dövizli cariye TL ile işlem yapıldığında: Tutar / Kur
+ * - TL cariye Döviz ile işlem yapıldığında: Tutar * Kur
+ * - Çapraz döviz (EUR -> USD): (Tutar * EUR_Kuru) / USD_Kuru
+ * 
+ * Güvenlik & Savunma: Kur 1 girilip/boş bırakılarak döviz bakiyesinin TL tutarı kadar şişirilmesini engeller.
+ * Eğer çapraz işlemde kur <= 1 ise, otomatik olarak canlı piyasa kurunu (rates) devreye sokar.
+ */
+export function convertTxToEntityCurrency(
+  txAmount: number,
+  txCurr: string = 'TRY',
+  entityCurr: string = 'TRY',
+  customRate: number = 1,
+  rates: { USD: number; EUR: number } = { USD: 1, EUR: 1 }
+): number {
+  const normTxCurr = (txCurr || 'TRY').toUpperCase()
+  const normEntityCurr = (entityCurr || 'TRY').toUpperCase()
+  const val = Number(txAmount || 0)
+
+  // Aynı para birimi ise birebir geçerlidir
+  if (normTxCurr === normEntityCurr) {
+    return Number(val.toFixed(2))
+  }
+
+  const effectiveCustomRate = customRate > 1 ? customRate : 0
+
+  if (normEntityCurr === 'USD') {
+    if (normTxCurr === 'TRY') {
+      const rate = effectiveCustomRate || rates.USD || 1
+      return Number((val / rate).toFixed(2))
+    }
+    if (normTxCurr === 'EUR') {
+      const eurRate = effectiveCustomRate || rates.EUR || 1
+      const usdRate = rates.USD || 1
+      return Number(((val * eurRate) / usdRate).toFixed(2))
+    }
+  } else if (normEntityCurr === 'EUR') {
+    if (normTxCurr === 'TRY') {
+      const rate = effectiveCustomRate || rates.EUR || 1
+      return Number((val / rate).toFixed(2))
+    }
+    if (normTxCurr === 'USD') {
+      const usdRate = effectiveCustomRate || rates.USD || 1
+      const eurRate = rates.EUR || 1
+      return Number(((val * usdRate) / eurRate).toFixed(2))
+    }
+  } else {
+    // normEntityCurr === 'TRY'
+    let rate = effectiveCustomRate
+    if (!rate) {
+      rate = normTxCurr === 'USD' ? (rates.USD || 1) : (rates.EUR || 1)
+    }
+    return Number((val * rate).toFixed(2))
+  }
+
+  return Number(val.toFixed(2))
+}
+
