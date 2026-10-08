@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, Calculator, Sparkles, CreditCard } from 'lucide-react'
+import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, Calculator, Sparkles, CreditCard, FileSpreadsheet, FileDown } from 'lucide-react'
+import BankStatementExportModal from '@/components/BankStatementExportModal'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type BankAccount = { id: string; bank_name: string; account_name: string; iban: string; balance: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; account_color?: string; is_investment?: boolean; company?: { name: string; is_personal: boolean } }
@@ -86,6 +87,7 @@ export default function BankAccountsPage() {
   const [collectDate, setCollectDate] = useState(todayISO) 
   const [txSearchTerm, setTxSearchTerm] = useState('')
   const [txPeriodFilter, setTxPeriodFilter] = useState<'all' | 'this_month' | 'last_month'>('all')
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false)
 
   useEffect(() => { fetchCompanies(); fetchBanks(); fetchCashes(); fetchCards() }, [])
   useEffect(() => { 
@@ -1048,7 +1050,9 @@ export default function BankAccountsPage() {
                        )}
                      </h2>
                      <div className="flex items-center gap-1 bg-black/40 p-1 rounded border border-slate-800">
-                       <button onClick={(e) => openEditModal(selectedBank, e)} className="text-slate-400 hover:text-indigo-400 p-1 transition"><Edit3 size={14} /></button>
+                       <button onClick={() => setIsExportModalOpen(true)} className="text-emerald-400 hover:text-white hover:bg-emerald-600/30 px-2 py-1 rounded text-[11px] font-bold transition flex items-center gap-1 cursor-pointer" title="Hesap Ekstresi / Dışa Aktar (PDF ve Excel)"><FileSpreadsheet size={13} /><span>Ekstre / Çıktı</span></button>
+                      <div className="w-px h-4 bg-slate-800" />
+                      <button onClick={(e) => openEditModal(selectedBank, e)} className="text-slate-400 hover:text-indigo-400 p-1 transition"><Edit3 size={14} /></button>
                        <button onClick={(e) => handleDeleteBank(selectedBank.id, e)} className="text-slate-400 hover:text-rose-400 p-1 transition"><Trash2 size={14} /></button>
                      </div>
                    </div>
@@ -1096,6 +1100,7 @@ export default function BankAccountsPage() {
                         <span>Günlük Faiz Ekle</span>
                       </button>
                     )}
+                    <button type="button" onClick={() => setIsExportModalOpen(true)} className="bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-300 hover:text-white px-3.5 py-3 rounded-lg text-xs font-bold transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 min-w-[110px] cursor-pointer" title="Hesap ekstresini PDF veya Excel olarak dışa aktar"><FileSpreadsheet size={18} /><span>Ekstre / Çıktı</span></button>
                     <button onClick={() => { setIsTransferModalOpen(true); setTransferDate(todayISO); setTransferTarget(''); setTransferAmount(''); setTransferRate('1'); setTargetCurrency('TRY'); setTransferTargetAmount(''); setTransferCompanyId('common') }} className="bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/50 text-indigo-300 hover:text-white px-4 py-3 rounded-lg text-xs font-bold transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 min-w-[120px]"><ArrowRightLeft size={18} /> Virman / Transfer</button>
                   </div>
                 </div>
@@ -2002,6 +2007,14 @@ export default function BankAccountsPage() {
           </div>
         </div>
       )}
+
+      <BankStatementExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        banks={banks}
+        initialBankId={selectedBankId}
+        companies={companies}
+      />
 
       <style jsx global>{`
         @keyframes fadeInUp {
