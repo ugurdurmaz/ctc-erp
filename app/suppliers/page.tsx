@@ -1320,7 +1320,7 @@ export default function SuppliersPage() {
                 </div>
               </div>
 
-              <div className="p-4 overflow-y-auto custom-scrollbar flex-1 flex flex-col relative z-0">
+              <div className="p-4 flex-1 flex flex-col min-h-0 relative z-0 overflow-y-auto lg:overflow-hidden custom-scrollbar">
                 {!isEditingDetailedTx && (
                   <form style={{ animation: 'fadeInUp 0.4s both 0.3s' }} onSubmit={handleAddTransaction} className="flex flex-wrap items-end gap-2.5 mb-5 bg-[#070b14] p-3 rounded-lg border border-slate-800 shrink-0 transition-colors hover:border-slate-700">
                     <div className="w-28"><label className="block text-[9px] text-slate-400 mb-0.5">Tarih</label><input type="date" required value={txDate} onChange={(e) => setTxDate(e.target.value)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors" /></div>
@@ -1370,10 +1370,17 @@ export default function SuppliersPage() {
                   </form>
                 )}
 
-                <div className="border border-slate-800/80 rounded-lg overflow-hidden flex-1 flex flex-col">
-                  <table className="w-full text-left text-[11px]">
-                    <thead className="sticky top-0 bg-[#0a0f1d] z-10">
-                      <tr className="border-b border-slate-800/80 text-slate-400"><th className="p-2.5 font-medium">Tarih</th><th className="p-2.5 font-medium">Açıklama & Merkez</th><th className="p-2.5 font-medium text-right text-rose-400">Borçlanma (+)</th><th className="p-2.5 font-medium text-right text-emerald-400">Ödenen (-)</th><th className="p-2.5 font-medium text-right text-slate-300 bg-slate-800/20">Bakiye {suppCurr !== 'TRY' ? `(${suppCurr === 'USD' ? '$' : '€'})` : '(₺)'}</th><th className="p-2.5 font-medium text-center w-12">İşlem</th></tr>
+                <div className="border border-slate-800/80 rounded-lg overflow-auto custom-scrollbar flex-1 min-h-0">
+                  <table className="w-full text-left text-[11px] relative">
+                    <thead className="sticky top-0 bg-[#0a0f1d] z-10 border-b border-slate-800 shadow-sm">
+                      <tr className="border-b border-slate-800/80 text-slate-400">
+                        <th className="p-2.5 font-medium bg-[#0a0f1d]">Tarih</th>
+                        <th className="p-2.5 font-medium bg-[#0a0f1d]">Açıklama & Merkez</th>
+                        <th className="p-2.5 font-medium text-right text-rose-400 bg-[#0a0f1d]">Borçlanma (+)</th>
+                        <th className="p-2.5 font-medium text-right text-emerald-400 bg-[#0a0f1d]">Ödenen (-)</th>
+                        <th className="p-2.5 font-medium text-right text-slate-300 bg-[#0e1629]">Bakiye {suppCurr !== 'TRY' ? `(${suppCurr === 'USD' ? '$' : '€'})` : '(₺)'}</th>
+                        <th className="p-2.5 font-medium text-center w-12 bg-[#0a0f1d]">İşlem</th>
+                      </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
                       {displayTransactions.length === 0 ? (

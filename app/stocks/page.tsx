@@ -2459,7 +2459,7 @@ export default function StocksPage() {
                 </div>
               </div>
 
-              <div className="p-4 overflow-y-auto custom-scrollbar flex-1 flex flex-col relative z-0">
+              <div className="p-4 flex-1 flex flex-col min-h-0 relative z-0 overflow-y-auto lg:overflow-hidden custom-scrollbar">
                 <form onSubmit={handleAddTransaction} style={{ animation: 'fadeInUp 0.4s both 0.3s' }} className={`grid grid-cols-1 md:grid-cols-11 gap-2 mb-4 p-3 rounded-lg border shrink-0 transition-colors ${isQuickActionActive ? 'bg-indigo-900/10 border-indigo-500/40 shadow-inner shadow-indigo-500/10' : 'bg-[#070b14] border-slate-800'}`}>
                   <div className="md:col-span-1"><label className="block text-[9px] text-slate-400 mb-0.5">Tarih</label><input type="date" required value={txDate} onChange={(e) => setTxDate(e.target.value)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" /></div>
                   
@@ -2495,18 +2495,18 @@ export default function StocksPage() {
                   </div>
                 </form>
 
-                <div className="border border-slate-800/80 rounded-lg overflow-hidden flex-1 flex flex-col">
-                  <table className="w-full text-left text-[11px]">
-                    <thead className="sticky top-0 bg-[#0a0f1d] z-10">
+                <div className="border border-slate-800/80 rounded-lg overflow-auto custom-scrollbar flex-1 min-h-0">
+                  <table className="w-full text-left text-[11px] relative">
+                    <thead className="sticky top-0 bg-[#0a0f1d] z-10 border-b border-slate-800 shadow-sm">
                       <tr className="border-b border-slate-800/80 text-slate-400">
-                        <th className="p-2.5 font-medium">Tarih</th>
-                        <th className="p-2.5 font-medium">Açıklama & Merkez</th>
-                        <th className="p-2.5 font-medium text-right text-emerald-400">Giriş</th>
-                        <th className="p-2.5 font-medium text-right text-rose-400">Çıkış</th>
-                        <th className="p-2.5 font-medium text-right">Net B.Fiyat</th>
-                        <th className="p-2.5 font-medium text-right">KDV'li B.Fiyat</th>
-                        <th className="p-2.5 font-medium text-right">Toplam Değer (KDV'li)</th>
-                        <th className="p-2.5 font-medium text-center w-12">İşlem</th>
+                        <th className="p-2.5 font-medium bg-[#0a0f1d]">Tarih</th>
+                        <th className="p-2.5 font-medium bg-[#0a0f1d]">Açıklama & Merkez</th>
+                        <th className="p-2.5 font-medium text-right text-emerald-400 bg-[#0a0f1d]">Giriş</th>
+                        <th className="p-2.5 font-medium text-right text-rose-400 bg-[#0a0f1d]">Çıkış</th>
+                        <th className="p-2.5 font-medium text-right bg-[#0a0f1d]">Net B.Fiyat</th>
+                        <th className="p-2.5 font-medium text-right bg-[#0a0f1d]">KDV'li B.Fiyat</th>
+                        <th className="p-2.5 font-medium text-right bg-[#0a0f1d]">Toplam Değer (KDV'li)</th>
+                        <th className="p-2.5 font-medium text-center w-12 bg-[#0a0f1d]">İşlem</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">

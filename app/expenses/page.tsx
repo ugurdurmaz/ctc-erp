@@ -2134,7 +2134,7 @@ export default function ExpensesPage() {
 
           {/* SAĞ PANEL: GİDER EKLEME FORMU & GİDERLER TABLOSU */}
           <div style={{ animation: 'fadeInUp 0.4s both 0.2s' }} className="flex-1 bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col min-w-0 shadow-lg min-h-0 overflow-hidden">
-            <div className="p-4 overflow-y-auto custom-scrollbar flex-1 flex flex-col">
+            <div className="p-4 flex-1 flex flex-col min-h-0 relative z-0 overflow-y-auto lg:overflow-hidden custom-scrollbar">
             
             {/* Gider Ekleme Formu */}
             <div className="mb-4 bg-[#070b14] p-3 rounded-xl border border-slate-800 shrink-0 hover:border-slate-700 transition-colors">
@@ -2296,15 +2296,15 @@ export default function ExpensesPage() {
             </div>
 
             {/* Gider Tablosu */}
-            <div className="border border-slate-800/80 rounded-lg overflow-hidden flex-1 flex flex-col">
-              <table className="w-full text-left text-[11px]">
-                <thead className="sticky top-0 bg-[#0a0f1d] z-10">
+            <div className="border border-slate-800/80 rounded-lg overflow-auto custom-scrollbar flex-1 min-h-0">
+              <table className="w-full text-left text-[11px] relative">
+                <thead className="sticky top-0 bg-[#0a0f1d] z-10 border-b border-slate-800 shadow-sm">
                   <tr className="border-b border-slate-800/80 text-slate-400">
-                    <th className="p-2.5 font-medium">Tarih</th>
-                    <th className="p-2.5 font-medium">Kategori & Merkez</th>
-                    <th className="p-2.5 font-medium">Açıklama & Kaynak</th>
-                    <th className="p-2.5 font-medium text-right text-rose-400 bg-slate-800/20">Çıkan Tutar</th>
-                    <th className="p-2.5 font-medium text-center w-12">İşlem</th>
+                    <th className="p-2.5 font-medium bg-[#0a0f1d]">Tarih</th>
+                    <th className="p-2.5 font-medium bg-[#0a0f1d]">Kategori & Merkez</th>
+                    <th className="p-2.5 font-medium bg-[#0a0f1d]">Açıklama & Kaynak</th>
+                    <th className="p-2.5 font-medium text-right text-rose-400 bg-[#0e1629]">Çıkan Tutar</th>
+                    <th className="p-2.5 font-medium text-center w-12 bg-[#0a0f1d]">İşlem</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/50">

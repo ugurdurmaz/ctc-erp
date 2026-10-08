@@ -84,9 +84,19 @@ export default function BankAccountsPage() {
   const [collectingTx, setCollectingTx] = useState<BankTransaction | null>(null)
   const [commissionAmount, setCommissionAmount] = useState('')
   const [collectDate, setCollectDate] = useState(todayISO) 
+  const [txSearchTerm, setTxSearchTerm] = useState('')
+  const [txPeriodFilter, setTxPeriodFilter] = useState<'all' | 'this_month' | 'last_month'>('all')
 
   useEffect(() => { fetchCompanies(); fetchBanks(); fetchCashes(); fetchCards() }, [])
-  useEffect(() => { if (selectedBankId) fetchTransactions(selectedBankId); else setTransactions([]) }, [selectedBankId])
+  useEffect(() => { 
+    if (selectedBankId) {
+      fetchTransactions(selectedBankId);
+      setTxSearchTerm('');
+      setTxPeriodFilter('all');
+    } else {
+      setTransactions([])
+    }
+  }, [selectedBankId])
 
   async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name', { ascending: true }); setCompanies(data || []) }
   async function fetchBanks() { 
@@ -915,13 +925,37 @@ export default function BankAccountsPage() {
   const selectedBank = banks.find(b => b.id === selectedBankId)
 
   let currentRunningBalance = selectedBank ? selectedBank.balance : 0
-  const displayTransactions = transactions.map((t) => {
+  const allTransactionsWithBalance = transactions.map((t) => {
     const rowBalance = currentRunningBalance; 
     if (t.status !== 'pending') {
       if (t.tx_type === 'in') currentRunningBalance -= t.amount; 
       else currentRunningBalance += t.amount; 
     }
     return { ...t, running_balance: rowBalance }
+  })
+
+  const displayTransactions = allTransactionsWithBalance.filter((t) => {
+    if (txSearchTerm.trim()) {
+      const q = txSearchTerm.trim().toLowerCase();
+      const matchDesc = (t.description || '').toLowerCase().includes(q);
+      const matchComp = (t.company?.name || '').toLowerCase().includes(q);
+      const matchTransfer = (t.transfer_id || '').toLowerCase().includes(q);
+      const matchAmount = String(t.amount).includes(q) || formatMoney(t.amount, t.currency).formatted.toLowerCase().includes(q);
+      const matchDate = formatDateTR(t.tx_date).toLowerCase().includes(q) || t.tx_date.includes(q);
+      if (!matchDesc && !matchComp && !matchTransfer && !matchAmount && !matchDate) return false;
+    }
+
+    if (txPeriodFilter === 'this_month') {
+      const thisMonth = todayISO.substring(0, 7);
+      if (!t.tx_date.startsWith(thisMonth)) return false;
+    } else if (txPeriodFilter === 'last_month') {
+      const d = new Date(todayISO);
+      d.setDate(1);
+      d.setMonth(d.getMonth() - 1);
+      const lastMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!t.tx_date.startsWith(lastMonth)) return false;
+    }
+    return true;
   })
 
   const totalTry = banks.filter(b => b.currency === 'TRY').reduce((acc, b) => acc + b.balance, 0)
@@ -1031,8 +1065,8 @@ export default function BankAccountsPage() {
                 </div>
               </div>
 
-              <div className="p-4 overflow-y-auto custom-scrollbar flex-1 flex flex-col relative z-10">
-                <div style={{ animation: 'fadeInUp 0.4s both 0.3s' }} className="flex flex-wrap xl:flex-nowrap gap-4 mb-5 shrink-0">
+              <div className="p-4 flex-1 flex flex-col min-h-0 relative z-10 overflow-y-auto lg:overflow-hidden custom-scrollbar">
+                <div style={{ animation: 'fadeInUp 0.4s both 0.3s' }} className="flex flex-wrap xl:flex-nowrap gap-4 mb-4 shrink-0">
                   <form onSubmit={handleAddTransaction} className="flex-1 flex flex-wrap items-end gap-2.5 bg-[#070b14] p-3 rounded-lg border border-slate-800">
                     <div className="w-28"><label className="block text-[9px] text-slate-400 mb-0.5">Tarih</label><input type="date" required value={txDate} onChange={(e) => setTxDate(e.target.value)} className="w-full bg-[#0d1322] border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none transition-colors" /></div>
                     
@@ -1102,23 +1136,117 @@ export default function BankAccountsPage() {
                   </div>
                 )}
 
-                <div className="border border-slate-800/80 rounded-lg overflow-hidden flex-1 flex flex-col">
-                  <table className="w-full text-left text-[11px]">
-                    <thead className="sticky top-0 bg-[#0a0f1d] z-10"><tr className="border-b border-slate-800/80 text-slate-400"><th className="p-2.5 font-medium">Tarih</th><th className="p-2.5 font-medium">Açıklama & Merkez</th><th className="p-2.5 font-medium text-right text-emerald-400">Giriş (+)</th><th className="p-2.5 font-medium text-right text-rose-400">Çıkış (-)</th><th className="p-2.5 font-medium text-right text-slate-300 bg-slate-800/20">Bakiye</th><th className="p-2.5 font-medium text-center w-[130px]">İşlem</th></tr></thead>
+                {/* HAREKETLER ARAMA & FİLTRELEME VE İSTATİSTİK BARI */}
+                <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3 bg-[#070b14] p-2.5 rounded-lg border border-slate-800 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+                    <div className="relative flex-1 min-w-[160px] max-w-xs">
+                      <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                      <input
+                        type="text"
+                        placeholder="Hareketlerde ara (açıklama, tutar, merkez)..."
+                        value={txSearchTerm}
+                        onChange={(e) => setTxSearchTerm(e.target.value)}
+                        className="w-full bg-[#0d1322] border border-slate-700/80 rounded-md pl-8 pr-7 py-1 text-[11px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500/60 transition-all"
+                      />
+                      {txSearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setTxSearchTerm('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1 bg-[#0d1322] p-0.5 rounded-md border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setTxPeriodFilter('all')}
+                        className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${
+                          txPeriodFilter === 'all'
+                            ? 'bg-indigo-600 text-white font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Tümü ({transactions.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTxPeriodFilter('this_month')}
+                        className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${
+                          txPeriodFilter === 'this_month'
+                            ? 'bg-indigo-600 text-white font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Bu Ay
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTxPeriodFilter('last_month')}
+                        className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${
+                          txPeriodFilter === 'last_month'
+                            ? 'bg-indigo-600 text-white font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Geçen Ay
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-[10px] font-mono shrink-0">
+                    <span className="text-slate-400">
+                      Görüntülenen: <strong className="text-indigo-400 font-bold">{displayTransactions.length}</strong> / {transactions.length}
+                    </span>
+                    <div className="h-3 w-px bg-slate-800" />
+                    <span className="text-emerald-400 font-bold" title="Görüntülenen Giriş Toplamı">
+                      + {formatMoney(displayTransactions.filter(t => t.tx_type === 'in' && t.status !== 'pending').reduce((s, t) => s + t.amount, 0), selectedBank.currency).formatted}
+                    </span>
+                    <span className="text-rose-400 font-bold" title="Görüntülenen Çıkış Toplamı">
+                      - {formatMoney(displayTransactions.filter(t => t.tx_type === 'out' && t.status !== 'pending').reduce((s, t) => s + t.amount, 0), selectedBank.currency).formatted}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="border border-slate-800/80 rounded-lg overflow-auto custom-scrollbar flex-1 min-h-0">
+                  <table className="w-full text-left text-[11px] relative">
+                    <thead className="sticky top-0 bg-[#0a0f1d] z-10 border-b border-slate-800 shadow-sm">
+                      <tr className="border-b border-slate-800/80 text-slate-400">
+                        <th className="p-2.5 font-medium bg-[#0a0f1d]">Tarih</th>
+                        <th className="p-2.5 font-medium bg-[#0a0f1d]">Açıklama & Merkez</th>
+                        <th className="p-2.5 font-medium text-right text-emerald-400 bg-[#0a0f1d]">Giriş (+)</th>
+                        <th className="p-2.5 font-medium text-right text-rose-400 bg-[#0a0f1d]">Çıkış (-)</th>
+                        <th className="p-2.5 font-medium text-right text-slate-300 bg-[#0e1629]">Bakiye</th>
+                        <th className="p-2.5 font-medium text-center w-[130px] bg-[#0a0f1d]">İşlem</th>
+                      </tr>
+                    </thead>
                     <tbody className="divide-y divide-slate-800/50">
                       {displayTransactions.length === 0 ? (
                         <tr>
                           <td colSpan={6} className="p-6 text-center">
                             <div className="flex flex-col items-center justify-center p-8 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner my-2 mx-2">
                                <RefreshCw size={32} className="mb-3 opacity-70 text-indigo-400 animate-bounce" />
-                               <p className="text-[11px] font-bold text-slate-400">Bu hesaba ait henüz hareket bulunmuyor.</p>
+                               <p className="text-[11px] font-bold text-slate-400">
+                                 {transactions.length === 0 ? 'Bu hesaba ait henüz hareket bulunmuyor.' : 'Arama veya filtre kriterinize uygun hareket bulunamadı.'}
+                               </p>
+                               {(txSearchTerm || txPeriodFilter !== 'all') && (
+                                 <button
+                                   type="button"
+                                   onClick={() => { setTxSearchTerm(''); setTxPeriodFilter('all'); }}
+                                   className="mt-3 text-[10px] text-indigo-400 hover:text-indigo-300 underline"
+                                 >
+                                   Filtreleri Temizle
+                                 </button>
+                               )}
                             </div>
                           </td>
                         </tr>
                       ) : displayTransactions.map((t, index) => (
                           <tr 
                             key={t.id} 
-                            style={{ animation: 'fadeSlideRight 0.4s both', animationDelay: `${0.35 + (index * 0.05)}s` }}
+                            style={{ animation: 'fadeSlideRight 0.3s both', animationDelay: `${Math.min(0.05 + (index * 0.015), 0.35)}s` }}
                             className={`hover:bg-slate-800/30 font-mono transition-colors ${t.status === 'pending' ? 'bg-amber-900/10' : ''}`}
                           >
                             <td className="p-2.5 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
