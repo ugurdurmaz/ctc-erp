@@ -705,6 +705,46 @@ export default function RetailPOSPage() {
       }
     })
 
+    // Bağlı kasadan yapılan harici giderleri de (Tedarikçi ödemeleri, sabit giderler) hesaba kat
+    try {
+      const savedSettings = localStorage.getItem('ctc_pos_config');
+      const parsedSettings = savedSettings ? JSON.parse(savedSettings) : {};
+      let targetCashId = parsedSettings?.targetCashId || posSettings.targetCashId;
+      if (!targetCashId) {
+        const { data: cashes } = await supabase.from('cash_registers').select('id, name');
+        const found = cashes?.find(c => c.name.toLocaleLowerCase('tr-TR').includes('mağaza')) || cashes?.[0];
+        if (found) targetCashId = found.id;
+      }
+      if (targetCashId) {
+        const { data: extTxs } = await supabase
+          .from('cash_transactions')
+          .select('*')
+          .eq('cash_register_id', targetCashId)
+          .eq('tx_date', dateStr)
+          .eq('tx_type', 'out');
+
+        if (extTxs) {
+          extTxs.forEach(ext => {
+            const trf = ext.transfer_id || '';
+            const isEligible = trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !ext.is_transfer);
+            if (isEligible) {
+              const alreadyInPos = txs?.some(t => 
+                t.category_id === EXPENSE_CATEGORY_ID && 
+                ((ext.transfer_id && t.description?.includes(ext.transfer_id)) ||
+                 (ext.description && t.description?.includes(ext.description)) ||
+                 Number(t.cash) === Number(ext.amount))
+              );
+              if (!alreadyInPos) {
+                cashOut += Number(ext.amount || 0);
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.error('getClosingCashForDate harici gider kontrolü hatası:', e);
+    }
+
     trs?.forEach(tr => {
       if (tr.transfer_type === 'to_bank') cashOut += Number(tr.amount || 0)
       else if (tr.transfer_type === 'from_bank') cashIn += Number(tr.amount || 0)
@@ -722,7 +762,12 @@ export default function RetailPOSPage() {
     let firstDayOpening = 0;
     const savedSettings = localStorage.getItem('ctc_pos_config');
     const parsedSettings = savedSettings ? JSON.parse(savedSettings) : {};
-    const activeCashId = parsedSettings?.targetCashId || posSettings.targetCashId;
+    let activeCashId = parsedSettings?.targetCashId || posSettings.targetCashId;
+    if (!activeCashId) {
+      const { data: cashes } = await supabase.from('cash_registers').select('id, name');
+      const found = cashes?.find(c => c.name.toLocaleLowerCase('tr-TR').includes('mağaza')) || cashes?.[0];
+      if (found) activeCashId = found.id;
+    }
     
     if (activeCashId) {
       const { data: initTx } = await supabase.from('cash_transactions')
@@ -762,6 +807,39 @@ export default function RetailPOSPage() {
         if (tx.category_id === EXPENSE_CATEGORY_ID) cashOut += Number(tx.cash || 0)
         else if (validCategoryIds.includes(tx.category_id)) cashIn += Number(tx.cash || 0)
       })
+
+      // Harici kasa çıkışları kontrolü
+      if (activeCashId) {
+        try {
+          const { data: extTxs } = await supabase
+            .from('cash_transactions')
+            .select('*')
+            .eq('cash_register_id', activeCashId)
+            .eq('tx_date', targetDate)
+            .eq('tx_type', 'out');
+
+          if (extTxs) {
+            extTxs.forEach(ext => {
+              const trf = ext.transfer_id || '';
+              const isEligible = trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !ext.is_transfer);
+              if (isEligible) {
+                const alreadyInPos = txs?.some(t => 
+                  t.category_id === EXPENSE_CATEGORY_ID && 
+                  ((ext.transfer_id && t.description?.includes(ext.transfer_id)) ||
+                   (ext.description && t.description?.includes(ext.description)) ||
+                   Number(t.cash) === Number(ext.amount))
+                );
+                if (!alreadyInPos) {
+                  cashOut += Number(ext.amount || 0);
+                }
+              }
+            });
+          }
+        } catch (e) {
+          console.error('syncForwardBalances harici gider hatası:', e);
+        }
+      }
+
       trs?.forEach(tr => {
         if (tr.transfer_type === 'to_bank') cashOut += Number(tr.amount || 0)
         else if (tr.transfer_type === 'from_bank') cashIn += Number(tr.amount || 0)
@@ -1767,8 +1845,8 @@ export default function RetailPOSPage() {
     if (!category) return null;
     const catRows = rows.filter(r => r.categoryId === category.id)
     const catCost = calculateCategoryTotal(category.id, 'cost')
-    const catCash = calculateCategoryTotal(category.id, 'cash')
-    const catCard = calculateCategoryTotal(category.id, 'card')
+    const catCash = calculateCategoryTotal(category.id, 'cash') + (category.id === 'servis' ? deliveredTicketsCash : 0)
+    const catCard = calculateCategoryTotal(category.id, 'card') + (category.id === 'servis' ? deliveredTicketsCard : 0)
     const isCostVisible = showCost[category.id]
     const isExpenseCat = category.id === EXPENSE_CATEGORY_ID
     const isCollapsed = isCategoryCollapsed(category.id)
