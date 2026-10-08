@@ -99,6 +99,7 @@ export default function SuppliersPage() {
   const [invLines, setInvLines] = useState<InvoiceLine[]>([])
   const [activeStockDropdown, setActiveStockDropdown] = useState<string | null>(null) 
   const [invRoundingAdjustment, setInvRoundingAdjustment] = useState('') 
+  const [invTargetTry, setInvTargetTry] = useState('')
 
   const invoiceWarehouses = useMemo(() => {
     if (invCompanyId === 'common') {
@@ -232,19 +233,19 @@ export default function SuppliersPage() {
       const rate = Number(t.exchange_rate) || 1
 
       if (suppCurr === 'USD') {
-        if (txCurr === 'TRY') val = val / (rate || rates.USD || 1)
-        else if (txCurr === 'EUR') val = (val * (rate || rates.EUR || 1)) / (rates.USD || 1)
+        if (txCurr === 'TRY') val = Number((val / (rate || rates.USD || 1)).toFixed(2))
+        else if (txCurr === 'EUR') val = Number(((val * (rate || rates.EUR || 1)) / (rates.USD || 1)).toFixed(2))
       } else if (suppCurr === 'EUR') {
-        if (txCurr === 'TRY') val = val / (rate || rates.EUR || 1)
-        else if (txCurr === 'USD') val = (val * (rate || rates.USD || 1)) / (rates.EUR || 1)
+        if (txCurr === 'TRY') val = Number((val / (rate || rates.EUR || 1)).toFixed(2))
+        else if (txCurr === 'USD') val = Number(((val * (rate || rates.USD || 1)) / (rates.EUR || 1)).toFixed(2))
       } else {
-        if (txCurr !== 'TRY') val = val * rate
+        if (txCurr !== 'TRY') val = Number((val * rate).toFixed(2))
       }
 
       if (t.tx_type === 'debt') absoluteBal += val
       else absoluteBal -= val
     })
-    await supabase.from('suppliers').update({ balance: absoluteBal }).eq('id', supplierId)
+    await supabase.from('suppliers').update({ balance: Number(absoluteBal.toFixed(2)) }).eq('id', supplierId)
   }
 
   async function recalculateAbsoluteBankBalance(bankId: string) {
@@ -590,6 +591,7 @@ export default function SuppliersPage() {
       const diff = Number(((t.amount || 0) - linesSum).toFixed(2))
       if (Math.abs(diff) >= 0.01) setInvRoundingAdjustment(diff.toString())
       else setInvRoundingAdjustment('')
+      setInvTargetTry('')
 
       setInvDate(t.tx_date); setInvDesc(t.description); setInvLines(rawLines.map((l: any) => ({ ...l, sku: l.sku || '' }))); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
     } else {
@@ -817,6 +819,7 @@ export default function SuppliersPage() {
     fetchWarehouses()
     setEditingTxId(null); setInvDate(getLocalTodayISO()); setInvDesc(''); setInvCurrency('TRY'); setInvExchangeRate('1')
     setInvRoundingAdjustment('')
+    setInvTargetTry('')
     
     const currSupp = suppliers.find(s => s.id === selectedSupplierId)
     const targetCompId = currSupp?.company_id || 'common'
@@ -872,6 +875,23 @@ export default function SuppliersPage() {
     const linesTotal = calculateInvoiceLinesTotal()
     const roundVal = parseFloat(invRoundingAdjustment) || 0
     return Math.max(0, Number((linesTotal + roundVal).toFixed(2)))
+  }
+
+  const applyTargetTryRate = () => {
+    const targetNum = parseFloat(invTargetTry.replace(',', '.'))
+    const finalSum = calculateFinalInvoiceTotal()
+    if (!targetNum || targetNum <= 0) {
+      toast.error('Lütfen geçerli bir hedef TL tutarı girin.')
+      return
+    }
+    if (finalSum <= 0) {
+      toast.error('Önce fatura kalemlerini giriniz.')
+      return
+    }
+    // Hedef net TL'ye tam oturacak kuru 6 hane hassasiyetle hesapla
+    const newRate = (targetNum / finalSum).toFixed(6)
+    setInvExchangeRate(newRate)
+    toast.success(`Mutabakat kuru ${newRate} olarak ayarlandı. Cariye işlenecek bakiye: ${targetNum.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺`)
   }
 
   const calculateInvoiceTotal = calculateFinalInvoiceTotal
@@ -1050,13 +1070,13 @@ export default function SuppliersPage() {
     const rate = Number(t.exchange_rate) || 1
 
     if (suppCurr === 'USD') {
-      if (txCurr === 'TRY') valInSuppCurr = valInSuppCurr / (rate || rates.USD || 1)
-      else if (txCurr === 'EUR') valInSuppCurr = (valInSuppCurr * (rate || rates.EUR || 1)) / (rates.USD || 1)
+      if (txCurr === 'TRY') valInSuppCurr = Number((valInSuppCurr / (rate || rates.USD || 1)).toFixed(2))
+      else if (txCurr === 'EUR') valInSuppCurr = Number(((valInSuppCurr * (rate || rates.EUR || 1)) / (rates.USD || 1)).toFixed(2))
     } else if (suppCurr === 'EUR') {
-      if (txCurr === 'TRY') valInSuppCurr = valInSuppCurr / (rate || rates.EUR || 1)
-      else if (txCurr === 'USD') valInSuppCurr = (valInSuppCurr * (rate || rates.USD || 1)) / (rates.EUR || 1)
+      if (txCurr === 'TRY') valInSuppCurr = Number((valInSuppCurr / (rate || rates.EUR || 1)).toFixed(2))
+      else if (txCurr === 'USD') valInSuppCurr = Number(((valInSuppCurr * (rate || rates.USD || 1)) / (rates.EUR || 1)).toFixed(2))
     } else {
-      if (txCurr !== 'TRY') valInSuppCurr = valInSuppCurr * rate
+      if (txCurr !== 'TRY') valInSuppCurr = Number((valInSuppCurr * rate).toFixed(2))
     }
 
     if (t.tx_type === 'debt') currentRunningBalance -= valInSuppCurr
@@ -1436,7 +1456,7 @@ export default function SuppliersPage() {
               <div className="flex-1"><label className="block text-[10px] text-slate-400 mb-1">Fatura / Belge No (Açıklama)</label><input type="text" placeholder="Örn: FAT-2026-0012" value={invDesc} onChange={(e) => setInvDesc(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none transition-colors" /></div>
               <div className="w-24"><label className="block text-[10px] text-slate-400 mb-1">Fatura Dövizi</label><select value={invCurrency} onChange={(e) => setInvCurrency(e.target.value as any)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-xs text-white focus:outline-none transition-colors"><option value="TRY">₺ TRY</option><option value="USD">$ USD</option><option value="EUR">€ EUR</option></select></div>
               {invCurrency !== 'TRY' && (
-                <div className="w-24"><label className="block text-[10px] text-slate-400 mb-1">Mutabakat Kuru</label><input type="number" step="0.0001" value={invExchangeRate} onChange={(e) => setInvExchangeRate(e.target.value)} className="w-full bg-indigo-900/20 text-indigo-300 border border-indigo-500/50 rounded px-2 py-1.5 text-xs focus:outline-none font-mono transition-colors" /></div>
+                <div className="w-24"><label className="block text-[10px] text-slate-400 mb-1">Mutabakat Kuru</label><input type="number" step="any" value={invExchangeRate} onChange={(e) => setInvExchangeRate(e.target.value)} className="w-full bg-indigo-900/20 text-indigo-300 border border-indigo-500/50 rounded px-2 py-1.5 text-xs focus:outline-none font-mono transition-colors" /></div>
               )}
             </div>
             <div className="p-4 overflow-y-auto custom-scrollbar flex-1 bg-[#0a0f1d] min-h-[360px] pb-52">
@@ -1749,8 +1769,39 @@ export default function SuppliersPage() {
                     {/* 4. Cariye İşlenecek Bakiye (₺) */}
                     {invCurrency !== 'TRY' && (
                       <div className="flex flex-col border-l border-slate-800 pl-4 px-2">
-                        <span className="text-slate-500 text-[9px] uppercase font-bold tracking-wider">Cariye İşlenecek Bakiye (₺)</span>
-                        <span className="text-slate-300 font-bold font-mono text-lg">{formatMoney(finalSum * (parseFloat(invExchangeRate) || 1), 'TRY').formatted}</span>
+                        <div className="flex items-center justify-between gap-3 mb-1">
+                          <span className="text-slate-500 text-[9px] uppercase font-bold tracking-wider">Cariye İşlenecek Bakiye (₺)</span>
+                          <span className="text-[9px] text-indigo-400 font-semibold" title="Tedarikçiye ödediğiniz net tutarı yazıp kuru tam denk getirebilirsiniz">🎯 Hedef Net ₺</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-slate-200 font-bold font-mono text-lg">
+                            {formatMoney(finalSum * (parseFloat(invExchangeRate) || 1), 'TRY').formatted}
+                          </span>
+                          <div className="flex items-center gap-1 bg-[#0a0f1d] border border-indigo-500/40 rounded px-1.5 py-0.5">
+                            <input
+                              type="text"
+                              placeholder="Örn: 2230"
+                              value={invTargetTry}
+                              onChange={(e) => setInvTargetTry(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  applyTargetTryRate()
+                                }
+                              }}
+                              className="w-20 bg-transparent text-xs font-mono text-indigo-300 placeholder:text-slate-600 focus:outline-none text-right"
+                              title="Tedarikçiye ödediğiniz net TL tutarını girin (Örn: 2230)"
+                            />
+                            <button
+                              type="button"
+                              onClick={applyTargetTryRate}
+                              className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-2 py-0.5 rounded transition-colors active:scale-95"
+                              title="Bu TL tutarını tam tutturacak kuru otomatik hesaplar"
+                            >
+                              Kuru Ayarla
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
