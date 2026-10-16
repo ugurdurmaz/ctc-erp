@@ -537,7 +537,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Üst: kredi cüzdanı kartları (bakiye adet, tedarikçi, sıradaki maliyet, Yükle), Yeni Cüzdan.
 - KPI: Toplam Maliyet, Toplam Ciro, Bekleyen Tahsilat, Net Kâr (filtreye göre, TRY).
 - 3 açılır kart: Aktif (>15 gün), Yaklaşan/Biten (≤15 gün), Ödeme Bekleyen.
-- Tablo: kullanıcı/referans, merkez, başlangıç/bitiş, kalan süre, maliyet & cüzdan, satış fiyatı, tahsilat durumu (Ödendi / **Tahsil Et**), işlemler (**+1 Yıl Uzat**, düzenle, sil).
+- Tablo: kullanıcı/referans, merkez, başlangıç/bitiş (varsayılan olarak **yeniden eskiye doğru** sıralı; üst bardaki buton veya sütun başlığıyla tersine çevrilebilir), kalan süre, maliyet & cüzdan, satış fiyatı, tahsilat durumu (Ödendi / **Tahsil Et**), işlemler (**+1 Yıl Uzat**, düzenle, sil).
 - Cüzdan düzenlemede açılış lotu (`is_opening`) miktar/maliyeti değiştirilebilir; "hayalet bakiye" için zorla silme uyarısı vardır.
 - Kurallar: §6.5.
 

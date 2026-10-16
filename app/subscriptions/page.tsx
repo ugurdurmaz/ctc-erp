@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { logActivity } from '@/lib/audit'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Key, Plus, Trash2, X, Edit3, Search, Building, Globe, CheckCircle2, AlertCircle, RefreshCw, Wallet, Download, Landmark, Check, ChevronDown, ChevronUp, Clock, CreditCard, Inbox, AlertTriangle, Home } from 'lucide-react'
+import { Key, Plus, Trash2, X, Edit3, Search, Building, Globe, CheckCircle2, AlertCircle, RefreshCw, Wallet, Download, Landmark, Check, ChevronDown, ChevronUp, Clock, CreditCard, Inbox, AlertTriangle, Home, ArrowUpDown, ArrowDownNarrowWide, ArrowUpNarrowWide } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Supplier = { id: string; company_name: string; balance: number; currency: string }
@@ -20,6 +20,7 @@ type Subscription = {
   cost_price: number; sale_price: number; currency: 'TRY' | 'USD' | 'EUR';
   is_active: boolean; is_paid: boolean; payment_source_type: string | null; payment_source_id: string | null;
   company?: { name: string; is_personal: boolean }; wallet?: { name: string };
+  created_at?: string;
 }
 
 function getLocalTodayISO() { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}` }
@@ -39,6 +40,7 @@ export default function SubscriptionsPage() {
   
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState('all')
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
 
   const [rates, setRates] = useState<{ USD: number; EUR: number }>({ USD: 34.25, EUR: 37.80 })
 
@@ -95,7 +97,14 @@ export default function SubscriptionsPage() {
     }
     setWallets(data || []) 
   }
-  async function fetchSubscriptions() { const { data } = await supabase.from('credit_subscriptions').select('*, company:companies(name, is_personal), wallet:credit_wallets(name)').order('end_date'); setSubscriptions(data || []) }
+  async function fetchSubscriptions() {
+    const { data } = await supabase
+      .from('credit_subscriptions')
+      .select('*, company:companies(name, is_personal), wallet:credit_wallets(name)')
+      .order('start_date', { ascending: false })
+      .order('created_at', { ascending: false })
+    setSubscriptions(data || [])
+  }
   async function fetchPaymentSources() {
     const { data: bData } = await supabase.from('bank_accounts').select('id, bank_name, account_name, balance, currency').order('bank_name')
     const { data: cData } = await supabase.from('cash_registers').select('id, name, balance, currency').order('name')
@@ -679,11 +688,29 @@ export default function SubscriptionsPage() {
     } catch (err: any) { toast.error("Tahsilat başarısız: " + err.message) }
   }
 
-  const filteredSubs = subscriptions.filter(s => {
-    const matchCompany = selectedCompanyFilter === 'all' || (selectedCompanyFilter === 'common' ? !s.company_id : s.company_id === selectedCompanyFilter)
-    const matchSearch = s.username.toLowerCase().includes(searchTerm.toLowerCase()) || s.full_name.toLowerCase().includes(searchTerm.toLowerCase()) || (s.reference_note && s.reference_note.toLowerCase().includes(searchTerm.toLowerCase()))
-    return matchCompany && matchSearch
-  })
+  const filteredSubs = subscriptions
+    .filter(s => {
+      const matchCompany = selectedCompanyFilter === 'all' || (selectedCompanyFilter === 'common' ? !s.company_id : s.company_id === selectedCompanyFilter)
+      const q = searchTerm.toLocaleLowerCase('tr-TR').trim()
+      const matchSearch = !q ||
+        s.username.toLocaleLowerCase('tr-TR').includes(q) ||
+        s.full_name.toLocaleLowerCase('tr-TR').includes(q) ||
+        (s.reference_note && s.reference_note.toLocaleLowerCase('tr-TR').includes(q))
+      return matchCompany && matchSearch
+    })
+    .sort((a, b) => {
+      const dateA = a.start_date || a.created_at || ''
+      const dateB = b.start_date || b.created_at || ''
+      if (dateA !== dateB) {
+        return sortOrder === 'desc' ? dateB.localeCompare(dateA) : dateA.localeCompare(dateB)
+      }
+      const createdA = a.created_at || ''
+      const createdB = b.created_at || ''
+      if (createdA !== createdB) {
+        return sortOrder === 'desc' ? createdB.localeCompare(createdA) : createdA.localeCompare(createdB)
+      }
+      return 0
+    })
 
   const latestSubsMap = new Map<string, Subscription>();
   filteredSubs.forEach(s => {
@@ -842,9 +869,27 @@ export default function SubscriptionsPage() {
 
       <div style={{ animation: 'fadeInUp 0.4s both 0.3s' }} className="flex-1 bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col min-w-0 overflow-hidden shadow-lg">
         <div className="p-3 border-b border-slate-800/80 bg-[#0a0f1d] flex flex-wrap justify-between items-center gap-3 shrink-0">
-          <div className="flex gap-2 items-center flex-1">
+          <div className="flex gap-2 items-center flex-1 flex-wrap">
             <div className="relative w-full max-w-xs"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><input type="text" placeholder="Kullanıcı, ad soyad veya referans..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-[11px] text-slate-200 focus:outline-none focus:border-pink-500/50 transition-all" /></div>
             <select value={selectedCompanyFilter} onChange={(e) => setSelectedCompanyFilter(e.target.value)} className="bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-[11px] text-slate-300 focus:outline-none focus:border-pink-500/50 transition-colors"><option value="all">Tüm Şirketler</option><option value="common">Ortak İşlemler</option>{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+            <button
+              type="button"
+              onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+              className="flex items-center gap-1.5 bg-[#070b14] hover:bg-slate-800/80 border border-slate-700 rounded-lg px-2.5 py-2 text-[11px] text-slate-300 hover:text-white transition-colors"
+              title={sortOrder === 'desc' ? 'Şu an: Yeniden Eskiye (En Yeni İlk). Tıklayarak Eskiden Yeniye yapabilirsiniz.' : 'Şu an: Eskiden Yeniye (En Eski İlk). Tıklayarak Yeniden Eskiye yapabilirsiniz.'}
+            >
+              {sortOrder === 'desc' ? (
+                <>
+                  <ArrowDownNarrowWide size={13} className="text-pink-400" />
+                  <span className="font-medium">Yeniden Eskiye</span>
+                </>
+              ) : (
+                <>
+                  <ArrowUpNarrowWide size={13} className="text-pink-400" />
+                  <span className="font-medium">Eskiden Yeniye</span>
+                </>
+              )}
+            </button>
           </div>
           <button onClick={openAddModal} className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-lg shadow-pink-900/20"><Plus size={14} /> Yeni Abonelik Satışı</button>
         </div>
@@ -855,7 +900,20 @@ export default function SubscriptionsPage() {
               <tr>
                 <th className="p-3 font-medium">Kullanıcı & Referans</th>
                 <th className="p-3 font-medium text-center">Şirket / Merkez</th>
-                <th className="p-3 font-medium text-center">Başlangıç / Bitiş</th>
+                <th 
+                  onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')} 
+                  className="p-3 font-medium text-center cursor-pointer select-none hover:text-pink-400 transition-colors"
+                  title="Sıralamayı değiştir (Yeniden Eskiye / Eskiden Yeniye)"
+                >
+                  <div className="inline-flex items-center gap-1 justify-center">
+                    <span>Başlangıç / Bitiş</span>
+                    {sortOrder === 'desc' ? (
+                      <ArrowDownNarrowWide size={12} className="text-pink-400" />
+                    ) : (
+                      <ArrowUpNarrowWide size={12} className="text-pink-400" />
+                    )}
+                  </div>
+                </th>
                 <th className="p-3 font-medium text-center">Kalan Süre</th>
                 <th className="p-3 font-medium text-right">Maliyet & Cüzdan</th>
                 <th className="p-3 font-medium text-right text-blue-400">Satış Fiyatı</th>
