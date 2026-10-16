@@ -1957,7 +1957,7 @@ export default function RetailPOSPage() {
               const stockSku = matchedStock?.sku?.trim();
               const hasSkuAlready = Boolean(stockSku && trimmedDesc?.toLocaleLowerCase('tr-TR').includes(stockSku.toLocaleLowerCase('tr-TR')));
               const fullTextWithSku = stockSku && !hasSkuAlready
-                ? `${trimmedDesc} (Kod: ${stockSku})`
+                ? `${trimmedDesc} [${stockSku}]`
                 : trimmedDesc;
 
               const rowTooltip = hasMissingDesc 
@@ -2038,7 +2038,7 @@ export default function RetailPOSPage() {
                            ) : (
                               rowFilteredStocks.map(stock => {
                                  const isSelected = row.stockId === stock.id;
-                                 const itemTooltip = stock.sku ? `${stock.name} (Kod: ${stock.sku})` : stock.name;
+                                 const itemTooltip = stock.sku ? `${stock.name} [${stock.sku}]` : stock.name;
                                  return (
                                  <div 
                                    key={stock.id} 
@@ -2906,7 +2906,7 @@ export default function RetailPOSPage() {
                         <div className="flex items-center gap-2.5 min-w-0">
                           <Package size={18} className="text-indigo-400 shrink-0" />
                           <div className="min-w-0">
-                            <div className="text-xs font-bold text-slate-200 truncate" title={selectedStock.sku ? `${selectedStock.name} (Kod: ${selectedStock.sku})` : selectedStock.name}>{selectedStock.name}</div>
+                            <div className="text-xs font-bold text-slate-200 truncate" title={selectedStock.sku ? `${selectedStock.name} [${selectedStock.sku}]` : selectedStock.name}>{selectedStock.name}</div>
                             <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
                               <span>Mevcut Stok: <strong className="text-emerald-400">{currentStockQty}</strong></span>
                               <span>•</span>
@@ -2948,7 +2948,7 @@ export default function RetailPOSPage() {
                                   className="p-2 hover:bg-slate-800/80 cursor-pointer transition-colors flex items-center justify-between text-xs"
                                 >
                                   <div className="min-w-0 pr-2">
-                                    <div className="font-semibold text-slate-200 truncate" title={s.sku ? `${s.name} (Kod: ${s.sku})` : s.name}>{s.name}</div>
+                                    <div className="font-semibold text-slate-200 truncate" title={s.sku ? `${s.name} [${s.sku}]` : s.name}>{s.name}</div>
                                     {s.sku && <div className="text-[10px] text-slate-500 font-mono">{s.sku}</div>}
                                   </div>
                                   <div className="shrink-0 text-right">
