@@ -241,6 +241,16 @@ export default function RetailPOSPage() {
     return stocks
   }, [activeWarehouse, posSettings.companyId, warehouses, stocks])
 
+  // Hızlı O(1) stok arama haritaları (Tooltip ve ürün kodu eşleştirme için)
+  const stocksById = useMemo(() => new Map(stocks.map(s => [s.id, s])), [stocks])
+  const stocksByName = useMemo(() => {
+    const map = new Map<string, RawStock>()
+    stocks.forEach(s => {
+      if (s.name) map.set(s.name.trim().toLocaleLowerCase('tr-TR'), s)
+    })
+    return map
+  }, [stocks])
+
   // Hızlı İade için filtrelenmiş ürün listesi
   const filteredReturnStocks = useMemo(() => {
     if (!returnStockSearch.trim()) return storeStocks.slice(0, 40)
@@ -1939,9 +1949,20 @@ export default function RetailPOSPage() {
                   })
                 : [];
 
+              const trimmedDesc = row.description?.trim();
+              const matchedStock = !isExpenseCat && trimmedDesc
+                ? (row.stockId ? stocksById.get(row.stockId) : null) ||
+                  stocksByName.get(trimmedDesc.toLocaleLowerCase('tr-TR'))
+                : null;
+              const stockSku = matchedStock?.sku?.trim();
+              const hasSkuAlready = Boolean(stockSku && trimmedDesc?.toLocaleLowerCase('tr-TR').includes(stockSku.toLocaleLowerCase('tr-TR')));
+              const fullTextWithSku = stockSku && !hasSkuAlready
+                ? `${trimmedDesc} (Kod: ${stockSku})`
+                : trimmedDesc;
+
               const rowTooltip = hasMissingDesc 
                 ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı temizleyin.' 
-                : (row.description?.trim() || undefined);
+                : (fullTextWithSku || undefined);
 
               return (
               <div 
@@ -1961,7 +1982,7 @@ export default function RetailPOSPage() {
                            setActiveDropdownId(activeDropdownId === row.id ? null : row.id);
                          }}
                          className="ml-1.5 shrink-0 text-slate-500 hover:text-indigo-400 cursor-pointer"
-                         title={row.stockId ? (row.description ? `Stok: ${row.description}` : "Stoktan düşülecek ürün seçili") : "Depodaki ürünleri listele"}
+                         title={row.stockId ? (rowTooltip ? `Stok: ${rowTooltip}` : "Stoktan düşülecek ürün seçili") : "Depodaki ürünleri listele"}
                        >
                          {row.stockId ? <Package size={12} className="text-emerald-400" /> : <Search size={10} className="text-slate-500" />}
                        </button>
@@ -2017,9 +2038,11 @@ export default function RetailPOSPage() {
                            ) : (
                               rowFilteredStocks.map(stock => {
                                  const isSelected = row.stockId === stock.id;
+                                 const itemTooltip = stock.sku ? `${stock.name} (Kod: ${stock.sku})` : stock.name;
                                  return (
                                  <div 
                                    key={stock.id} 
+                                   title={itemTooltip}
                                    onMouseDown={(e) => { 
                                       e.preventDefault(); 
                                       e.stopPropagation(); 
@@ -2883,7 +2906,7 @@ export default function RetailPOSPage() {
                         <div className="flex items-center gap-2.5 min-w-0">
                           <Package size={18} className="text-indigo-400 shrink-0" />
                           <div className="min-w-0">
-                            <div className="text-xs font-bold text-slate-200 truncate">{selectedStock.name}</div>
+                            <div className="text-xs font-bold text-slate-200 truncate" title={selectedStock.sku ? `${selectedStock.name} (Kod: ${selectedStock.sku})` : selectedStock.name}>{selectedStock.name}</div>
                             <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
                               <span>Mevcut Stok: <strong className="text-emerald-400">{currentStockQty}</strong></span>
                               <span>•</span>
@@ -2925,7 +2948,7 @@ export default function RetailPOSPage() {
                                   className="p-2 hover:bg-slate-800/80 cursor-pointer transition-colors flex items-center justify-between text-xs"
                                 >
                                   <div className="min-w-0 pr-2">
-                                    <div className="font-semibold text-slate-200 truncate">{s.name}</div>
+                                    <div className="font-semibold text-slate-200 truncate" title={s.sku ? `${s.name} (Kod: ${s.sku})` : s.name}>{s.name}</div>
                                     {s.sku && <div className="text-[10px] text-slate-500 font-mono">{s.sku}</div>}
                                   </div>
                                   <div className="shrink-0 text-right">
