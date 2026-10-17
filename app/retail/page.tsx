@@ -1976,19 +1976,19 @@ export default function RetailPOSPage() {
                 <div className="flex-1 min-w-[50px] relative flex group/desc">
                   {/* Mouse ile üzerine gelindiğinde veya tıklandığında çıkan ürün adı ve gri kod tooltip'i */}
                   {displayName && !isDropdownOpen && !hasMissingDesc && (
-                    <div className={`absolute ${isTooltipDownward ? 'top-full mt-2' : 'bottom-full mb-2'} left-1 z-50 pointer-events-none hidden group-hover/desc:flex group-focus-within/desc:flex flex-col gap-1 bg-[#070b18] border border-slate-700/90 text-[11px] px-2.5 py-1.5 rounded-lg shadow-2xl shadow-black/95 w-max max-w-[min(480px,calc(100vw-40px))] leading-snug animate-in fade-in zoom-in-95 duration-100 ring-1 ring-white/10 whitespace-normal break-words`}>
-                      <div className="font-medium text-slate-400">
+                    <div className={`absolute ${isTooltipDownward ? 'top-full mt-2' : 'bottom-full mb-2'} left-1 z-50 pointer-events-none hidden group-hover/desc:flex group-focus-within/desc:flex flex-col gap-1 bg-slate-800 border border-slate-600/80 text-[11px] px-2.5 py-1.5 rounded-lg shadow-2xl shadow-black/95 w-max max-w-[min(480px,calc(100vw-40px))] leading-snug animate-in fade-in zoom-in-95 duration-100 ring-1 ring-white/10 whitespace-normal break-words`}>
+                      <div className="font-medium text-slate-200">
                         <span>{displayName}</span>
                         {displaySku && (
-                          <span className="inline-block text-slate-500 font-mono text-[10px] bg-slate-900/90 border border-slate-700/60 px-1.5 py-0.5 rounded select-none align-middle ml-1.5">
+                          <span className="inline-block text-slate-400 font-mono text-[10px] bg-slate-900/90 border border-slate-700/80 px-1.5 py-0.5 rounded select-none align-middle ml-1.5">
                             [{displaySku}]
                           </span>
                         )}
                       </div>
                       {isTooltipDownward ? (
-                        <div className="absolute -top-1 left-4 w-2 h-2 bg-[#070b18] border-l border-t border-slate-700/90 rotate-45" />
+                        <div className="absolute -top-1 left-4 w-2 h-2 bg-slate-800 border-l border-t border-slate-600/80 rotate-45" />
                       ) : (
-                        <div className="absolute -bottom-1 left-4 w-2 h-2 bg-[#070b18] border-r border-b border-slate-700/90 rotate-45" />
+                        <div className="absolute -bottom-1 left-4 w-2 h-2 bg-slate-800 border-r border-b border-slate-600/80 rotate-45" />
                       )}
                     </div>
                   )}
