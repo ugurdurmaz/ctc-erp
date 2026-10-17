@@ -1973,10 +1973,10 @@ export default function RetailPOSPage() {
               >
                 
                 <div className="flex-1 min-w-[50px] relative flex group/desc">
-                  {/* Mouse ile üzerine gelindiğinde çıkan ürün adı ve gri kod tooltip'i */}
+                  {/* Mouse ile üzerine gelindiğinde veya tıklandığında çıkan ürün adı ve gri kod tooltip'i */}
                   {displayName && !isDropdownOpen && !hasMissingDesc && (
-                    <div className="absolute bottom-full left-1 mb-2 z-50 pointer-events-none hidden group-hover/desc:flex items-center gap-1.5 bg-[#070b18] border border-slate-700/90 text-[11px] px-2.5 py-1.5 rounded-lg shadow-2xl shadow-black/95 max-w-[480px] leading-snug animate-in fade-in zoom-in-95 duration-100 ring-1 ring-white/10 whitespace-normal break-words">
-                      <span className="font-medium text-slate-100">{displayName}</span>
+                    <div className="absolute bottom-full left-1 mb-2 z-50 pointer-events-none hidden group-hover/desc:flex group-focus-within/desc:flex items-center gap-1.5 bg-[#070b18] border border-slate-700/90 text-[11px] px-2.5 py-1.5 rounded-lg shadow-2xl shadow-black/95 max-w-[480px] leading-snug animate-in fade-in zoom-in-95 duration-100 ring-1 ring-white/10 whitespace-normal break-words">
+                      <span className="font-medium text-slate-200">{displayName}</span>
                       {displaySku && (
                         <span className="text-slate-400 font-mono text-[10.5px] shrink-0 select-none">
                           [{displaySku}]
