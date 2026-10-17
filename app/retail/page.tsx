@@ -1976,9 +1976,9 @@ export default function RetailPOSPage() {
                   {/* Mouse ile üzerine gelindiğinde veya tıklandığında çıkan ürün adı ve gri kod tooltip'i */}
                   {displayName && !isDropdownOpen && !hasMissingDesc && (
                     <div className="absolute bottom-full left-1 mb-2 z-50 pointer-events-none hidden group-hover/desc:flex group-focus-within/desc:flex items-center gap-2 bg-[#070b18] border border-slate-700/90 text-[11px] px-2.5 py-1.5 rounded-lg shadow-2xl shadow-black/95 max-w-[480px] leading-snug animate-in fade-in zoom-in-95 duration-100 ring-1 ring-white/10 whitespace-normal break-words">
-                      <span className="font-semibold text-white tracking-wide">{displayName}</span>
+                      <span className="font-medium text-slate-400">{displayName}</span>
                       {displaySku && (
-                        <span className="text-slate-400 font-mono text-[10.5px] bg-slate-900/90 border border-slate-700/60 px-1.5 py-0.5 rounded shrink-0 select-none">
+                        <span className="text-slate-500 font-mono text-[10.5px] bg-slate-900/90 border border-slate-700/60 px-1.5 py-0.5 rounded shrink-0 select-none">
                           [{displaySku}]
                         </span>
                       )}
