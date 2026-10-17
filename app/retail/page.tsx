@@ -883,8 +883,24 @@ export default function RetailPOSPage() {
         if (found) activeCashId = found.id;
       }
 
-      // Günün bağlı kasadan yapılan harici giderlerini (Sabit/Genel Giderler) çek
-      let externalCashTxs: any[] = [];
+      // Günün bağlı kasadan ve Genel Giderlerden ödenen harici giderlerini (Sabit/Genel Giderler) çek
+      let externalCashTxs: {
+        id: string;
+        transfer_id: string;
+        description: string;
+        amount: number;
+        paymentType: 'cash' | 'card' | 'bank';
+        source: 'cash_tx' | 'expense_tx';
+      }[] = [];
+
+      let activeStoreCompanyId = parsedSettings?.companyId || posSettings.companyId || storeCompanyId;
+      if (!activeStoreCompanyId) {
+        const { data: dbComps } = await supabase.from('companies').select('id, name, is_personal');
+        const comm = dbComps?.find(c => !c.is_personal);
+        if (comm) activeStoreCompanyId = comm.id;
+      }
+
+      // 1. Bağlı kasadan yapılan nakit çıkışlarını ekle
       if (activeCashId) {
         const { data: extTxs } = await supabase
           .from('cash_transactions')
@@ -894,11 +910,95 @@ export default function RetailPOSPage() {
           .eq('tx_type', 'out');
 
         if (extTxs) {
-          externalCashTxs = extTxs.filter(t => {
+          extTxs.forEach(t => {
             const trf = t.transfer_id || '';
-            return trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !t.is_transfer);
+            if (trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !t.is_transfer)) {
+              externalCashTxs.push({
+                id: `cash-${t.id}`,
+                transfer_id: trf || `EXP-CASH-${t.id}`,
+                description: t.description || 'Gider Ödemesi',
+                amount: Number(t.amount) || 0,
+                paymentType: 'cash',
+                source: 'cash_tx'
+              });
+            }
           });
         }
+      }
+
+      // 2. Genel Giderler modülünden ödenen sabit / tekrarlayan ödemeleri çek (Kredi Kartı, Banka ve Kasa)
+      try {
+        const { data: recCatData } = await supabase
+          .from('expense_categories')
+          .select('id, name')
+          .like('name', 'REC_TEMPLATE::%');
+
+        const storeRecTemplateIds = new Set<string>();
+        const storeRecTemplateTitles: string[] = [];
+
+        recCatData?.forEach(c => {
+          try {
+            const parsed = JSON.parse(c.name.slice('REC_TEMPLATE::'.length));
+            const tmplCompId = parsed.company_id;
+            const isStore = !tmplCompId || tmplCompId === 'common' || (activeStoreCompanyId && tmplCompId === activeStoreCompanyId);
+            if (isStore) {
+              storeRecTemplateIds.add(c.id);
+              if (parsed.title) {
+                storeRecTemplateTitles.push(parsed.title.trim().toLocaleLowerCase('tr-TR'));
+              }
+            }
+          } catch (e) {}
+        });
+
+        const { data: dayExpTxs } = await supabase
+          .from('expense_transactions')
+          .select('*')
+          .eq('tx_date', dateStr);
+
+        if (dayExpTxs && dayExpTxs.length > 0) {
+          dayExpTxs.forEach(tx => {
+            const trfId = tx.transfer_id || '';
+            const isRecTrf = trfId.startsWith('EXP-REC-');
+            
+            let isTmplMatch = false;
+            if (isRecTrf) {
+              const parts = trfId.split('-');
+              const tmplId = parts[2];
+              if (tmplId && storeRecTemplateIds.has(tmplId)) {
+                isTmplMatch = true;
+              }
+            }
+
+            const descLower = (tx.description || '').toLocaleLowerCase('tr-TR');
+            const isTitleMatch = storeRecTemplateTitles.some(t => descLower.includes(t));
+            const isCompMatch = !tx.company_id || (activeStoreCompanyId && tx.company_id === activeStoreCompanyId);
+
+            if ((isRecTrf || isTmplMatch || isTitleMatch) && (isCompMatch || isTmplMatch)) {
+              const alreadyExists = externalCashTxs.some(e => 
+                (trfId && e.transfer_id === trfId) ||
+                (e.description === tx.description && Math.abs(e.amount - Number(tx.amount)) < 0.01)
+              );
+
+              if (!alreadyExists) {
+                let paymentType: 'cash' | 'card' | 'bank' = 'card';
+                if (tx.payment_source_type === 'cash') paymentType = 'cash';
+                else if (tx.payment_source_type === 'bank') paymentType = 'bank';
+                else paymentType = 'card';
+
+                externalCashTxs.push({
+                  id: `exp-${tx.id}`,
+                  transfer_id: trfId || `EXP-REC-${tx.id}`,
+                  description: tx.description || 'Sabit Gider Ödemesi',
+                  amount: Number(tx.amount) || 0,
+                  paymentType,
+                  source: 'expense_tx'
+                });
+              }
+            }
+          });
+        }
+      } catch (recErr) {
+        console.error("Sabit giderleri getirme hatası:", recErr);
       }
 
       let cashInitAmount = 0;
@@ -996,7 +1096,7 @@ export default function RetailPOSPage() {
             return externalCashTxs.some(ext => 
               (ext.transfer_id && r.transferId === ext.transfer_id) ||
               (ext.transfer_id && r.description?.includes(ext.transfer_id)) ||
-              (r.description === ext.description && parseValue(r.cash) === Number(ext.amount))
+              (r.description === ext.description && (parseValue(r.cash) === Number(ext.amount) || parseValue(r.card) === Number(ext.amount)))
             )
           })
 
@@ -1006,25 +1106,34 @@ export default function RetailPOSPage() {
                 r.categoryId === EXPENSE_CATEGORY_ID && (
                   (r.transferId && r.transferId === ext.transfer_id) ||
                   (ext.transfer_id && r.description?.includes(ext.transfer_id)) ||
-                  (r.description === ext.description && parseValue(r.cash) === Number(ext.amount))
+                  (r.description === ext.description && (parseValue(r.cash) === Number(ext.amount) || parseValue(r.card) === Number(ext.amount)))
                 )
               )
             })
 
             if (missingExtTxs.length > 0) {
-              const newExtRows: RetailRow[] = missingExtTxs.map(ext => ({
-                id: `gider-exp-${ext.id}`,
-                categoryId: EXPENSE_CATEGORY_ID,
-                description: ext.description || 'Gider Ödemesi',
-                stockId: null,
-                supplierId: null,
-                quantity: '1',
-                cost: formatValue(Number(ext.amount)),
-                cash: formatValue(Number(ext.amount)),
-                card: '',
-                transferId: ext.transfer_id || `EXP-${ext.id}`,
-                isExternalExpense: true
-              }))
+              const newExtRows: RetailRow[] = missingExtTxs.map(ext => {
+                const isCard = ext.paymentType === 'card';
+                const isCash = ext.paymentType === 'cash';
+                const isBank = ext.paymentType === 'bank';
+                const desc = isBank 
+                  ? (ext.description.includes('[Banka') ? ext.description : `${ext.description} [Banka: ${formatValue(ext.amount)} ₺]`)
+                  : (ext.description || 'Gider Ödemesi');
+
+                return {
+                  id: `gider-ext-${ext.id}`,
+                  categoryId: EXPENSE_CATEGORY_ID,
+                  description: desc,
+                  stockId: null,
+                  supplierId: null,
+                  quantity: '1',
+                  cost: formatValue(Number(ext.amount)),
+                  cash: isCash ? formatValue(Number(ext.amount)) : '',
+                  card: isCard ? formatValue(Number(ext.amount)) : '',
+                  transferId: ext.transfer_id || `EXP-${ext.id}`,
+                  isExternalExpense: true
+                };
+              })
               restoredRows = [...restoredRows, ...newExtRows]
             }
           }
@@ -1161,8 +1270,8 @@ export default function RetailPOSPage() {
           for (const r of catDbRows) {
             const isExt = r.description?.includes('[EXP-') || r.description?.startsWith('Gider Ödemesi')
             const matchedExt = externalCashTxs.find(ext => 
-              (ext.transfer_id && r.description?.includes(ext.transfer_id)) ||
-              (r.description === ext.description && parseValue(r.cash) === Number(ext.amount))
+              (ext.transfer_id && (r.description?.includes(ext.transfer_id) || r.transferId === ext.transfer_id)) ||
+              (r.description === ext.description && (parseValue(r.cash) === Number(ext.amount) || parseValue(r.card) === Number(ext.amount)))
             );
 
             // Harici gider formatında olup kasada karşılığı kalmadıysa (Genel Giderler'den silinmişse),
@@ -1176,14 +1285,16 @@ export default function RetailPOSPage() {
               processedExternalIds.add(matchedExt.id);
             }
 
+            const cleanDesc = matchedExt?.description || r.description?.replace(/\s*\[EXP-[^\]]+\]/g, '').trim() || '';
+
             newRows.push({
               id: r.id, 
               categoryId: r.category_id, 
-              description: r.description || '', 
+              description: cleanDesc, 
               stockId: null, 
               supplierId: null, 
               quantity: r.quantity ? String(r.quantity) : '1', 
-              cost: (r.cost !== null && r.cost !== undefined && r.cost !== '') ? ((Number(r.cost) === 0 && (parseValue(r.cash) > 0 || parseValue(r.card) > 0)) ? '0,00' : formatValue(r.cost)) : (r.cash ? formatValue(r.cash) : ''),
+              cost: (r.cost !== null && r.cost !== undefined && r.cost !== '') ? ((Number(r.cost) === 0 && (parseValue(r.cash) > 0 || parseValue(r.card) > 0)) ? '0,00' : formatValue(r.cost)) : (r.cash ? formatValue(r.cash) : (r.card ? formatValue(r.card) : '')),
               cash: formatValue(r.cash), 
               card: formatValue(r.card),
               transferId: matchedExt?.transfer_id || null,
@@ -1194,16 +1305,23 @@ export default function RetailPOSPage() {
           // pos_transactions tablosunda henüz yer almayan harici giderleri ekle
           externalCashTxs.forEach(ext => {
             if (!processedExternalIds.has(ext.id)) {
+              const isCard = ext.paymentType === 'card';
+              const isCash = ext.paymentType === 'cash';
+              const isBank = ext.paymentType === 'bank';
+              const desc = isBank 
+                ? (ext.description.includes('[Banka') ? ext.description : `${ext.description} [Banka: ${formatValue(ext.amount)} ₺]`)
+                : (ext.description || 'Gider Ödemesi');
+
               newRows.push({
-                id: `gider-exp-${ext.id}`,
+                id: `gider-ext-${ext.id}`,
                 categoryId: EXPENSE_CATEGORY_ID,
-                description: ext.description || 'Gider Ödemesi',
+                description: desc,
                 stockId: null,
                 supplierId: null,
                 quantity: '1',
                 cost: formatValue(Number(ext.amount)),
-                cash: formatValue(Number(ext.amount)),
-                card: '',
+                cash: isCash ? formatValue(Number(ext.amount)) : '',
+                card: isCard ? formatValue(Number(ext.amount)) : '',
                 transferId: ext.transfer_id || `EXP-${ext.id}`,
                 isExternalExpense: true
               });
@@ -1451,7 +1569,13 @@ export default function RetailPOSPage() {
     }
 
     // YENİ: KREDİ KARTI GİDERİ EKLENMESİ VE EKSTREYE İŞLENMESİ
-    if (posSettings.targetCreditCardId && expenseCard > 0) {
+    // Harici giderlerin (Genel Giderler modülü vb.) kart tutarını düşerek çift çekimi engelle:
+    const externalExpenseCard = filledRows
+      .filter(r => r.categoryId === EXPENSE_CATEGORY_ID && (r.isExternalExpense || r.transferId?.startsWith('EXP-') || r.description?.includes('[EXP-') || r.description?.startsWith('Gider Ödemesi')))
+      .reduce((acc, row) => acc + parseValue(row.card), 0);
+    const netPosExpenseCard = Math.max(0, expenseCard - externalExpenseCard);
+
+    if (posSettings.targetCreditCardId && netPosExpenseCard > 0) {
       affectedCards.add(posSettings.targetCreditCardId);
       
       await supabase.from('card_transactions').insert([{ 
@@ -1460,7 +1584,7 @@ export default function RetailPOSPage() {
         tx_date: currentDateStr, 
         description: `Mağaza Z-Raporu: Kartlı Giderler (POS-${currentDateStr})`, 
         tx_type: 'expense',
-        amount: expenseCard 
+        amount: netPosExpenseCard 
       }]);
     }
 
@@ -1534,9 +1658,14 @@ export default function RetailPOSPage() {
   const calculatedKasa = parseValue(openingCash) + grandTotalCash + deliveredTicketsCash - expenseCash - totalToBank + totalFromBank
 
   const saveDayData = async () => {
-    if (expenseCard > 0 && !posSettings.targetCreditCardId) {
+    const externalExpenseCardCheck = rows
+      .filter(r => r.categoryId === EXPENSE_CATEGORY_ID && (r.isExternalExpense || r.transferId?.startsWith('EXP-') || r.description?.includes('[EXP-') || r.description?.startsWith('Gider Ödemesi')))
+      .reduce((acc, row) => acc + parseValue(row.card), 0);
+    const netPosExpenseCardCheck = Math.max(0, expenseCard - externalExpenseCardCheck);
+
+    if (netPosExpenseCardCheck > 0 && !posSettings.targetCreditCardId) {
       toast.error(
-        'HATA: Kredi kartı ile masraf girdiniz ancak Ayarlar\'dan masrafın yansıyacağı bir Kredi Kartı seçmediniz!',
+        'HATA: Kredi kartı ile mağaza masrafı girdiniz ancak Ayarlar\'dan masrafın yansıyacağı bir Kredi Kartı seçmediniz!',
         { duration: 6000, icon: '💳' }
       );
       return; 
@@ -2513,23 +2642,34 @@ export default function RetailPOSPage() {
                   )}
                   {expenseRows.map((row, index) => {
                     const hasMissingDesc = !row.description.trim() && (parseValue(row.cash) > 0 || parseValue(row.card) > 0);
+                    const isExt = row.isExternalExpense || row.transferId?.startsWith('EXP-') || row.description?.includes('[EXP-');
                     const expTooltip = hasMissingDesc 
                       ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı silin.' 
-                      : (row.description?.trim() || undefined);
+                      : (isExt ? `Genel Giderler modülünden gelen sabit gider: ${row.description}` : (row.description?.trim() || undefined));
                     return (
                     <div 
                       key={row.id} 
-                      className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''}`}
+                      className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''} ${isExt ? 'bg-amber-950/10' : ''}`}
                       title={expTooltip}
                     >
-                      <input 
-                        type="text" 
-                        placeholder={hasMissingDesc ? "⚠️ Açıklama yazınız..." : (index === 0 ? "Açıklama / Masraf Kalemi..." : "")} 
-                        value={row.description} 
-                        title={expTooltip}
-                        onChange={(e) => handleInputChange(row.id, 'description', e.target.value)} 
-                        className={`flex-1 min-w-[50px] bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none focus:bg-amber-900/20 border-r border-slate-700 placeholder:text-slate-600 font-sans font-normal transition-colors truncate ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
-                      />
+                      <div className="flex-1 min-w-[50px] relative flex items-center border-r border-slate-700 overflow-hidden">
+                        {isExt && (
+                          <span 
+                            className="ml-1.5 px-1 py-0.5 rounded text-[8px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0 select-none cursor-help font-mono"
+                            title="Genel Giderler'den otomatik gelen sabit gider ödemesi"
+                          >
+                            Genel Gider
+                          </span>
+                        )}
+                        <input 
+                          type="text" 
+                          placeholder={hasMissingDesc ? "⚠️ Açıklama yazınız..." : (index === 0 ? "Açıklama / Masraf Kalemi..." : "")} 
+                          value={row.description} 
+                          title={expTooltip}
+                          onChange={(e) => handleInputChange(row.id, 'description', e.target.value)} 
+                          className={`w-full bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none focus:bg-amber-900/20 placeholder:text-slate-600 font-sans font-normal transition-colors truncate ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
+                        />
+                      </div>
                       <input 
                         type="text" 
                         inputMode="decimal" 
