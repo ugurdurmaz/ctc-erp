@@ -1955,23 +1955,38 @@ export default function RetailPOSPage() {
                   stocksByName.get(trimmedDesc.toLocaleLowerCase('tr-TR'))
                 : null;
               const stockSku = matchedStock?.sku?.trim();
-              const hasSkuAlready = Boolean(stockSku && trimmedDesc?.toLocaleLowerCase('tr-TR').includes(stockSku.toLocaleLowerCase('tr-TR')));
-              const fullTextWithSku = stockSku && !hasSkuAlready
-                ? `${trimmedDesc} [${stockSku}]`
-                : trimmedDesc;
 
-              const rowTooltip = hasMissingDesc 
-                ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı temizleyin.' 
-                : (fullTextWithSku || undefined);
+              let displayName = trimmedDesc || '';
+              let displaySku = stockSku || null;
+
+              if (displaySku && displayName.toLowerCase().includes(displaySku.toLowerCase())) {
+                const regex = new RegExp(`\\s*\\[?${displaySku.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]?`, 'i');
+                const cleaned = displayName.replace(regex, '').trim();
+                if (cleaned) displayName = cleaned;
+              }
 
               return (
               <div 
                 key={row.id} 
-                className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group ${isDropdownOpen ? 'z-40 relative' : ''} ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''}`}
-                title={rowTooltip}
+                className={`flex text-[11px] hover:bg-slate-800/50 transition-colors group relative hover:z-30 ${isDropdownOpen ? 'z-40' : ''} ${hasMissingDesc ? 'bg-rose-950/30 ring-1 ring-rose-500/70' : ''}`}
+                title={hasMissingDesc ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı temizleyin.' : undefined}
               >
                 
-                <div className="flex-1 min-w-[50px] relative flex" title={rowTooltip}>
+                <div className="flex-1 min-w-[50px] relative flex group/desc">
+                  {/* Mouse ile üzerine gelindiğinde çıkan zengin ürün adı ve renkli kod tooltip'i */}
+                  {displayName && !isDropdownOpen && !hasMissingDesc && (
+                    <div className="absolute bottom-full left-1 mb-2 z-50 pointer-events-none hidden group-hover/desc:flex items-center gap-2 bg-[#070b18] border border-slate-700/90 text-[11px] px-2.5 py-1.5 rounded-lg shadow-2xl shadow-black/95 max-w-[480px] leading-snug animate-in fade-in zoom-in-95 duration-100 ring-1 ring-white/10 whitespace-normal break-words">
+                      <span className="font-medium text-slate-100">{displayName}</span>
+                      {displaySku && (
+                        <span className="inline-flex items-center font-mono text-[10.5px] bg-slate-950/90 border border-slate-700/90 px-1.5 py-0.5 rounded shrink-0 shadow-inner select-none">
+                          <span className="text-sky-400 font-bold font-mono mr-0.5">[</span>
+                          <span className="text-amber-300 font-bold tracking-wide">{displaySku}</span>
+                          <span className="text-sky-400 font-bold font-mono ml-0.5">]</span>
+                        </span>
+                      )}
+                      <div className="absolute -bottom-1 left-4 w-2 h-2 bg-[#070b18] border-r border-b border-slate-700/90 rotate-45" />
+                    </div>
+                  )}
                   <div className={`flex items-center w-full bg-transparent border-r border-slate-700 focus-within:bg-indigo-900/20 transition-colors ${row.stockId ? 'bg-emerald-900/10' : ''}`}>
                      {!isExpenseCat && (
                        <button
@@ -1982,7 +1997,7 @@ export default function RetailPOSPage() {
                            setActiveDropdownId(activeDropdownId === row.id ? null : row.id);
                          }}
                          className="ml-1.5 shrink-0 text-slate-500 hover:text-indigo-400 cursor-pointer"
-                         title={row.stockId ? (rowTooltip ? `Stok: ${rowTooltip}` : "Stoktan düşülecek ürün seçili") : "Depodaki ürünleri listele"}
+                         title={row.stockId ? (row.description ? `Stok: ${row.description}${displaySku ? ` [${displaySku}]` : ''}` : "Stoktan düşülecek ürün seçili") : "Depodaki ürünleri listele"}
                        >
                          {row.stockId ? <Package size={12} className="text-emerald-400" /> : <Search size={10} className="text-slate-500" />}
                        </button>
@@ -1991,7 +2006,7 @@ export default function RetailPOSPage() {
                        type="text" 
                        placeholder={hasMissingDesc ? "⚠️ Açıklama giriniz..." : (isFirst ? "Açıklama veya Ürün Seç..." : "")} 
                        value={row.description} 
-                       title={rowTooltip}
+                       title={hasMissingDesc ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı temizleyin.' : undefined}
                        onChange={(e) => {
                           handleInputChange(row.id, 'description', e.target.value);
                           if(row.stockId) handleInputChange(row.id, 'stockId', '');
