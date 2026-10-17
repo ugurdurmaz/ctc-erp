@@ -1934,6 +1934,7 @@ export default function RetailPOSPage() {
               const isFirst = index === 0;
               const searchQ = (row.description || '').trim().toLocaleLowerCase('tr-TR');
               const isUpward = index >= Math.max(catRows.length - 2, 5);
+              const isTooltipDownward = index < 2;
               const isDropdownOpen = activeDropdownId === row.id && !isExpenseCat;
               const hasMissingDesc = !row.description.trim() && (parseValue(row.cost) > 0 || parseValue(row.cash) > 0 || parseValue(row.card) > 0);
               
@@ -1975,14 +1976,20 @@ export default function RetailPOSPage() {
                 <div className="flex-1 min-w-[50px] relative flex group/desc">
                   {/* Mouse ile üzerine gelindiğinde veya tıklandığında çıkan ürün adı ve gri kod tooltip'i */}
                   {displayName && !isDropdownOpen && !hasMissingDesc && (
-                    <div className="absolute bottom-full left-1 mb-2 z-50 pointer-events-none hidden group-hover/desc:flex group-focus-within/desc:flex items-center gap-2 bg-[#070b18] border border-slate-700/90 text-[11px] px-2.5 py-1.5 rounded-lg shadow-2xl shadow-black/95 max-w-[480px] leading-snug animate-in fade-in zoom-in-95 duration-100 ring-1 ring-white/10 whitespace-normal break-words">
-                      <span className="font-medium text-slate-400">{displayName}</span>
-                      {displaySku && (
-                        <span className="text-slate-500 font-mono text-[10.5px] bg-slate-900/90 border border-slate-700/60 px-1.5 py-0.5 rounded shrink-0 select-none">
-                          [{displaySku}]
-                        </span>
+                    <div className={`absolute ${isTooltipDownward ? 'top-full mt-2' : 'bottom-full mb-2'} left-1 z-50 pointer-events-none hidden group-hover/desc:flex group-focus-within/desc:flex flex-col gap-1 bg-[#070b18] border border-slate-700/90 text-[11px] px-2.5 py-1.5 rounded-lg shadow-2xl shadow-black/95 w-max max-w-[min(480px,calc(100vw-40px))] leading-snug animate-in fade-in zoom-in-95 duration-100 ring-1 ring-white/10 whitespace-normal break-words`}>
+                      <div className="font-medium text-slate-400">
+                        <span>{displayName}</span>
+                        {displaySku && (
+                          <span className="inline-block text-slate-500 font-mono text-[10px] bg-slate-900/90 border border-slate-700/60 px-1.5 py-0.5 rounded select-none align-middle ml-1.5">
+                            [{displaySku}]
+                          </span>
+                        )}
+                      </div>
+                      {isTooltipDownward ? (
+                        <div className="absolute -top-1 left-4 w-2 h-2 bg-[#070b18] border-l border-t border-slate-700/90 rotate-45" />
+                      ) : (
+                        <div className="absolute -bottom-1 left-4 w-2 h-2 bg-[#070b18] border-r border-b border-slate-700/90 rotate-45" />
                       )}
-                      <div className="absolute -bottom-1 left-4 w-2 h-2 bg-[#070b18] border-r border-b border-slate-700/90 rotate-45" />
                     </div>
                   )}
                   <div className={`flex items-center w-full bg-transparent border-r border-slate-700 focus-within:bg-indigo-900/20 transition-colors ${row.stockId ? 'bg-emerald-900/10' : ''}`}>
