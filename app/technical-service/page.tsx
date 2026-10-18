@@ -421,6 +421,114 @@ export default function TechnicalServicePage() {
     return res
   }
 
+  // POS Kredi Kartı Gün Sonu Provizyonunu Mağaza ile Ortak Senkronize Et
+  const syncPosCardProvisionForDate = async (targetDate: string, targetBankId?: string | null, targetCompId?: string | null) => {
+    try {
+      if (!targetDate) return
+
+      // 1. Hedef Bankayı ve Şirketi Belirle
+      let bankId = targetBankId
+      if (!bankId) {
+        try {
+          const cfg = localStorage.getItem('ctc_pos_config')
+          if (cfg) {
+            const parsed = JSON.parse(cfg)
+            if (parsed.targetBankId) bankId = parsed.targetBankId
+          }
+        } catch {}
+      }
+      if (!bankId) {
+        const defaultBhBank = availableBanks.find(b => b.company_id === (selectedTicket?.company_id || bilgisayarHastanesiCompany?.id)) || availableBanks[0]
+        bankId = defaultBhBank?.id
+      }
+      if (!bankId) return
+
+      const finalCompId = targetCompId || selectedTicket?.company_id || bilgisayarHastanesiCompany?.id || companies[0]?.id
+
+      // 2. O tarihte teslim edilmiş 'card' servis fişlerinin toplamını çek
+      const prevDate = new Date(new Date(targetDate).getTime() - 86400000).toISOString().split('T')[0]
+      const nextDate = new Date(new Date(targetDate).getTime() + 86400000).toISOString().split('T')[0]
+
+      const { data: srvTickets } = await supabase
+        .from('technical_service_tickets')
+        .select('id, total_cost, payment_method, delivered_at, status')
+        .eq('status', 'delivered')
+        .eq('payment_method', 'card')
+        .gte('delivered_at', `${prevDate}T00:00:00Z`)
+        .lte('delivered_at', `${nextDate}T23:59:59Z`)
+
+      const daySrvTickets = (srvTickets || []).filter(t => {
+        if (!t.delivered_at) return false
+        return new Date(t.delivered_at).toLocaleDateString('en-CA') === targetDate
+      })
+      const srvCardTotal = daySrvTickets.reduce((sum, t) => sum + (Number(t.total_cost) || 0), 0)
+
+      // 3. O tarihteki mağaza kredi kartı satışlarını pos_transactions tablosundan çek
+      const { data: posTxs } = await supabase
+        .from('pos_transactions')
+        .select('card, category_id')
+        .eq('date', targetDate)
+
+      const retailCardTotal = (posTxs || [])
+        .filter(t => t.category_id !== 'gider')
+        .reduce((sum, t) => sum + (Number(t.card) || 0), 0)
+
+      const totalPosCard = srvCardTotal + retailCardTotal
+
+      // 4. Mevcut POS provizyon kaydını kontrol et
+      const { data: existingPosTx } = await supabase
+        .from('bank_transactions')
+        .select('id, amount, status, tx_date, bank_account_id')
+        .eq('transfer_id', `POS-Z-CARD-IN-${targetDate}`)
+        .maybeSingle()
+
+      if (totalPosCard > 0) {
+        let desc = 'Mağaza Z-Raporu: Kredi Kartı Satışları (Provizyon)'
+        if (srvCardTotal > 0 && retailCardTotal > 0) {
+          desc = `Mağaza & Servis Z-Raporu: Kredi Kartı Satışları (Provizyon) [Mağaza: ${formatMoney(retailCardTotal, 'TRY').formatted} + Servis: ${formatMoney(srvCardTotal, 'TRY').formatted}]`
+        } else if (srvCardTotal > 0) {
+          desc = `Servis Z-Raporu: Kredi Kartı Satışları (Provizyon) [Servis: ${formatMoney(srvCardTotal, 'TRY').formatted}]`
+        }
+
+        if (existingPosTx) {
+          await supabase.from('bank_transactions').update({
+            amount: totalPosCard,
+            description: desc,
+            bank_account_id: bankId || existingPosTx.bank_account_id
+          }).eq('id', existingPosTx.id)
+
+          if (existingPosTx.status === 'completed') {
+            await recalculateAbsoluteBankBalance(existingPosTx.bank_account_id)
+            if (bankId && bankId !== existingPosTx.bank_account_id) {
+              await recalculateAbsoluteBankBalance(bankId)
+            }
+          }
+        } else {
+          await supabase.from('bank_transactions').insert([{
+            bank_account_id: bankId,
+            company_id: finalCompId,
+            tx_date: targetDate,
+            description: desc,
+            tx_type: 'in',
+            amount: totalPosCard,
+            currency: 'TRY',
+            exchange_rate: 1,
+            is_transfer: false,
+            transfer_id: `POS-Z-CARD-IN-${targetDate}`,
+            status: 'pending'
+          }])
+        }
+      } else {
+        // Tutar 0 ise ve henüz hesaba geçirilmemiş (pending) ise provizyon kaydını sil
+        if (existingPosTx && existingPosTx.status === 'pending') {
+          await supabase.from('bank_transactions').delete().eq('id', existingPosTx.id)
+        }
+      }
+    } catch (err) {
+      console.error('POS Kart provizyon senkronizasyon hatası:', err)
+    }
+  }
+
   const handleDeleteTicket = (ticket: TechnicalTicket) => {
     const hasFinancials = ticket.payment_status === 'paid' || ticket.payment_status === 'debt_added' || (ticket.supplier_cost && ticket.supplier_cost > 0)
     setConfirmDialog({
@@ -517,6 +625,11 @@ export default function TechnicalServicePage() {
             .eq('id', ticket.id)
 
           if (delErr) throw delErr
+
+          if (ticket.payment_method === 'card' && ticket.delivered_at) {
+            const delDate = new Date(ticket.delivered_at).toLocaleDateString('en-CA')
+            await syncPosCardProvisionForDate(delDate, ticket.payment_target_id, ticket.company_id)
+          }
 
           toast.success(`${ticketNo} numaralı servis fişi silindi.`)
           setIsDetailModalOpen(false)
@@ -805,8 +918,19 @@ export default function TechnicalServicePage() {
     const fallbackBankId = targetBanks[0]?.id || ''
     const isTargetBankValid = targetBanks.some(b => b.id === t.payment_target_id)
 
+    let defaultPosBankId = fallbackBankId
+    try {
+      const cfg = localStorage.getItem('ctc_pos_config')
+      if (cfg) {
+        const parsed = JSON.parse(cfg)
+        if (parsed.targetBankId && targetBanks.some(b => b.id === parsed.targetBankId)) {
+          defaultPosBankId = parsed.targetBankId
+        }
+      }
+    } catch {}
+
     if ((t.payment_method as any) === 'card') {
-      setPaymentTargetId(isTargetBankValid ? (t.payment_target_id || '') : fallbackBankId)
+      setPaymentTargetId(isTargetBankValid ? (t.payment_target_id || '') : defaultPosBankId)
     } else {
       setPaymentTargetId(isTargetCashValid ? (t.payment_target_id || '') : fallbackCashId)
     }
@@ -1192,33 +1316,10 @@ export default function TechnicalServicePage() {
                 await recalculateAbsoluteCustomerBalance(existingCustTx.customer_id)
               }
 
+              // Eski bağımsız bank_transactions kaydı varsa sil (artık günlük POS provizyonunda toplanıyor)
               if (existingBankTx) {
-                const oldBankId = existingBankTx.bank_account_id
-                await supabase.from('bank_transactions').update({
-                  bank_account_id: targetBank.id,
-                  company_id: selectedTicket.company_id || targetBank.company_id,
-                  amount: calcTotalCost,
-                  tx_date: finalDeliveryDate,
-                  description: `${cardDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`
-                }).eq('id', existingBankTx.id)
-
-                if (oldBankId && oldBankId !== targetBank.id) {
-                  await recalculateAbsoluteBankBalance(oldBankId)
-                }
-                await recalculateAbsoluteBankBalance(targetBank.id)
-              } else {
-                await supabase.from('bank_transactions').insert([{
-                  bank_account_id: targetBank.id,
-                  company_id: selectedTicket.company_id || targetBank.company_id,
-                  tx_date: finalDeliveryDate,
-                  description: `${cardDescPrefix} - ${updates.customer_name || selectedTicket.customer_name}`,
-                  tx_type: 'in',
-                  status: 'completed',
-                  amount: calcTotalCost,
-                  currency: 'TRY',
-                  exchange_rate: 1
-                }])
-                await recalculateAbsoluteBankBalance(targetBank.id)
+                await supabase.from('bank_transactions').delete().eq('id', existingBankTx.id)
+                await recalculateAbsoluteBankBalance(existingBankTx.bank_account_id)
               }
 
               updates.payment_status = 'paid'
@@ -1360,6 +1461,20 @@ export default function TechnicalServicePage() {
 
       if (updateRes.error) throw updateRes.error
       const data = updateRes.data
+
+      // POS Kredi Kartı Gün Sonu Provizyonunu Mağaza ile Ortak Senkronize Et
+      const wasCard = selectedTicket.payment_method === 'card' && selectedTicket.status === 'delivered'
+      const isCard = updates.payment_method === 'card' && detailStatus === 'delivered'
+      const oldDeliveryDate = selectedTicket.delivered_at ? new Date(selectedTicket.delivered_at).toLocaleDateString('en-CA') : null
+
+      if (isCard) {
+        await syncPosCardProvisionForDate(finalDeliveryDate, updates.payment_target_id, selectedTicket.company_id)
+        if (oldDeliveryDate && oldDeliveryDate !== finalDeliveryDate) {
+          await syncPosCardProvisionForDate(oldDeliveryDate, selectedTicket.payment_target_id, selectedTicket.company_id)
+        }
+      } else if (wasCard && oldDeliveryDate) {
+        await syncPosCardProvisionForDate(oldDeliveryDate, selectedTicket.payment_target_id, selectedTicket.company_id)
+      }
 
       toast.success('Servis kaydı güncellendi.')
       setTickets(prev => prev.map(t => t.id === data.id ? data : t))
@@ -3048,7 +3163,17 @@ export default function TechnicalServicePage() {
                           if (newMethod === 'cash') {
                             setPaymentTargetId(availableCashes[0]?.id || '')
                           } else if (newMethod === 'card') {
-                            setPaymentTargetId(availableBanks[0]?.id || '')
+                            let defaultBankId = availableBanks[0]?.id || ''
+                            try {
+                              const cfg = localStorage.getItem('ctc_pos_config')
+                              if (cfg) {
+                                const parsed = JSON.parse(cfg)
+                                if (parsed.targetBankId && availableBanks.some(b => b.id === parsed.targetBankId)) {
+                                  defaultBankId = parsed.targetBankId
+                                }
+                              }
+                            } catch {}
+                            setPaymentTargetId(defaultBankId)
                           } else {
                             setPaymentTargetId('')
                           }
@@ -3085,6 +3210,7 @@ export default function TechnicalServicePage() {
                       <div>
                         <label className="block text-slate-300 font-bold mb-1">
                           POS / Banka Hesabı <span className="text-emerald-400 font-normal">({bilgisayarHastanesiCompany?.name || 'Bilgisayar Hastanesi'})</span>
+                          <span className="text-[10px] text-purple-300 block font-normal">💡 Mağaza POS cihazı ile birleştirilip gün sonunda tek komisyonla hesaba aktarılır.</span>
                         </label>
                         <select
                           value={paymentTargetId}

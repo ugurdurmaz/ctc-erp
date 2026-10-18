@@ -1417,7 +1417,7 @@ export default function RetailPOSPage() {
     const affectedCards = new Set<string>(); // Kredi kartlarını takip etmek için eklendi
     const affectedSuppliers = new Set<string>();
 
-    const { data: oldBankTxs } = await supabase.from('bank_transactions').select('id, bank_account_id').like('transfer_id', `POS-%-${currentDateStr}`)
+    const { data: oldBankTxs } = await supabase.from('bank_transactions').select('id, bank_account_id, transfer_id, status, tx_date, amount, currency, description, company_id').like('transfer_id', `POS-%-${currentDateStr}`)
     if (oldBankTxs && oldBankTxs.length > 0) {
       for (const ot of oldBankTxs) { affectedBanks.add(ot.bank_account_id); await supabase.from('bank_transactions').delete().eq('id', ot.id) }
     }
@@ -1485,13 +1485,57 @@ export default function RetailPOSPage() {
       if (cashInserts.length > 0) await supabase.from('cash_transactions').insert(cashInserts)
     }
 
-    if (posSettings.targetBankId && grandTotalCard > 0) {
+    const totalPosCard = grandTotalCard + deliveredTicketsCard;
+    if (posSettings.targetBankId && totalPosCard > 0) {
       affectedBanks.add(posSettings.targetBankId);
       let targetCurrency = 'TRY';
       const { data: tBank } = await supabase.from('bank_accounts').select('currency').eq('id', posSettings.targetBankId).single();
       if (tBank) targetCurrency = tBank.currency || 'TRY';
 
-      await supabase.from('bank_transactions').insert([{ bank_account_id: posSettings.targetBankId, company_id: finalCompId, tx_date: currentDateStr, description: `Mağaza Z-Raporu: Kredi Kartı Satışları (Provizyon)`, tx_type: 'in', amount: grandTotalCard, currency: targetCurrency, exchange_rate: 1, is_transfer: false, transfer_id: `POS-Z-CARD-IN-${currentDateStr}`, status: 'pending' }]);
+      let cardDesc = 'Mağaza Z-Raporu: Kredi Kartı Satışları (Provizyon)';
+      if (deliveredTicketsCard > 0 && grandTotalCard > 0) {
+        cardDesc = `Mağaza & Servis Z-Raporu: Kredi Kartı Satışları (Provizyon) [Mağaza: ${formatValue(grandTotalCard)} ₺ + Servis: ${formatValue(deliveredTicketsCard)} ₺]`;
+      } else if (deliveredTicketsCard > 0) {
+        cardDesc = `Servis Z-Raporu: Kredi Kartı Satışları (Provizyon) [Servis: ${formatValue(deliveredTicketsCard)} ₺]`;
+      }
+
+      const existingCardTx = oldBankTxs?.find(t => t.transfer_id === `POS-Z-CARD-IN-${currentDateStr}`);
+      const isAlreadyCompleted = existingCardTx?.status === 'completed';
+      const txStatus = isAlreadyCompleted ? 'completed' : 'pending';
+      const txDate = isAlreadyCompleted && existingCardTx?.tx_date ? existingCardTx.tx_date : currentDateStr;
+
+      await supabase.from('bank_transactions').insert([{
+        bank_account_id: posSettings.targetBankId,
+        company_id: finalCompId,
+        tx_date: txDate,
+        description: cardDesc,
+        tx_type: 'in',
+        amount: totalPosCard,
+        currency: targetCurrency,
+        exchange_rate: 1,
+        is_transfer: false,
+        transfer_id: `POS-Z-CARD-IN-${currentDateStr}`,
+        status: txStatus
+      }]);
+
+      if (isAlreadyCompleted) {
+        const existingCommTx = oldBankTxs?.find(t => t.transfer_id === `POS-Z-CARD-COMM-${currentDateStr}`);
+        if (existingCommTx) {
+          await supabase.from('bank_transactions').insert([{
+            bank_account_id: existingCommTx.bank_account_id,
+            company_id: existingCommTx.company_id || finalCompId,
+            tx_date: existingCommTx.tx_date,
+            description: existingCommTx.description,
+            tx_type: 'out',
+            amount: existingCommTx.amount,
+            currency: existingCommTx.currency || targetCurrency,
+            exchange_rate: 1,
+            is_transfer: false,
+            transfer_id: existingCommTx.transfer_id,
+            status: 'completed'
+          }]);
+        }
+      }
     }
 
     for (let i = 0; i < transfers.length; i++) {
