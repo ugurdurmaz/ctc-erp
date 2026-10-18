@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, Calculator, Sparkles, CreditCard, FileSpreadsheet, FileDown } from 'lucide-react'
+import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, TrendingDown, Calculator, Sparkles, CreditCard, FileSpreadsheet, FileDown } from 'lucide-react'
 import BankStatementExportModal from '@/components/BankStatementExportModal'
 
 type Company = { id: string; name: string; is_personal: boolean }
@@ -1263,7 +1263,13 @@ export default function BankAccountsPage() {
                                  : t.transfer_id?.startsWith('EXP') ? <span className="text-[9px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded border border-rose-500/30 flex items-center gap-1">Gider Ödemesi</span> 
                                  : t.description?.toLowerCase().includes('kredi kartı') ? <span className="text-[9px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded border border-purple-500/30 flex items-center gap-1"><CreditCard size={10}/> Kredi Kartı Ödemesi</span>
                                  : t.is_transfer ? <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/30 flex items-center gap-1"><ArrowRightLeft size={10}/> Kasa/Banka Transferi</span> 
-                                 : t.description?.toLowerCase().includes('faiz') ? <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1"><TrendingUp size={10}/> Faiz Geliri</span>
+                                 : (t.transfer_id?.startsWith('LOAN') || t.description?.toLowerCase().includes('kredi taksiti')) ? (
+                                     t.transfer_id?.startsWith('LOAN-DISBURSE') 
+                                       ? <span className="text-[9px] bg-sky-500/20 text-sky-400 px-1.5 py-0.5 rounded border border-sky-500/30 flex items-center gap-1"><Landmark size={10}/> Kredi Kullandırımı</span>
+                                       : <span className="text-[9px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/30 flex items-center gap-1"><Landmark size={10}/> Kredi Taksiti</span>
+                                   )
+                                 : (t.tx_type === 'in' && t.description?.toLowerCase().includes('faiz')) ? <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1"><TrendingUp size={10}/> Faiz Geliri</span>
+                                 : (t.tx_type === 'out' && t.description?.toLowerCase().includes('faiz')) ? <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/30 flex items-center gap-1"><TrendingDown size={10}/> Faiz / KMH Gideri</span>
                                  : ''} 
                                  
                                  {t.status === 'pending' && (
@@ -1608,7 +1614,7 @@ export default function BankAccountsPage() {
                   Bu bir <strong>Virman / Transfer</strong> işlemidir. Tarih ve tutar güncellemeleri karşı hesaba{pairedTxInfo?.name ? ` (${pairedTxInfo.name})` : ''} da otomatik yansıyacaktır.
                 </span>
               </div>
-            ) : editingTx.transfer_id && (editingTx.transfer_id.startsWith('POS') || editingTx.transfer_id.startsWith('SUPP') || editingTx.transfer_id.startsWith('CUST') || editingTx.transfer_id.startsWith('EXP')) ? (
+            ) : editingTx.transfer_id && (editingTx.transfer_id.startsWith('POS') || editingTx.transfer_id.startsWith('SUPP') || editingTx.transfer_id.startsWith('CUST') || editingTx.transfer_id.startsWith('EXP') || editingTx.transfer_id.startsWith('LOAN')) ? (
               <div className="mb-3 p-2.5 bg-amber-950/30 border border-amber-500/30 rounded-lg flex items-center gap-2 text-amber-300 text-[11px]">
                 <AlertTriangle size={16} className="shrink-0 text-amber-400" />
                 <span>
