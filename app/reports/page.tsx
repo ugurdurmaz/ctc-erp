@@ -476,8 +476,21 @@ export default function AdvancedReportsPage() {
       }
     })
 
+    // 8. Faiz ve Finansman Gelirleri
+    let interestIncomeTotal = 0
+    bankTxs.forEach(b => {
+      const compId = b.company_id || banks.find(x => x.id === b.bank_account_id)?.company_id || null
+      if (!isMatchCompany(compId)) return
+      if (b.tx_type !== 'in' || b.status === 'pending') return
+      if (!b.description?.toLowerCase().includes('faiz')) return
+      const d = (b.tx_date || b.created_at)?.substring(0, 10)
+      if (d && d >= start && d <= end) {
+        interestIncomeTotal += Number(b.amount || 0) * Number(b.exchange_rate || 1)
+      }
+    })
+
     const totalOperatingExpenses = commercialExpTotal + localExpTotal + posCommTotal
-    const netCommercialProfit = (totalRev + techServiceRev) - totalCost - totalOperatingExpenses
+    const netCommercialProfit = (totalRev + techServiceRev + interestIncomeTotal) - totalCost - totalOperatingExpenses
 
     return {
       totalCashRev,
@@ -493,13 +506,14 @@ export default function AdvancedReportsPage() {
       salesTxs,
       techServiceRev,
       techServiceCount,
+      interestIncomeTotal,
       commercialExpTotal,
       localExpTotal,
       posCommTotal,
       totalOperatingExpenses,
       netCommercialProfit
     }
-  }, [posTxs, start, end, isMatchCompany, techTickets, expenseTxs, bankTxs])
+  }, [posTxs, start, end, isMatchCompany, techTickets, expenseTxs, bankTxs, banks])
 
   const filteredRetailItems = useMemo(() => {
     return retailProfitAnalysis.salesTxs.filter(t => {
@@ -1483,7 +1497,7 @@ export default function AdvancedReportsPage() {
               </div>
 
               {/* Köprü Kartları Adımları */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-center text-xs font-mono">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-7 gap-2 text-center text-xs font-mono">
                 {/* 1. Mağaza Kârı */}
                 <div className="bg-[#0d1322] border border-emerald-500/30 rounded-lg p-2.5 flex flex-col justify-between">
                   <span className="text-[9px] font-sans font-bold text-emerald-400 uppercase tracking-wider block">1. Mağaza Kârı</span>
@@ -1502,40 +1516,49 @@ export default function AdvancedReportsPage() {
                   <span className="text-[8px] text-slate-400 font-sans">{retailProfitAnalysis.techServiceCount} Servis İşi Geliri</span>
                 </div>
 
-                {/* 3. Sabit/Genel Giderler */}
+                {/* 3. Faiz Geliri */}
+                <div className="bg-[#0d1322] border border-cyan-500/30 rounded-lg p-2.5 flex flex-col justify-between">
+                  <span className="text-[9px] font-sans font-bold text-cyan-400 uppercase tracking-wider block">3. Faiz Geliri</span>
+                  <div className="text-sm font-black text-cyan-300 my-1">
+                    +{formatMoney(retailProfitAnalysis.interestIncomeTotal, 'TRY').formatted}
+                  </div>
+                  <span className="text-[8px] text-slate-400 font-sans">Mevduat / Finansman</span>
+                </div>
+
+                {/* 4. Sabit/Genel Giderler */}
                 <div className="bg-[#0d1322] border border-rose-500/30 rounded-lg p-2.5 flex flex-col justify-between">
-                  <span className="text-[9px] font-sans font-bold text-rose-400 uppercase tracking-wider block">3. Sabit/Genel Gider</span>
+                  <span className="text-[9px] font-sans font-bold text-rose-400 uppercase tracking-wider block">4. Sabit/Genel Gider</span>
                   <div className="text-sm font-black text-rose-400 my-1">
                     -{formatMoney(retailProfitAnalysis.commercialExpTotal, 'TRY').formatted}
                   </div>
                   <span className="text-[8px] text-slate-400 font-sans">Kira, Fatura, Maaş vb.</span>
                 </div>
 
-                {/* 4. Yerel Mağaza Masrafları */}
+                {/* 5. Yerel Mağaza Masrafları */}
                 <div className="bg-[#0d1322] border border-rose-500/30 rounded-lg p-2.5 flex flex-col justify-between">
-                  <span className="text-[9px] font-sans font-bold text-rose-400 uppercase tracking-wider block">4. Yerel Masraflar</span>
+                  <span className="text-[9px] font-sans font-bold text-rose-400 uppercase tracking-wider block">5. Yerel Masraflar</span>
                   <div className="text-sm font-black text-rose-400 my-1">
                     -{formatMoney(retailProfitAnalysis.localExpTotal, 'TRY').formatted}
                   </div>
                   <span className="text-[8px] text-slate-400 font-sans">Kasa & Günlük Harcama</span>
                 </div>
 
-                {/* 5. POS Komisyon Kesintileri */}
+                {/* 6. POS Komisyon Kesintileri */}
                 <div className="bg-[#0d1322] border border-rose-500/30 rounded-lg p-2.5 flex flex-col justify-between">
-                  <span className="text-[9px] font-sans font-bold text-rose-400 uppercase tracking-wider block">5. POS Komisyon</span>
+                  <span className="text-[9px] font-sans font-bold text-rose-400 uppercase tracking-wider block">6. POS Komisyon</span>
                   <div className="text-sm font-black text-rose-400 my-1">
                     -{formatMoney(retailProfitAnalysis.posCommTotal, 'TRY').formatted}
                   </div>
                   <span className="text-[8px] text-slate-400 font-sans">Banka Kesintileri</span>
                 </div>
 
-                {/* 6. Net Ticari Kâr */}
+                {/* 7. Net Ticari Kâr */}
                 <div className={`rounded-lg p-2.5 flex flex-col justify-between border ${
                   retailProfitAnalysis.netCommercialProfit >= 0
                     ? 'bg-emerald-950/30 border-emerald-500/50'
                     : 'bg-rose-950/30 border-rose-500/50'
                 }`}>
-                  <span className="text-[9px] font-sans font-bold uppercase tracking-wider block text-slate-300">6. Net Ticari Kâr</span>
+                  <span className="text-[9px] font-sans font-bold uppercase tracking-wider block text-slate-300">7. Net Ticari Kâr</span>
                   <div className={`text-sm font-black my-1 ${
                     retailProfitAnalysis.netCommercialProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'
                   }`}>

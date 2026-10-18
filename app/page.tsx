@@ -90,6 +90,7 @@ export default function Home() {
   const [cashes, setCashes] = useState<CashDetail[]>([])
   const [cards, setCards] = useState<CardDetail[]>([])
   const [bankCommTxs, setBankCommTxs] = useState<any[]>([])
+  const [bankInterestTxs, setBankInterestTxs] = useState<any[]>([])
   
   const [customers, setCustomers] = useState<CustomerDetail[]>([])
   const [customerTxs, setCustomerTxs] = useState<CustTx[]>([])
@@ -189,6 +190,12 @@ export default function Home() {
         .eq('tx_type', 'out')
         .ilike('description', '%POS Komisyon%')
       setBankCommTxs(bCommData || [])
+
+      const { data: bInterestData } = await supabase.from('bank_transactions')
+        .select('id, amount, currency, exchange_rate, company_id, tx_date, description, created_at, bank_account_id')
+        .eq('tx_type', 'in')
+        .ilike('description', '%faiz%')
+      setBankInterestTxs(bInterestData || [])
 
       const { data: cashData } = await supabase.from('cash_registers').select('id, name, balance, currency, company_id')
       setCashes(cashData || [])
@@ -678,6 +685,7 @@ export default function Home() {
       posRev: number
       posCost: number
       posProfit: number
+      interestRev: number
       isCurrent: boolean
       isFuture?: boolean
     }
@@ -720,6 +728,7 @@ export default function Home() {
           posRev: 0,
           posCost: 0,
           posProfit: 0,
+          interestRev: 0,
           isCurrent: i === 0
         })
       }
@@ -758,6 +767,7 @@ export default function Home() {
           posRev: 0,
           posCost: 0,
           posProfit: 0,
+          interestRev: 0,
           isCurrent: i === 0
         })
       }
@@ -793,6 +803,7 @@ export default function Home() {
           posRev: 0,
           posCost: 0,
           posProfit: 0,
+          interestRev: 0,
           isCurrent: isToday,
           isFuture
         })
@@ -872,6 +883,19 @@ export default function Home() {
       if (pt) pt.revenue += Number(ticket.total_cost || 0)
     })
 
+    // 6. Faiz & Finansman Gelirleri (Mevduat / Günlük Faiz Geliri)
+    bankInterestTxs.forEach(tx => {
+      const compId = tx.company_id || banks.find(b => b.id === tx.bank_account_id)?.company_id || null
+      if (!isMatch(compId)) return
+      const dStr = tx.tx_date || tx.created_at
+      const pt = findPoint(dStr)
+      if (pt) {
+        const val = tx.amount * (tx.exchange_rate || 1)
+        pt.revenue += val
+        pt.interestRev += val
+      }
+    })
+
     let maxVal = 100
     points.forEach(p => {
       p.profit = p.revenue - p.cost - p.expense
@@ -883,8 +907,8 @@ export default function Home() {
     })
 
     const currIdx = points.findIndex(p => p.isCurrent)
-    const currPoint = (currIdx >= 0 ? points[currIdx] : points[points.length - 1]) || { revenue: 0, cost: 0, expense: 0, profit: 0, posRev: 0, posCost: 0, posProfit: 0, marginPct: 0 }
-    const prevPoint = (currIdx > 0 ? points[currIdx - 1] : (points[points.length - 2] || { revenue: 0, cost: 0, expense: 0, profit: 0, posRev: 0, posCost: 0, posProfit: 0, marginPct: 0 }))
+    const currPoint = (currIdx >= 0 ? points[currIdx] : points[points.length - 1]) || { revenue: 0, cost: 0, expense: 0, profit: 0, posRev: 0, posCost: 0, posProfit: 0, interestRev: 0, marginPct: 0 }
+    const prevPoint = (currIdx > 0 ? points[currIdx - 1] : (points[points.length - 2] || { revenue: 0, cost: 0, expense: 0, profit: 0, posRev: 0, posCost: 0, posProfit: 0, interestRev: 0, marginPct: 0 }))
 
     const calculateTrend = (curr: number, prev: number) => {
       if (prev === 0 && curr > 0) return { percent: 100, isUp: true }
@@ -907,7 +931,7 @@ export default function Home() {
       profitTrend,
       posProfitTrend
     }
-  }, [pnlPeriod, customerTxs, subscriptions, stockTxs, commercialExpensesList, posTxs, techTickets, isMatch, rates])
+  }, [pnlPeriod, customerTxs, subscriptions, stockTxs, commercialExpensesList, posTxs, techTickets, bankInterestTxs, banks, isMatch, rates])
 
   const stockValuationData = useMemo(() => {
     const now = new Date()
@@ -1900,6 +1924,11 @@ export default function Home() {
                         {pnlPeriod === 'daily' ? 'Bugünkü Ciro' : pnlPeriod === 'weekly' ? 'Bu Haftaki Ciro' : 'Bu Ayki Ciro'}
                       </p>
                       <div className="text-sm font-black font-mono text-blue-400">{formatMoney(pnlData.currPoint.revenue, 'TRY').formatted}</div>
+                      {pnlData.currPoint.interestRev > 0 && (
+                        <div className="text-[8.5px] text-emerald-400 font-mono font-medium">
+                          +{formatMoney(pnlData.currPoint.interestRev, 'TRY').formatted} Faiz
+                        </div>
+                      )}
                       <div className={`flex items-center gap-1 text-[9px] font-bold mt-1.5 ${pnlData.revenueTrend.isUp ? 'text-emerald-400' : 'text-rose-400'}`}>
                         {pnlData.revenueTrend.isUp ? <ArrowUpRightFromSquare size={9}/> : <ArrowDownRightFromSquare size={9}/>} % {pnlData.revenueTrend.percent.toFixed(1)} {pnlData.revenueTrend.isUp ? 'Artış' : 'Düşüş'}
                       </div>
@@ -2043,6 +2072,9 @@ export default function Home() {
                               <div className="text-purple-400 border-b border-slate-700/50 pb-1 mb-1">Gider: {formatMoney(pt.expense, 'TRY').formatted}</div>
                               {pt.posRev > 0 && (
                                 <div className="text-cyan-400 text-[9px] mb-1">Mağaza Kârı: {formatMoney(pt.posProfit, 'TRY').formatted}</div>
+                              )}
+                              {pt.interestRev > 0 && (
+                                <div className="text-emerald-400 text-[9px] mb-1">Faiz/Finansman: +{formatMoney(pt.interestRev, 'TRY').formatted}</div>
                               )}
                               <div className={pt.profit >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
                                 Net: {formatMoney(pt.profit, 'TRY').formatted}
