@@ -72,6 +72,58 @@ function formatDateTR(dateStr: string) {
   return dateStr 
 }
 
+export type ExpenseDateFilter = 'all' | 'today' | 'thisWeek' | 'thisMonth' | 'lastMonth' | 'custom'
+
+function getPeriodDates(period: ExpenseDateFilter, customStart?: string, customEnd?: string): { start?: string; end?: string } {
+  const now = new Date()
+  const toISO = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+  if (period === 'today') {
+    const today = toISO(now)
+    return { start: today, end: today }
+  }
+
+  if (period === 'thisWeek') {
+    const day = now.getDay() // 0 = Sunday, 1 = Monday
+    const diffToMonday = (day === 0 ? -6 : 1) - day
+    const monday = new Date(now)
+    monday.setDate(now.getDate() + diffToMonday)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    return { start: toISO(monday), end: toISO(sunday) }
+  }
+
+  if (period === 'thisMonth') {
+    const year = now.getFullYear()
+    const month = now.getMonth() + 1
+    const lastDay = new Date(year, month, 0).getDate()
+    return {
+      start: `${year}-${String(month).padStart(2, '0')}-01`,
+      end: `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+    }
+  }
+
+  if (period === 'lastMonth') {
+    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const year = lastMonthDate.getFullYear()
+    const month = lastMonthDate.getMonth() + 1
+    const lastDay = new Date(year, month, 0).getDate()
+    return {
+      start: `${year}-${String(month).padStart(2, '0')}-01`,
+      end: `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+    }
+  }
+
+  if (period === 'custom') {
+    return {
+      start: customStart || undefined,
+      end: customEnd || undefined
+    }
+  }
+
+  return { start: undefined, end: undefined }
+}
+
 function parseCategoryRow(id: string, rawName: string): { category: Category | null; template: RecurringTemplate | null } {
   if (rawName.startsWith('REC_TEMPLATE::')) {
     try {
@@ -147,6 +199,9 @@ export default function ExpensesPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all')
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all')
+  const [datePeriodFilter, setDatePeriodFilter] = useState<ExpenseDateFilter>('all')
+  const [customStartDate, setCustomStartDate] = useState<string>('')
+  const [customEndDate, setCustomEndDate] = useState<string>('')
 
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [cashes, setCashes] = useState<CashRegister[]>([])
@@ -1257,6 +1312,10 @@ export default function ExpensesPage() {
     return categories.find(c => c.id === id)?.name || 'Genel'
   }
 
+  const dateRange = useMemo(() => {
+    return getPeriodDates(datePeriodFilter, customStartDate, customEndDate)
+  }, [datePeriodFilter, customStartDate, customEndDate])
+
   // Filtreleme
   const filteredExpenses = expenses.filter(e => {
     const matchesSearch = 
@@ -1270,8 +1329,61 @@ export default function ExpensesPage() {
 
     const matchesCompany = selectedCompanyFilter === 'all' || e.company_id === selectedCompanyFilter
     const matchesCategory = selectedCategoryFilter === 'all' || e.category_id === selectedCategoryFilter
+
+    const txDate = (e.tx_date || (e as any).created_at || '').substring(0, 10)
+    if (dateRange.start && txDate && txDate < dateRange.start) return false
+    if (dateRange.end && txDate && txDate > dateRange.end) return false
+    if ((dateRange.start || dateRange.end) && !txDate) return false
+
     return matchesSearch && matchesCompany && matchesCategory
   })
+
+  const filteredTotalTRY = useMemo(() => {
+    return filteredExpenses.reduce((sum, e) => {
+      const rate = Number(e.exchange_rate) || 1
+      return sum + (Number(e.amount) || 0) * rate
+    }, 0)
+  }, [filteredExpenses])
+
+  const activeFilterSummary = useMemo(() => {
+    const parts: string[] = []
+    if (selectedCategoryFilter !== 'all') {
+      parts.push(getCategoryName(selectedCategoryFilter))
+    }
+    if (selectedCompanyFilter !== 'all') {
+      parts.push(getCompanyName(selectedCompanyFilter))
+    }
+    if (searchTerm.trim()) {
+      parts.push(`"${searchTerm.trim()}"`)
+    }
+    return parts.length > 0 ? parts.join(' • ') : 'Tüm Giderler'
+  }, [selectedCategoryFilter, selectedCompanyFilter, searchTerm, categories, companies])
+
+  const periodLabel = useMemo(() => {
+    if (datePeriodFilter === 'all') return 'Tüm Zamanlar'
+    if (datePeriodFilter === 'today') return 'Bugün'
+    if (datePeriodFilter === 'thisWeek') {
+      const dates = getPeriodDates('thisWeek')
+      return `Bu Hafta (${formatDateTR(dates.start || '')} - ${formatDateTR(dates.end || '')})`
+    }
+    if (datePeriodFilter === 'thisMonth') {
+      return 'Bu Ay'
+    }
+    if (datePeriodFilter === 'lastMonth') {
+      return 'Geçen Ay'
+    }
+    if (datePeriodFilter === 'custom') {
+      if (customStartDate && customEndDate) {
+        return `${formatDateTR(customStartDate)} - ${formatDateTR(customEndDate)}`
+      } else if (customStartDate) {
+        return `${formatDateTR(customStartDate)} sonrası`
+      } else if (customEndDate) {
+        return `${formatDateTR(customEndDate)} öncesi`
+      }
+      return 'Özel Tarih Aralığı'
+    }
+    return ''
+  }, [datePeriodFilter, customStartDate, customEndDate])
 
   const totalCommercialTry = expenses
     .filter(e => {
@@ -2307,7 +2419,7 @@ export default function ExpensesPage() {
             </div>
 
             {/* Arama Barı ve Filtre */}
-            <div className="flex items-center gap-2 mb-3 bg-[#0a0f1d] p-2 rounded-lg border border-slate-800/80 shrink-0">
+            <div className="flex items-center gap-2 mb-2 bg-[#0a0f1d] p-2 rounded-lg border border-slate-800/80 shrink-0">
                <Search size={14} className="text-slate-500 ml-2" />
                <input 
                  type="text" 
@@ -2337,6 +2449,133 @@ export default function ExpensesPage() {
                    <button onClick={() => setSelectedCategoryFilter('all')} className="hover:text-white"><X size={10} /></button>
                  </span>
                )}
+            </div>
+
+            {/* Dönem Filtreleri ve Seçim Toplam Tutar Şeridi */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 mb-3 p-2 bg-gradient-to-r from-[#0d1322] via-[#0a0f1d] to-[#0d1322] border border-slate-800/90 rounded-lg shadow-sm shrink-0">
+              {/* Sol: Dönem Butonları */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex items-center gap-1 bg-[#060a12] p-0.5 rounded-lg border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setDatePeriodFilter('all')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                      datePeriodFilter === 'all'
+                        ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-950/60'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    Tümü
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDatePeriodFilter('thisMonth')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                      datePeriodFilter === 'thisMonth'
+                        ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-950/60'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    Bu Ay
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDatePeriodFilter('lastMonth')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                      datePeriodFilter === 'lastMonth'
+                        ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-950/60'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    Geçen Ay
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDatePeriodFilter('thisWeek')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                      datePeriodFilter === 'thisWeek'
+                        ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-950/60'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    Bu Hafta
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDatePeriodFilter('today')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                      datePeriodFilter === 'today'
+                        ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-950/60'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    Bugün
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDatePeriodFilter('custom')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all flex items-center gap-1 ${
+                      datePeriodFilter === 'custom'
+                        ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-950/60'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    <Calendar size={11} />
+                    Özel Aralık
+                  </button>
+                </div>
+
+                {/* Özel Tarih Seçici Inputs */}
+                {datePeriodFilter === 'custom' && (
+                  <div className="flex items-center gap-1.5 bg-[#060a12] p-1 rounded-lg border border-indigo-500/40 animate-in fade-in duration-200">
+                    <input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                      className="bg-[#0e1629] border border-slate-700 text-slate-200 rounded px-2 py-0.5 text-[11px] focus:outline-none focus:border-indigo-500"
+                      title="Başlangıç Tarihi"
+                    />
+                    <span className="text-slate-500 text-xs font-mono">-</span>
+                    <input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                      className="bg-[#0e1629] border border-slate-700 text-slate-200 rounded px-2 py-0.5 text-[11px] focus:outline-none focus:border-indigo-500"
+                      title="Bitiş Tarihi"
+                    />
+                    {(customStartDate || customEndDate) && (
+                      <button
+                        type="button"
+                        onClick={() => { setCustomStartDate(''); setCustomEndDate('') }}
+                        className="text-slate-400 hover:text-white p-0.5"
+                        title="Tarihleri Sıfırla"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Sağ: Seçime Göre Toplam Tutar Özeti */}
+              <div className="flex items-center gap-3 bg-[#060a12] border border-slate-800/80 px-3 py-1 rounded-lg shrink-0 self-stretch sm:self-auto justify-between sm:justify-end">
+                <div className="text-right">
+                  <div className="text-[10px] text-slate-400 flex items-center gap-1.5 justify-end">
+                    <span className="text-indigo-400 font-medium">{periodLabel}</span>
+                    <span className="w-1 h-1 rounded-full bg-slate-600"></span>
+                    <span className="font-semibold text-slate-300">{filteredExpenses.length} işlem</span>
+                  </div>
+                  <div className="text-[10px] font-medium text-slate-400 max-w-[220px] truncate text-right">
+                    {activeFilterSummary}
+                  </div>
+                </div>
+                <div className="border-l border-slate-800 pl-3 flex flex-col items-end">
+                  <span className="text-[9px] uppercase tracking-wider text-rose-400/80 font-bold">Toplam Tutar</span>
+                  <span className="text-sm sm:text-base font-mono font-black text-rose-400 leading-none">
+                    {formatMoney(filteredTotalTRY, 'TRY').formatted}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Gider Tablosu */}
@@ -2438,6 +2677,26 @@ export default function ExpensesPage() {
                       </tr>
                   )})}
                 </tbody>
+                {filteredExpenses.length > 0 && (
+                  <tfoot className="sticky bottom-0 bg-[#0a0f1d] z-10 border-t-2 border-slate-700/80 shadow-lg font-mono">
+                    <tr className="text-slate-300">
+                      <td colSpan={3} className="p-2.5 text-right font-sans font-bold text-xs text-slate-300 bg-[#0a0f1d]">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            {activeFilterSummary} • {periodLabel}
+                          </span>
+                          <span className="font-bold text-slate-200">
+                            Seçim Toplamı ({filteredExpenses.length} işlem):
+                          </span>
+                        </div>
+                      </td>
+                      <td className="p-2.5 text-right font-bold text-rose-400 text-xs sm:text-sm bg-rose-950/20 border-l border-r border-slate-800/80">
+                        {formatMoney(filteredTotalTRY, 'TRY').formatted}
+                      </td>
+                      <td className="p-2.5 text-center bg-[#0a0f1d]"></td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
 
