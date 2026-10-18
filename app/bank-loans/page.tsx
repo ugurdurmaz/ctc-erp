@@ -631,10 +631,17 @@ export default function BankLoansPage() {
       let bankTxId: string | null = null
       let expenseTxId: string | null = null
 
+      // Şirket belirleme: Kredinin şirketi, yoksa ödenen banka hesabının şirketi
+      let effectiveCompId = payingLoan.company_id
+      if (!effectiveCompId && payBankAccountId) {
+        const { data: bAcc } = await supabase.from('bank_accounts').select('company_id').eq('id', payBankAccountId).single()
+        if (bAcc?.company_id) effectiveCompId = bAcc.company_id
+      }
+
       // 1. Banka Hesabından Toplam Taksit Tutarı Çıkışı (LOAN-INST)
       const bankTxPayload = {
         bank_account_id: payBankAccountId,
-        company_id: payingLoan.company_id,
+        company_id: effectiveCompId,
         tx_date: payDate,
         description: `Kredi Taksiti: ${payingLoan.bank_name} - ${payingLoan.loan_name} (Taksit ${payingInstallment.installment_no}/${payingLoan.total_installments} - Anapara: ${formatMoney(principalAmt).formatted}, Faiz: ${formatMoney(interestAmt).formatted}, BSMV: ${formatMoney(taxAmt).formatted})`,
         tx_type: 'out',
@@ -653,11 +660,23 @@ export default function BankLoansPage() {
       // 2. Faiz + BSMV Toplam Finansman Maliyeti İçin Gider Kaydı (LOAN-EXP)
       if (totalFinancingCost > 0) {
         const { data: catList } = await supabase.from('expense_categories').select('id, name')
-        const matchedCat = catList?.find(c => c.name.toLowerCase().includes('faiz') || c.name.toLowerCase().includes('finansman') || c.name.toLowerCase().includes('kredi'))
-        
+        let matchedCat = catList?.find(c => {
+          const n = c.name.toLowerCase()
+          return n.includes('finansman') || n.includes('kredi faiz') || n.includes('faiz') || n.includes('kredi')
+        })
+
+        if (!matchedCat) {
+          const { data: newCat } = await supabase
+            .from('expense_categories')
+            .insert([{ name: 'Finansman & Kredi Faiz Gideri' }])
+            .select('id, name')
+            .single()
+          if (newCat) matchedCat = newCat
+        }
+
         const expPayload = {
-          category_id: matchedCat?.id || catList?.[0]?.id || null,
-          company_id: payingLoan.company_id,
+          category_id: matchedCat?.id || null,
+          company_id: effectiveCompId,
           tx_date: payDate,
           description: `Finansman Gideri & BSMV: ${payingLoan.bank_name} - ${payingLoan.loan_name} (Taksit ${payingInstallment.installment_no} Net Faiz: ${formatMoney(interestAmt).formatted} + BSMV: ${formatMoney(taxAmt).formatted})`,
           amount: totalFinancingCost,

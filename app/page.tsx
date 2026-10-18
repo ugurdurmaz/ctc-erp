@@ -626,10 +626,31 @@ export default function Home() {
     return { id: c.id, name: c.name, total: expTxsTotal + posTxsTotal + commTotal }
   }).filter(c => c.total > 0).sort((a, b) => b.total - a.total)
 
-  const persExpBreakdown = isAdmin ? Array.from(new Set(personalExpensesList.map(e => e.category?.name || 'Diğer'))).map(catName => {
-    const total = personalExpensesList.filter(e => (e.category?.name || 'Diğer') === catName).reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0)
-    return { id: catName, name: catName, total }
-  }).filter(c => c.total > 0).sort((a, b) => b.total - a.total) : []
+  const persExpBreakdown = isAdmin ? (() => {
+    const cleanCat = (rawName?: string | null): string => {
+      if (!rawName) return 'Diğer'
+      let name = rawName
+      if (name.startsWith('fixed::')) name = name.slice(7)
+      else if (name.startsWith('variable::')) name = name.slice(10)
+      if (name.includes('::')) {
+        const parts = name.split('::')
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parts[0])) {
+          name = parts.slice(1).join('::')
+        }
+      }
+      return name.trim() || 'Diğer'
+    }
+    const map = new Map<string, number>()
+    personalExpensesList.forEach(e => {
+      const catName = cleanCat(e.category?.name)
+      const amt = (e.amount || 0) * (e.exchange_rate || 1)
+      map.set(catName, (map.get(catName) || 0) + amt)
+    })
+    return Array.from(map.entries())
+      .map(([name, total]) => ({ id: name, name, total }))
+      .filter(c => c.total > 0)
+      .sort((a, b) => b.total - a.total)
+  })() : []
 
   const filteredLoans = loans.filter(l => l.status === 'active' && isMatch(l.company_id))
   const totalLoanDebtTry = filteredLoans.reduce((acc, l) => acc + Number(l.remaining_principal || 0), 0)
