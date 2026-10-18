@@ -1518,6 +1518,7 @@ export default function ExpensesPage() {
                         onClick={() => {
                           if (isRestricted) return
                           setSelectedCompanyFilter(isSelected ? 'all' : c.id)
+                          setSearchTerm('')
                         }}
                         className={`flex items-center justify-between py-1.5 px-2.5 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-indigo-950/60 border-indigo-500 text-white' : 'bg-[#070b14] border-slate-800/50 hover:border-slate-700'}`}
                       >
@@ -1544,7 +1545,10 @@ export default function ExpensesPage() {
                       return (
                         <div 
                           key={c.id} 
-                          onClick={() => setSelectedCompanyFilter(isSelected ? 'all' : c.id)}
+                          onClick={() => {
+                            setSelectedCompanyFilter(isSelected ? 'all' : c.id)
+                            setSearchTerm('')
+                          }}
                           className={`flex items-center justify-between py-1.5 px-2.5 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-slate-800 border-indigo-400 text-white' : 'bg-[#0f172a] border-slate-700/50 hover:border-slate-600'}`}
                         >
                           <div className="flex-1 min-w-0 pr-2 flex items-center gap-2">
@@ -1732,7 +1736,14 @@ export default function ExpensesPage() {
                           return (
                             <div 
                               key={c.id} 
-                              onClick={() => setSelectedCategoryFilter(isCategorySelected ? 'all' : c.id)}
+                              onClick={() => {
+                                if (isCategorySelected) {
+                                  setSelectedCategoryFilter('all')
+                                } else {
+                                  setSelectedCategoryFilter(c.id)
+                                  setSearchTerm('')
+                                }
+                              }}
                               className={`flex items-center justify-between py-2 px-3 rounded-lg border cursor-pointer transition-all ${
                                 isCategorySelected 
                                   ? 'bg-indigo-950/70 border-indigo-500 ring-1 ring-indigo-500/50 shadow-md' 
@@ -2305,6 +2316,15 @@ export default function ExpensesPage() {
                  onChange={(e) => setSearchTerm(e.target.value)} 
                  className="bg-transparent border-none text-xs text-white focus:outline-none w-full" 
                />
+               {searchTerm && (
+                 <button 
+                   onClick={() => setSearchTerm('')} 
+                   className="text-slate-500 hover:text-white mr-1 cursor-pointer p-0.5"
+                   title="Aramayı Temizle"
+                 >
+                   <X size={12} />
+                 </button>
+               )}
                {selectedCompanyFilter !== 'all' && (
                  <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800 px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
                    {getCompanyName(selectedCompanyFilter)}
