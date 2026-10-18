@@ -165,6 +165,10 @@ export default function ActivityLogPage() {
             })
             await supabase.from('credit_cards').update({ current_debt: debt }).eq('id', deletedObj.card_id)
           } else if (log.module === 'bank_tx' || log.module === 'bank_transfer') {
+            const affectedBanks = new Set<string>()
+            const affectedCashes = new Set<string>()
+            const affectedCards = new Set<string>()
+
             const payload = {
               id: deletedObj.id,
               bank_account_id: deletedObj.bank_account_id,
@@ -180,16 +184,47 @@ export default function ActivityLogPage() {
               status: deletedObj.status || 'completed'
             }
             await supabase.from('bank_transactions').insert([payload])
-            const { data: bData } = await supabase.from('bank_accounts').select('initial_balance').eq('id', deletedObj.bank_account_id).single()
-            const initialBal = Number(bData?.initial_balance) || 0
-            const { data: txs } = await supabase.from('bank_transactions').select('amount, tx_type, status').eq('bank_account_id', deletedObj.bank_account_id)
-            let bal = initialBal
-            txs?.forEach(t => {
-              if (t.status === 'pending') return
-              if (t.tx_type === 'in') bal += Number(t.amount)
-              else bal -= Number(t.amount)
-            })
-            await supabase.from('bank_accounts').update({ balance: bal }).eq('id', deletedObj.bank_account_id)
+            affectedBanks.add(deletedObj.bank_account_id)
+
+            // Eğer silinmiş bir transfer geri alınıyorsa ilişkili karşı bacağı da geri yükle
+            if (log.old_data?.related_txs && Array.isArray(log.old_data.related_txs)) {
+              for (const rel of log.old_data.related_txs) {
+                if (rel.type === 'bank' && rel.data) {
+                  await supabase.from('bank_transactions').insert([rel.data])
+                  affectedBanks.add(rel.data.bank_account_id)
+                } else if (rel.type === 'cash' && rel.data) {
+                  await supabase.from('cash_transactions').insert([rel.data])
+                  affectedCashes.add(rel.data.cash_register_id)
+                } else if (rel.type === 'card' && rel.data) {
+                  await supabase.from('card_transactions').insert([rel.data])
+                  affectedCards.add(rel.data.card_id)
+                }
+              }
+            }
+
+            for (const bId of Array.from(affectedBanks)) {
+              const { data: txs } = await supabase.from('bank_transactions').select('amount, tx_type, status').eq('bank_account_id', bId)
+              let bal = 0
+              txs?.forEach(t => {
+                if (t.status !== 'pending') bal += t.tx_type === 'in' ? Number(t.amount) : -Number(t.amount)
+              })
+              await supabase.from('bank_accounts').update({ balance: bal }).eq('id', bId)
+            }
+            for (const cId of Array.from(affectedCashes)) {
+              const { data: txs } = await supabase.from('cash_transactions').select('amount, tx_type').eq('cash_register_id', cId)
+              let bal = 0
+              txs?.forEach(t => { bal += t.tx_type === 'in' ? Number(t.amount) : -Number(t.amount) })
+              await supabase.from('cash_registers').update({ balance: bal }).eq('id', cId)
+            }
+            for (const cardId of Array.from(affectedCards)) {
+              const { data: txs } = await supabase.from('card_transactions').select('amount, tx_type').eq('card_id', cardId)
+              let debt = 0
+              txs?.forEach(t => {
+                if (t.tx_type === 'expense') debt += Number(t.amount)
+                else debt -= Number(t.amount)
+              })
+              await supabase.from('credit_cards').update({ current_debt: debt }).eq('id', cardId)
+            }
           } else if (log.module === 'cash_tx') {
             const payload = {
               id: deletedObj.id,
@@ -205,10 +240,8 @@ export default function ActivityLogPage() {
               transfer_id: deletedObj.transfer_id || null
             }
             await supabase.from('cash_transactions').insert([payload])
-            const { data: cData } = await supabase.from('cash_registers').select('initial_balance').eq('id', deletedObj.cash_register_id).single()
-            const initialBal = Number(cData?.initial_balance) || 0
             const { data: txs } = await supabase.from('cash_transactions').select('amount, tx_type').eq('cash_register_id', deletedObj.cash_register_id)
-            let bal = initialBal
+            let bal = 0
             txs?.forEach(t => {
               if (t.tx_type === 'in') bal += Number(t.amount)
               else bal -= Number(t.amount)
@@ -244,18 +277,88 @@ export default function ActivityLogPage() {
             })
             await supabase.from('credit_cards').update({ current_debt: debt }).eq('id', cardId)
           }
-        } else if ((log.module === 'bank_tx' || log.module === 'bank_transfer') && log.record_id) {
+        } else if (log.module === 'bank_transfer') {
+          const transferId = log.new_data?.source_tx?.transfer_id || log.new_data?.transfer_id || log.new_data?.target_tx?.transaction_data?.transfer_id
+          const affectedBanks = new Set<string>()
+          const affectedCashes = new Set<string>()
+          const affectedCards = new Set<string>()
+
+          if (transferId) {
+            const { data: bTxs } = await supabase.from('bank_transactions').select('*').eq('transfer_id', transferId)
+            if (bTxs) {
+              for (const bTx of bTxs) {
+                affectedBanks.add(bTx.bank_account_id)
+                await supabase.from('bank_transactions').delete().eq('id', bTx.id)
+              }
+            }
+            const { data: cTxs } = await supabase.from('cash_transactions').select('*').eq('transfer_id', transferId)
+            if (cTxs) {
+              for (const cTx of cTxs) {
+                affectedCashes.add(cTx.cash_register_id)
+                await supabase.from('cash_transactions').delete().eq('id', cTx.id)
+              }
+            }
+            const { data: cardTxs } = await supabase.from('card_transactions').select('*').ilike('description', `%[${transferId}]%`)
+            if (cardTxs) {
+              for (const cardTx of cardTxs) {
+                affectedCards.add(cardTx.card_id)
+                await supabase.from('card_transactions').delete().eq('id', cardTx.id)
+              }
+            }
+          } else {
+            if (log.record_id) {
+              await supabase.from('bank_transactions').delete().eq('id', log.record_id)
+            }
+            const srcBankId = log.new_data?.source_tx?.bank_account_id || log.new_data?.bank_account_id
+            if (srcBankId) affectedBanks.add(srcBankId)
+
+            const targetObj = log.new_data?.target_tx
+            if (targetObj) {
+              const targetTxId = targetObj.transaction_data?.id
+              if (targetObj.type === 'bank') {
+                if (targetTxId) await supabase.from('bank_transactions').delete().eq('id', targetTxId)
+                if (targetObj.target_id) affectedBanks.add(targetObj.target_id)
+              } else if (targetObj.type === 'cash') {
+                if (targetTxId) await supabase.from('cash_transactions').delete().eq('id', targetTxId)
+                if (targetObj.target_id) affectedCashes.add(targetObj.target_id)
+              } else if (targetObj.type === 'card') {
+                if (targetTxId) await supabase.from('card_transactions').delete().eq('id', targetTxId)
+                if (targetObj.target_id) affectedCards.add(targetObj.target_id)
+              }
+            }
+          }
+
+          for (const bId of Array.from(affectedBanks)) {
+            const { data: txs } = await supabase.from('bank_transactions').select('amount, tx_type, status').eq('bank_account_id', bId)
+            let bal = 0
+            txs?.forEach(t => {
+              if (t.status !== 'pending') bal += t.tx_type === 'in' ? Number(t.amount) : -Number(t.amount)
+            })
+            await supabase.from('bank_accounts').update({ balance: bal }).eq('id', bId)
+          }
+          for (const cId of Array.from(affectedCashes)) {
+            const { data: txs } = await supabase.from('cash_transactions').select('amount, tx_type').eq('cash_register_id', cId)
+            let bal = 0
+            txs?.forEach(t => { bal += t.tx_type === 'in' ? Number(t.amount) : -Number(t.amount) })
+            await supabase.from('cash_registers').update({ balance: bal }).eq('id', cId)
+          }
+          for (const cardId of Array.from(affectedCards)) {
+            const { data: txs } = await supabase.from('card_transactions').select('amount, tx_type').eq('card_id', cardId)
+            let debt = 0
+            txs?.forEach(t => {
+              if (t.tx_type === 'expense') debt += Number(t.amount)
+              else debt -= Number(t.amount)
+            })
+            await supabase.from('credit_cards').update({ current_debt: debt }).eq('id', cardId)
+          }
+        } else if (log.module === 'bank_tx' && log.record_id) {
           const bankId = log.new_data?.bank_account_id || log.new_data?.source_tx?.bank_account_id
           await supabase.from('bank_transactions').delete().eq('id', log.record_id)
           if (bankId) {
-            const { data: bData } = await supabase.from('bank_accounts').select('initial_balance').eq('id', bankId).single()
-            const initialBal = Number(bData?.initial_balance) || 0
             const { data: txs } = await supabase.from('bank_transactions').select('amount, tx_type, status').eq('bank_account_id', bankId)
-            let bal = initialBal
+            let bal = 0
             txs?.forEach(t => {
-              if (t.status === 'pending') return
-              if (t.tx_type === 'in') bal += Number(t.amount)
-              else bal -= Number(t.amount)
+              if (t.status !== 'pending') bal += t.tx_type === 'in' ? Number(t.amount) : -Number(t.amount)
             })
             await supabase.from('bank_accounts').update({ balance: bal }).eq('id', bankId)
           }
