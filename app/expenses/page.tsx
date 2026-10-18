@@ -146,6 +146,7 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<ExpenseTransaction[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all')
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all')
 
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [cashes, setCashes] = useState<CashRegister[]>([])
@@ -1268,7 +1269,8 @@ export default function ExpensesPage() {
     }
 
     const matchesCompany = selectedCompanyFilter === 'all' || e.company_id === selectedCompanyFilter
-    return matchesSearch && matchesCompany
+    const matchesCategory = selectedCategoryFilter === 'all' || e.category_id === selectedCategoryFilter
+    return matchesSearch && matchesCompany && matchesCategory
   })
 
   const totalCommercialTry = expenses
@@ -1681,26 +1683,36 @@ export default function ExpensesPage() {
             {/* TAB 2: KATEGORİLER LİSTESİ */}
             {activeLeftTab === 'categories' && (
               <div className="overflow-y-auto flex-1 custom-scrollbar p-2 space-y-1.5 flex flex-col">
-                <div className="flex items-center gap-1 mb-1.5 pb-1.5 border-b border-slate-800/60 text-[10px]">
-                  <span className="text-slate-500 mr-1">Tür:</span>
-                  <button 
-                    onClick={() => setCategoryTypeFilter('all')} 
-                    className={`px-1.5 py-0.5 rounded ${categoryTypeFilter === 'all' ? 'bg-slate-700 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Tümü
-                  </button>
-                  <button 
-                    onClick={() => setCategoryTypeFilter('fixed')} 
-                    className={`px-1.5 py-0.5 rounded flex items-center gap-1 ${categoryTypeFilter === 'fixed' ? 'bg-indigo-900/60 text-indigo-300 font-bold border border-indigo-500/30' : 'text-slate-400 hover:text-indigo-300'}`}
-                  >
-                    🔄 Sabit
-                  </button>
-                  <button 
-                    onClick={() => setCategoryTypeFilter('variable')} 
-                    className={`px-1.5 py-0.5 rounded flex items-center gap-1 ${categoryTypeFilter === 'variable' ? 'bg-amber-900/60 text-amber-300 font-bold border border-amber-500/30' : 'text-slate-400 hover:text-amber-300'}`}
-                  >
-                    ⚡ Değişken
-                  </button>
+                <div className="flex items-center justify-between gap-1 mb-1.5 pb-1.5 border-b border-slate-800/60 text-[10px]">
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-500 mr-1">Tür:</span>
+                    <button 
+                      onClick={() => setCategoryTypeFilter('all')} 
+                      className={`px-1.5 py-0.5 rounded ${categoryTypeFilter === 'all' ? 'bg-slate-700 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Tümü
+                    </button>
+                    <button 
+                      onClick={() => setCategoryTypeFilter('fixed')} 
+                      className={`px-1.5 py-0.5 rounded flex items-center gap-1 ${categoryTypeFilter === 'fixed' ? 'bg-indigo-900/60 text-indigo-300 font-bold border border-indigo-500/30' : 'text-slate-400 hover:text-indigo-300'}`}
+                    >
+                      🔄 Sabit
+                    </button>
+                    <button 
+                      onClick={() => setCategoryTypeFilter('variable')} 
+                      className={`px-1.5 py-0.5 rounded flex items-center gap-1 ${categoryTypeFilter === 'variable' ? 'bg-amber-900/60 text-amber-300 font-bold border border-amber-500/30' : 'text-slate-400 hover:text-amber-300'}`}
+                    >
+                      ⚡ Değişken
+                    </button>
+                  </div>
+                  {selectedCategoryFilter !== 'all' && (
+                    <button
+                      onClick={() => setSelectedCategoryFilter('all')}
+                      className="text-[9px] text-indigo-400 hover:text-indigo-300 font-bold underline"
+                    >
+                      Filtreyi Kaldır
+                    </button>
+                  )}
                 </div>
 
                 <div className="space-y-1.5 flex-1">
@@ -1716,42 +1728,48 @@ export default function ExpensesPage() {
                       .map((c) => {
                         const catTotal = expenses.filter(e => e.category_id === c.id).reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0)
                         const comp = c.company_id ? companies.find(comp => comp.id === c.company_id) : null
-                        return (
-                          <div 
-                            key={c.id} 
-                            className="flex items-center justify-between py-2 px-3 rounded-lg border bg-[#070b14] border-slate-800/50 hover:border-slate-700 transition-colors"
-                          >
-                            <div className="flex-1 min-w-0 pr-2 flex items-center gap-2">
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0 ${c.type === 'fixed' ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-800/50' : 'bg-amber-950/60 text-amber-400 border border-amber-800/50'}`}>
-                                {c.type === 'fixed' ? 'Sabit' : 'Değişken'}
-                              </span>
-                              <h4 className={`text-[11px] truncate ${catTotal > 0 ? 'font-bold text-slate-200' : 'font-medium text-slate-400'}`}>
-                                {c.name}
-                              </h4>
-                              {comp && (
-                                <span className="text-[8px] px-1 py-0.2 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/40 shrink-0">
-                                  {comp.name}
+                          const isCategorySelected = selectedCategoryFilter === c.id
+                          return (
+                            <div 
+                              key={c.id} 
+                              onClick={() => setSelectedCategoryFilter(isCategorySelected ? 'all' : c.id)}
+                              className={`flex items-center justify-between py-2 px-3 rounded-lg border cursor-pointer transition-all ${
+                                isCategorySelected 
+                                  ? 'bg-indigo-950/70 border-indigo-500 ring-1 ring-indigo-500/50 shadow-md' 
+                                  : 'bg-[#070b14] border-slate-800/50 hover:border-slate-700'
+                              }`}
+                            >
+                              <div className="flex-1 min-w-0 pr-2 flex items-center gap-2">
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0 ${c.type === 'fixed' ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-800/50' : 'bg-amber-950/60 text-amber-400 border border-amber-800/50'}`}>
+                                  {c.type === 'fixed' ? 'Sabit' : 'Değişken'}
                                 </span>
-                              )}
-                            </div>
+                                <h4 className={`text-[11px] truncate ${isCategorySelected ? 'font-bold text-white' : catTotal > 0 ? 'font-bold text-slate-200' : 'font-medium text-slate-400'}`}>
+                                  {c.name}
+                                </h4>
+                                {comp && (
+                                  <span className="text-[8px] px-1 py-0.2 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/40 shrink-0">
+                                    {comp.name}
+                                  </span>
+                                )}
+                              </div>
 
-                            <div className="text-right shrink-0 flex items-center gap-2">
-                              {catTotal > 0 && (
-                                <div className="text-[11px] font-mono font-bold text-rose-400">
-                                  {formatMoney(catTotal, 'TRY').formatted}
+                              <div className="text-right shrink-0 flex items-center gap-2">
+                                {catTotal > 0 && (
+                                  <div className="text-[11px] font-mono font-bold text-rose-400">
+                                    {formatMoney(catTotal, 'TRY').formatted}
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-1.5 border-l border-slate-800 pl-2">
+                                  <button onClick={(e) => { e.stopPropagation(); openEditCategoryModal(c) }} className="text-slate-500 hover:text-amber-400 transition-colors" title="Düzenle">
+                                    <Edit3 size={11} />
+                                  </button>
+                                  <button onClick={(e) => { e.stopPropagation(); handleDeleteCategory(c.id) }} className="text-slate-600 hover:text-rose-400 transition-colors" title="Sil">
+                                    <Trash2 size={11} />
+                                  </button>
                                 </div>
-                              )}
-                              <div className="flex items-center gap-1.5 border-l border-slate-800 pl-2">
-                                <button onClick={() => openEditCategoryModal(c)} className="text-slate-500 hover:text-amber-400 transition-colors" title="Düzenle">
-                                  <Edit3 size={11} />
-                                </button>
-                                <button onClick={() => handleDeleteCategory(c.id)} className="text-slate-600 hover:text-rose-400 transition-colors" title="Sil">
-                                  <Trash2 size={11} />
-                                </button>
                               </div>
                             </div>
-                          </div>
-                        )
+                          )
                       })
                   )}
                 </div>
@@ -2291,6 +2309,12 @@ export default function ExpensesPage() {
                  <span className="text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-800 px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
                    {getCompanyName(selectedCompanyFilter)}
                    <button onClick={() => setSelectedCompanyFilter('all')} className="hover:text-white"><X size={10} /></button>
+                 </span>
+               )}
+               {selectedCategoryFilter !== 'all' && (
+                 <span className="text-[10px] bg-purple-950 text-purple-300 border border-purple-800 px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
+                   {getCategoryName(selectedCategoryFilter)}
+                   <button onClick={() => setSelectedCategoryFilter('all')} className="hover:text-white"><X size={10} /></button>
                  </span>
                )}
             </div>
