@@ -144,6 +144,8 @@ export default function PartnersPage() {
   const [partnerTaxRate, setPartnerTaxRate] = useState('20')
   const [partnerCommissionRate, setPartnerCommissionRate] = useState('0')
   const [partnerNotes, setPartnerNotes] = useState('')
+  const [openingBalance, setOpeningBalance] = useState('')
+  const [openingDate, setOpeningDate] = useState(getLocalTodayISO())
 
   // Hakediş (İş) Modalı State'leri
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false)
@@ -448,12 +450,17 @@ export default function PartnersPage() {
       let totalPaid = 0
       tData?.forEach(t => {
         if (t.tx_type === 'payment') totalPaid += Number(t.amount) || 0
+        else if (t.tx_type === 'earning') totalEarned += Number(t.amount) || 0
       })
 
       const netBalance = totalEarned - totalPaid
 
       await supabase.from('partners').update({ balance: netBalance }).eq('id', partnerId)
-      setPartners(prev => prev.map(p => p.id === partnerId ? { ...p, balance: netBalance } : p))
+      setPartners(prev => {
+        const updated = prev.map(p => p.id === partnerId ? { ...p, balance: netBalance } : p)
+        try { localStorage.setItem('ctc_partners_cache', JSON.stringify(updated)) } catch {}
+        return updated
+      })
       return netBalance
     } catch (e) {
       console.error('Error recalculating partner balance:', e)
@@ -521,10 +528,12 @@ export default function PartnersPage() {
     setPartnerTaxRate('20')
     setPartnerCommissionRate('0')
     setPartnerNotes('')
+    setOpeningBalance('')
+    setOpeningDate(getLocalTodayISO())
     setIsPartnerModalOpen(true)
   }
 
-  function openEditPartnerModal(p: Partner) {
+  async function openEditPartnerModal(p: Partner) {
     setEditingPartner(p)
     setPartnerName(p.name)
     setPartnerPhone(p.phone || '')
@@ -533,7 +542,30 @@ export default function PartnersPage() {
     setPartnerTaxRate(p.default_tax_rate?.toString() || '20')
     setPartnerCommissionRate(p.default_commission_rate?.toString() || '0')
     setPartnerNotes(p.notes || '')
+    setOpeningBalance('')
+    setOpeningDate(getLocalTodayISO())
     setIsPartnerModalOpen(true)
+
+    try {
+      const { data: txs } = await supabase
+        .from('partner_transactions')
+        .select('amount, tx_type, tx_date')
+        .eq('partner_id', p.id)
+        .ilike('description', 'Açılış Bakiyesi / Devir%')
+        .limit(1)
+
+      if (txs && txs.length > 0) {
+        const tx = txs[0]
+        const sign = tx.tx_type === 'payment' ? -1 : 1
+        setOpeningBalance((Number(tx.amount) * sign).toString())
+        setOpeningDate(tx.tx_date || getLocalTodayISO())
+      } else {
+        setOpeningBalance('0')
+        setOpeningDate(getLocalTodayISO())
+      }
+    } catch (err) {
+      console.error('Error fetching partner opening tx:', err)
+    }
   }
 
   async function handleSavePartner(e: React.FormEvent) {
@@ -555,6 +587,8 @@ export default function PartnersPage() {
       updated_at: new Date().toISOString()
     }
 
+    const initialBalance = parseFloat(openingBalance) || 0
+
     try {
       if (editingPartner) {
         const { error } = await supabase.from('partners').update(payload).eq('id', editingPartner.id)
@@ -572,6 +606,53 @@ export default function PartnersPage() {
           setIsPartnerModalOpen(false)
           return
         }
+
+        // Devir / Açılış Bakiyesi Güncelleme veya Ekleme/Silme
+        const { data: oldTxs } = await supabase
+          .from('partner_transactions')
+          .select('*')
+          .eq('partner_id', editingPartner.id)
+          .ilike('description', 'Açılış Bakiyesi / Devir%')
+          .limit(1)
+
+        const oldTx = oldTxs && oldTxs.length > 0 ? oldTxs[0] : null
+
+        if (oldTx) {
+          if (initialBalance === 0) {
+            await supabase.from('partner_transactions').delete().eq('id', oldTx.id)
+          } else {
+            const isEarning = initialBalance > 0
+            const absAmount = Math.abs(initialBalance)
+            const targetDesc = isEarning 
+              ? 'Açılış Bakiyesi / Devir (Hakediş Alacağı)' 
+              : 'Açılış Bakiyesi / Devir (Fazla Ödeme / Avans)'
+            const txType = isEarning ? 'earning' : 'payment'
+
+            await supabase.from('partner_transactions').update({
+              amount: absAmount,
+              tx_type: txType,
+              tx_date: openingDate || oldTx.tx_date || getLocalTodayISO(),
+              description: targetDesc
+            }).eq('id', oldTx.id)
+          }
+        } else if (initialBalance !== 0) {
+          const isEarning = initialBalance > 0
+          const absAmount = Math.abs(initialBalance)
+          const targetDesc = isEarning 
+            ? 'Açılış Bakiyesi / Devir (Hakediş Alacağı)' 
+            : 'Açılış Bakiyesi / Devir (Fazla Ödeme / Avans)'
+          const txType = isEarning ? 'earning' : 'payment'
+
+          await supabase.from('partner_transactions').insert([{
+            partner_id: editingPartner.id,
+            tx_type: txType,
+            amount: absAmount,
+            tx_date: openingDate || getLocalTodayISO(),
+            description: targetDesc
+          }])
+        }
+
+        await recalculateAbsolutePartnerBalance(editingPartner.id)
         await logActivity('partner', 'UPDATE', `Çözüm ortağı güncellendi: ${payload.name}`, editingPartner.id, 0, 'TRY', editingPartner, payload, finalCompId)
         toast.success('Çözüm ortağı güncellendi.')
       } else {
@@ -591,7 +672,6 @@ export default function PartnersPage() {
           } else {
             toast.error('Veritabanına kaydedilemedi: ' + error.message)
           }
-          // Yerel state ve önbelleğe alıp sayfada anında göster (fetchPartners çağırıp silinmesini engelle)
           const updated = [...partners, newPartner]
           setPartners(updated)
           setSelectedPartnerId(newId)
@@ -599,12 +679,37 @@ export default function PartnersPage() {
           setIsPartnerModalOpen(false)
           return
         }
+
+        if (initialBalance !== 0) {
+          const isEarning = initialBalance > 0
+          const absAmount = Math.abs(initialBalance)
+          const targetDesc = isEarning 
+            ? 'Açılış Bakiyesi / Devir (Hakediş Alacağı)' 
+            : 'Açılış Bakiyesi / Devir (Fazla Ödeme / Avans)'
+          const txType = isEarning ? 'earning' : 'payment'
+
+          const devirTx = {
+            partner_id: newId,
+            tx_type: txType,
+            amount: absAmount,
+            tx_date: openingDate || getLocalTodayISO(),
+            description: targetDesc
+          }
+
+          const { error: devirErr } = await supabase.from('partner_transactions').insert([devirTx])
+          if (!devirErr) {
+            await logActivity('partner_tx', 'INSERT', `${targetDesc}: ${payload.name} (${formatMoney(absAmount, 'TRY').formatted})`, newId, absAmount, 'TRY', null, devirTx, finalCompId)
+          }
+        }
+
+        await recalculateAbsolutePartnerBalance(newId)
         await logActivity('partner', 'INSERT', `Yeni çözüm ortağı eklendi: ${payload.name}`, newId, 0, 'TRY', null, newPartner, finalCompId)
         setSelectedPartnerId(newId)
         toast.success('Yeni çözüm ortağı başarıyla eklendi.')
       }
       setIsPartnerModalOpen(false)
       fetchPartners()
+      fetchTransactions()
     } catch (err: any) {
       toast.error('Kayıt sırasında hata oluştu: ' + err.message)
     }
@@ -1921,7 +2026,7 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                   }`}
                 >
                   <Wallet size={13} />
-                  <span>Kasa / Banka Ödemeleri ({partnerTransactions.length})</span>
+                  <span>Ödemeler & Bakiye Hareketleri ({partnerTransactions.length})</span>
                 </button>
               </div>
 
@@ -2108,34 +2213,47 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                         <tr>
                           <th className="p-2.5">Tarih</th>
                           <th className="p-2.5">Açıklama</th>
-                          <th className="p-2.5">Ödeme Kaynağı (Kasa / Banka)</th>
-                          <th className="p-2.5 text-right text-rose-400">Çıkan Tutar</th>
+                          <th className="p-2.5">Tür / Kaynak</th>
+                          <th className="p-2.5 text-right">Tutar</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/50">
                         {partnerTransactions.map((t) => {
                           const bankName = t.payment_source_type === 'bank' ? banks.find(b => b.id === t.payment_source_id)?.bank_name : null
                           const cashName = t.payment_source_type === 'cash' ? cashes.find(c => c.id === t.payment_source_id)?.name : null
+                          const isEarning = t.tx_type === 'earning'
+                          const isDevir = t.description?.includes('Açılış') || t.description?.includes('Devir')
                           return (
                             <tr key={t.id} className="hover:bg-slate-800/30 transition-colors font-mono">
                               <td className="p-2.5 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
                               <td className="p-2.5 text-slate-200 font-sans align-top">
-                                <div className="font-medium text-white">{t.description}</div>
+                                <div className="font-medium text-white flex items-center gap-1.5">
+                                  {isDevir && <Sparkles size={12} className="text-amber-400 shrink-0" />}
+                                  <span>{t.description}</span>
+                                </div>
                                 {t.transfer_id && <span className="text-[9px] text-slate-500 font-mono">{t.transfer_id}</span>}
                               </td>
                               <td className="p-2.5 text-slate-300 font-sans align-top">
-                                {t.payment_source_type === 'bank' ? (
+                                {isDevir ? (
+                                  <span className="flex items-center gap-1 text-amber-400/90 text-xs font-medium">
+                                    <Sparkles size={12} /> {isEarning ? 'Devir Hakediş Alacağı' : 'Devir Avans Kaydı'}
+                                  </span>
+                                ) : t.payment_source_type === 'bank' ? (
                                   <span className="flex items-center gap-1 text-blue-400">
                                     <Landmark size={12} /> {bankName || 'Banka Hesabı'}
                                   </span>
-                                ) : (
+                                ) : t.payment_source_type === 'cash' ? (
                                   <span className="flex items-center gap-1 text-emerald-400">
                                     <Wallet size={12} /> {cashName || 'Nakit Kasa'}
                                   </span>
+                                ) : (
+                                  <span className="text-slate-400 text-xs">
+                                    {isEarning ? 'Hakediş Tahakkuku' : 'Ödeme'}
+                                  </span>
                                 )}
                               </td>
-                              <td className="p-2.5 text-right font-black text-rose-400 align-top">
-                                -{formatMoney(t.amount, 'TRY').formatted}
+                              <td className={`p-2.5 text-right font-black align-top ${isEarning ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {isEarning ? `+${formatMoney(t.amount, 'TRY').formatted}` : `-${formatMoney(t.amount, 'TRY').formatted}`}
                               </td>
                             </tr>
                           )
@@ -2226,6 +2344,66 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                   {!isRestricted && <option value="common">Ortak / Bağımsız (Tüm Şirketler)</option>}
                   {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
+              </div>
+
+              {/* DEVİR / AÇILIŞ BAKİYESİ ALANI */}
+              <div className="bg-[#070b14] border border-slate-800 rounded-xl p-3 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-300 font-bold flex items-center gap-1.5 text-xs">
+                    <Sparkles size={13} className="text-amber-400" /> Devir / Açılış Bakiyesi (₺)
+                  </label>
+                  <span className="text-[10px] text-slate-500">Opsiyonel</span>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Tutar (TL)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={openingBalance}
+                      onChange={(e) => setOpeningBalance(e.target.value)}
+                      className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Devir Tarihi</label>
+                    <input
+                      type="date"
+                      value={openingDate}
+                      onChange={(e) => setOpeningDate(e.target.value)}
+                      className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                  </div>
+                </div>
+
+                {/* Dinamik Bilgilendirme Rozeti */}
+                {openingBalance && !isNaN(parseFloat(openingBalance)) && parseFloat(openingBalance) !== 0 ? (
+                  <div className={`py-1.5 px-2.5 rounded-lg border text-[10.5px] flex items-center justify-between ${
+                    parseFloat(openingBalance) > 0
+                      ? 'bg-rose-950/30 border-rose-500/40 text-rose-300'
+                      : 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                  }`}>
+                    <span className="flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${parseFloat(openingBalance) > 0 ? 'bg-rose-400' : 'bg-emerald-400'} animate-pulse`}></span>
+                      <span>
+                        {parseFloat(openingBalance) > 0 ? (
+                          <>Ortağın Hakediş Alacağı: <strong>{formatMoney(parseFloat(openingBalance), 'TRY').formatted}</strong> ortağa ödenecek borç olarak başlanacak.</>
+                        ) : (
+                          <>Fazla Ödeme / Avans: <strong>{formatMoney(Math.abs(parseFloat(openingBalance)), 'TRY').formatted}</strong> avans olarak başlanacak.</>
+                        )}
+                      </span>
+                    </span>
+                    <span className="font-mono text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/40 shrink-0 ml-1">
+                      {parseFloat(openingBalance) > 0 ? 'Hakediş Borcu (+)' : 'Avans (-)'}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-500">
+                    💡 Ortağın geçmişten kalan alacağı varsa pozitif (+), önceden verilen avans varsa negatif (-) girebilirsiniz.
+                  </p>
+                )}
               </div>
 
               <div>
