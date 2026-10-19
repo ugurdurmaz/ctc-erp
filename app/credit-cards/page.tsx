@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { formatMoney } from '@/lib/utils'
+import { formatMoney, CARD_COLORS } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { CreditCard, Plus, Trash2, X, Edit3, Building, Home, Globe, AlertTriangle, RefreshCw } from 'lucide-react'
 
@@ -31,22 +31,6 @@ type Transaction = {
   company?: { name: string; is_personal: boolean }
 }
 
-const CARD_COLORS = [
-  { label: 'Gece Mavisi (Varsayılan)', value: 'from-[#1b253b] to-[#121a2a]' },
-  { label: 'Koyu Grafit', value: 'from-[#27272a] to-[#18181b]' },
-  { label: 'Derin Mor', value: 'from-[#3b1f48] to-[#1a0f24]' },
-  { label: 'Zümrüt Yeşili', value: 'from-[#133e30] to-[#0a221b]' },
-  { label: 'Koyu Bordo', value: 'from-[#4a1c1c] to-[#240d0d]' },
-  { label: 'Okyanus Laciverti', value: 'from-[#1e3a8a] to-[#0f172a]' },
-  { label: 'Metalik Titanyum', value: 'from-[#334155] to-[#0f172a]' },
-  { label: 'Bronz Kahve', value: 'from-[#451a03] to-[#1c0a00]' },
-  { label: 'Neon Gece', value: 'from-[#0f172a] to-[#312e81]' },
-  { label: 'Kömür Siyahı', value: 'from-[#18181b] to-[#09090b]' },
-  { label: 'Koyu Safir', value: 'from-[#172554] to-[#020617]' },
-  { label: 'Koyu Gece Yeşili', value: 'from-[#064e3b] to-[#022c22]' },
-  { label: 'Koyu Erik Moru', value: 'from-[#581c87] to-[#3b0764]' },
-  { label: 'Koyu Yakut Kırmızısı', value: 'from-[#881337] to-[#4c0519]' },
-]
 
 function getLocalTodayISO() {
   const now = new Date()

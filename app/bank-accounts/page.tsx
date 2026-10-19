@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { formatMoney } from '@/lib/utils'
+import { formatMoney, CARD_COLORS, parseAccountColor, formatAccountColor } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, TrendingDown, Calculator, Sparkles, CreditCard, FileSpreadsheet, FileDown } from 'lucide-react'
+import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, TrendingDown, Calculator, Sparkles, CreditCard, FileSpreadsheet, FileDown, Palette } from 'lucide-react'
 import BankStatementExportModal from '@/components/BankStatementExportModal'
 
 type Company = { id: string; name: string; is_personal: boolean }
@@ -38,6 +38,7 @@ export default function BankAccountsPage() {
   const [openingBalance, setOpeningBalance] = useState('')
   const [openingDate, setOpeningDate] = useState(todayISO)
   const [isInvestment, setIsInvestment] = useState(false)
+  const [accountColor, setAccountColor] = useState<string>(CARD_COLORS[0].value)
 
   // Günlük Faiz / Getiri Modalı State'leri
   const [isInterestModalOpen, setIsInterestModalOpen] = useState(false)
@@ -103,10 +104,14 @@ export default function BankAccountsPage() {
   async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name', { ascending: true }); setCompanies(data || []) }
   async function fetchBanks() { 
     const { data } = await supabase.from('bank_accounts').select('*, company:companies(name, is_personal)').order('bank_name', { ascending: true }); 
-    const mapped = (data || []).map(b => ({
-      ...b,
-      is_investment: b.account_color === 'investment' || b.account_color?.includes('investment')
-    }));
+        const mapped = (data || []).map(b => {
+      const parsed = parseAccountColor(b.account_color);
+      return {
+        ...b,
+        account_color: parsed.color,
+        is_investment: Boolean(parsed.isInvestment || (b as any).is_investment)
+      };
+    });
     setBanks(mapped); 
     if (mapped.length > 0 && !selectedBankId) setSelectedBankId(mapped[0].id) 
   }
@@ -145,7 +150,9 @@ export default function BankAccountsPage() {
     setIban(bank.iban || 'TR'); 
     setCurrency(bank.currency as any); 
     setBankCompanyId(bank.company_id || 'common'); 
-    setIsInvestment(Boolean(bank.account_color === 'investment' || bank.is_investment));
+    const parsed = parseAccountColor(bank.account_color);
+    setAccountColor(parsed.color);
+    setIsInvestment(Boolean(parsed.isInvestment || bank.is_investment));
     setOpeningBalance(''); 
     setIsModalOpen(true);
 
@@ -292,7 +299,8 @@ export default function BankAccountsPage() {
            await supabase.from('bank_transactions').insert([txPayload]);
         }
 
-        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, account_color: isInvestment ? 'investment' : 'from-[#1b253b] to-[#121a2a]' }
+        const formattedColor = formatAccountColor(accountColor, isInvestment)
+        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, account_color: formattedColor }
         await supabase.from('bank_accounts').update(payload).eq('id', editingId); 
         await recalculateAbsoluteBankBalance(editingId); 
         
@@ -302,7 +310,8 @@ export default function BankAccountsPage() {
         if (selectedBankId === editingId) fetchTransactions(editingId);
       } 
       else { 
-        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, balance: 0, account_color: isInvestment ? 'investment' : 'from-[#1b253b] to-[#121a2a]' } 
+        const formattedColor = formatAccountColor(accountColor, isInvestment)
+        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, balance: 0, account_color: formattedColor } 
         const { data, error } = await supabase.from('bank_accounts').insert([payload]).select().single(); 
         if (error) throw error;
         await logActivity('bank', 'INSERT', `Yeni banka hesabı açıldı: ${bankName}`, data.id, 0, currency, null, data, finalCompId)
@@ -1008,66 +1017,74 @@ export default function BankAccountsPage() {
                  <p className="text-[11px] font-bold text-slate-400">Henüz bir banka hesabı eklenmemiş.</p>
                  <p className="text-[9px] mt-1 text-slate-500">Sağ üstten yeni bir hesap oluşturabilirsiniz.</p>
                </div>
-            ) : filteredBanks.map((item, index) => (
-             <div 
-               key={item.id} 
-               onClick={() => setSelectedBankId(item.id)} 
-               style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.15 + (index * 0.05)}s` }}
-               className={`flex items-center justify-between py-2.5 px-3 rounded-lg cursor-pointer transition-all border hover:-translate-y-0.5 group ${item.id === selectedBankId ? 'bg-indigo-900/10 border-indigo-500/30 shadow-inner' : 'bg-[#070b14] border-slate-800/50 hover:border-slate-600'}`}
-             >
-                <div className="flex-1 min-w-0 pr-2 flex flex-col gap-0.5">
-                   <div className="flex items-center gap-1.5">
-                     <h4 className="text-[11px] font-bold text-slate-200 truncate">{item.bank_name}</h4>
-                     {item.is_investment && (
-                       <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                         Vadeli
-                       </span>
-                     )}
-                   </div>
-                   <p className="text-[9px] text-slate-500 truncate">{item.account_name}</p>
-                   <span className="text-[9px] text-slate-500 flex items-center gap-1 mt-1">
-                      {item.company ? (item.company.is_personal ? <Home size={10} className="text-slate-400"/> : <Building size={10} className="text-indigo-400"/>) : <Globe size={10} className="text-indigo-500/70"/>}
-                      {item.company ? item.company.name : 'Ortak Havuz Hesap'}
-                   </span>
+            ) : filteredBanks.map((item, index) => {
+              const isSelected = item.id === selectedBankId
+              const cardColor = item.account_color || CARD_COLORS[0].value
+              return (
+                <div 
+                  key={item.id} 
+                  onClick={() => setSelectedBankId(item.id)} 
+                  style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.15 + (index * 0.05)}s` }}
+                  className={`relative flex items-center justify-between py-2.5 px-3 rounded-xl cursor-pointer transition-all duration-200 border bg-gradient-to-br hover:-translate-y-0.5 group shadow-md ${cardColor} ${
+                    isSelected 
+                      ? 'border-indigo-400 ring-2 ring-indigo-500/80 shadow-indigo-950/60 scale-[1.01]' 
+                      : 'border-slate-800/80 hover:border-slate-600/90'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0 pr-2 flex flex-col gap-0.5">
+                     <div className="flex items-center gap-1.5">
+                       <h4 className="text-[11px] font-bold text-white truncate tracking-wide">{item.bank_name}</h4>
+                       {item.is_investment && (
+                         <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/25 text-emerald-300 border border-emerald-400/30">
+                           Vadeli
+                         </span>
+                       )}
+                     </div>
+                     <p className="text-[9px] text-slate-300/90 truncate font-medium">{item.account_name}</p>
+                     <span className="text-[9px] text-slate-300/80 flex items-center gap-1 mt-1 bg-black/30 px-1.5 py-0.5 rounded w-fit border border-white/5">
+                        {item.company ? (item.company.is_personal ? <Home size={10} className="text-slate-300"/> : <Building size={10} className="text-indigo-300"/>) : <Globe size={10} className="text-indigo-300"/>}
+                        <span className="truncate max-w-[130px]">{item.company ? item.company.name : 'Ortak Havuz Hesap'}</span>
+                     </span>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className={`text-[11px] font-mono font-bold ${item.balance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{formatMoney(item.balance, item.currency).formatted}</div>
+                    <div className="text-[8px] text-slate-400 uppercase tracking-wider mt-0.5 font-semibold">BAKİYE</div>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <div className={`text-[11px] font-mono font-bold ${item.balance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{formatMoney(item.balance, item.currency).formatted}</div>
-                  <div className="text-[8px] text-slate-500 uppercase tracking-wider mt-0.5">BAKİYE</div>
-                </div>
-             </div>
-          ))}</div>
+              )
+            })}</div>
         </div>
 
         <div style={{ animation: 'fadeInUp 0.4s both 0.2s' }} className="flex-1 bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col min-w-0 shadow-lg relative overflow-hidden">
           {selectedBank ? (
             <>
-              <div className="p-4 border-b border-slate-800/80 bg-gradient-to-r from-[#0a0f1d] to-[#0d1322] rounded-t-xl shrink-0 flex flex-col md:flex-row justify-between gap-4 relative z-10">
+              <div className={`p-4 border-b border-white/10 bg-gradient-to-r ${selectedBank.account_color || CARD_COLORS[0].value} rounded-t-xl shrink-0 flex flex-col md:flex-row justify-between gap-4 relative z-10 shadow-lg`}>
                 <div className="flex-1 w-full">
                    <div className="flex items-center justify-between mb-2">
                      <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                       {selectedBank.bank_name} <span className="text-sm font-normal text-slate-400">- {selectedBank.account_name}</span>
+                       {selectedBank.bank_name} <span className="text-sm font-normal text-slate-200/80">- {selectedBank.account_name}</span>
                        {selectedBank.is_investment && (
-                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 flex items-center gap-1 shadow-sm">
                            <TrendingUp size={11} /> Vadeli Yatırım Hesabı
                          </span>
                        )}
                      </h2>
-                     <div className="flex items-center gap-1 bg-black/40 p-1 rounded border border-slate-800">
+                     <div className="flex items-center gap-1 bg-black/50 p-1 rounded-lg border border-white/15 backdrop-blur-md shadow-sm">
                        <button onClick={() => setIsExportModalOpen(true)} className="text-emerald-400 hover:text-white hover:bg-emerald-600/30 px-2 py-1 rounded text-[11px] font-bold transition flex items-center gap-1 cursor-pointer" title="Hesap Ekstresi / Dışa Aktar (PDF ve Excel)"><FileSpreadsheet size={13} /><span>Ekstre / Çıktı</span></button>
-                      <div className="w-px h-4 bg-slate-800" />
-                      <button onClick={(e) => openEditModal(selectedBank, e)} className="text-slate-400 hover:text-indigo-400 p-1 transition"><Edit3 size={14} /></button>
-                       <button onClick={(e) => handleDeleteBank(selectedBank.id, e)} className="text-slate-400 hover:text-rose-400 p-1 transition"><Trash2 size={14} /></button>
+                      <div className="w-px h-4 bg-white/15" />
+                      <button onClick={(e) => openEditModal(selectedBank, e)} className="text-slate-300 hover:text-indigo-300 p-1 transition"><Edit3 size={14} /></button>
+                       <button onClick={(e) => handleDeleteBank(selectedBank.id, e)} className="text-slate-300 hover:text-rose-400 p-1 transition"><Trash2 size={14} /></button>
                      </div>
                    </div>
                    <div className="flex flex-wrap items-center gap-2">
-                     <div className="flex items-center gap-2 text-[11px] text-slate-400 bg-[#070b14] p-1.5 px-2 rounded border border-slate-800/50 w-fit">
-                       <Hash size={12} className="text-slate-500" /> <span className="font-mono tracking-widest">{selectedBank.iban || 'IBAN GİRİLMEMİŞ'}</span>
+                     <div className="flex items-center gap-2 text-[11px] text-white bg-black/40 p-1.5 px-2.5 rounded-lg border border-white/10 backdrop-blur-md w-fit">
+                       <Hash size={12} className="text-slate-400" /> <span className="font-mono tracking-widest">{selectedBank.iban || 'IBAN GİRİLMEMİŞ'}</span>
                      </div>
-                     <span className="bg-slate-800 text-slate-400 text-[10px] px-2 py-1.5 rounded border border-slate-700 flex items-center gap-1">Hesap Sahibi: {selectedBank.company ? selectedBank.company.name : 'Ortak Bağımsız Hesap'}</span>
+                     <span className="bg-black/40 text-slate-200 text-[10px] px-2.5 py-1.5 rounded-lg border border-white/10 backdrop-blur-md flex items-center gap-1">Hesap Sahibi: {selectedBank.company ? selectedBank.company.name : 'Ortak Bağımsız Hesap'}</span>
                    </div>
                 </div>
-                <div className="flex flex-col justify-center items-end bg-[#070b14] px-5 py-3 rounded-lg border border-slate-800/50 min-w-[160px] w-full md:w-auto relative overflow-hidden group">
-                  <span className="text-[10px] font-bold text-slate-500 mb-1 tracking-widest">GÜNCEL BAKİYE</span>
+                <div className="flex flex-col justify-center items-end bg-black/40 px-5 py-3 rounded-xl border border-white/10 min-w-[160px] w-full md:w-auto relative overflow-hidden backdrop-blur-md shadow-inner group">
+                  <span className="text-[10px] font-bold text-slate-300 mb-1 tracking-widest">GÜNCEL BAKİYE</span>
                   <span className={`text-2xl font-black font-mono ${selectedBank.balance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{formatMoney(selectedBank.balance, selectedBank.currency).formatted}</span>
                 </div>
               </div>
@@ -1828,6 +1845,29 @@ export default function BankAccountsPage() {
               )}
 
               <div><label className="block text-slate-400 mb-1">IBAN No</label><input type="text" value={iban} onChange={(e) => setIban(e.target.value.toUpperCase())} placeholder="TR..." className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none font-mono tracking-wider uppercase transition-colors" /></div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-bold flex items-center gap-1.5">
+                  <Palette size={13} className="text-indigo-400" /> Kart Teması / Rengi
+                </label>
+                <select 
+                  value={accountColor} 
+                  onChange={(e) => setAccountColor(e.target.value)} 
+                  className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                >
+                  {CARD_COLORS.map((col) => (
+                    <option key={col.value} value={col.value}>{col.label}</option>
+                  ))}
+                </select>
+                <div className="mt-2 p-2 rounded-lg border border-slate-700/60 bg-[#070b14] flex items-center justify-between">
+                  <span className="text-[10px] text-slate-400 font-medium">Tema Görünümü:</span>
+                  <div className={`h-6 px-3 rounded-md bg-gradient-to-r ${accountColor} border border-white/20 flex items-center shadow-sm`}>
+                    <span className="text-[10px] font-bold text-white tracking-wide">
+                      {CARD_COLORS.find(c => c.value === accountColor)?.label || 'Varsayılan'}
+                    </span>
+                  </div>
+                </div>
+              </div>
               <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-800"><button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button><button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded font-medium transition-all active:scale-95 shadow-lg shadow-indigo-900/20">Kaydet</button></div>
             </form>
           </div>
