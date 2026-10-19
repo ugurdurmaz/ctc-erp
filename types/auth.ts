@@ -4,6 +4,7 @@ export type ModuleKey =
   | 'dashboard'
   | 'retail'
   | 'technical-service'
+  | 'partners'
   | 'cash-registers'
   | 'bank-accounts'
   | 'credit-cards'
@@ -31,6 +32,7 @@ export const SYSTEM_MODULES: ModuleDefinition[] = [
   { key: 'dashboard', label: 'Genel Durum', href: '/', description: 'Genel finansal özet, net durum, P&L' },
   { key: 'retail', label: 'Mağaza (POS)', href: '/retail', description: 'Perakende Z-Raporu ve mağaza satışları' },
   { key: 'technical-service', label: 'Teknik Servis', href: '/technical-service', description: 'Cihaz kabul, servis aşamaları ve onarım takibi' },
+  { key: 'partners', label: 'Çözüm Ortakları', href: '/partners', description: 'Dış iş, taşeron ve hakediş hesaplaşma takibi' },
   { key: 'cash-registers', label: 'Nakit Kasa', href: '/cash-registers', description: 'Kasa hesapları ve nakit hareketleri' },
   { key: 'bank-accounts', label: 'Banka Hesapları', href: '/bank-accounts', description: 'Banka hesapları ve hareketleri' },
   { key: 'credit-cards', label: 'Kredi Kartları', href: '/credit-cards', description: 'Kredi kartları ve harcamalar' },
@@ -49,12 +51,12 @@ export const SYSTEM_MODULES: ModuleDefinition[] = [
 
 export const ROLE_DEFAULT_MODULES: Record<UserRole, ModuleKey[]> = {
   admin: [
-    'dashboard', 'retail', 'technical-service', 'cash-registers', 'bank-accounts', 'credit-cards', 'bank-loans',
+    'dashboard', 'retail', 'technical-service', 'partners', 'cash-registers', 'bank-accounts', 'credit-cards', 'bank-loans',
     'stocks', 'services', 'suppliers', 'customers', 'expenses',
     'subscriptions', 'reports', 'companies', 'activity', 'users'
   ],
   finance: [
-    'dashboard', 'technical-service', 'cash-registers', 'bank-accounts', 'credit-cards', 'bank-loans',
+    'dashboard', 'technical-service', 'partners', 'cash-registers', 'bank-accounts', 'credit-cards', 'bank-loans',
     'stocks', 'services', 'suppliers', 'customers', 'expenses',
     'subscriptions', 'reports'
   ],

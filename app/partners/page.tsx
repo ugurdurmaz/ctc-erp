@@ -1,0 +1,2034 @@
+'use client'
+
+import React, { useEffect, useState, useMemo, useRef } from 'react'
+import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/lib/auth-context'
+import { formatMoney, formatPhoneNumber } from '@/lib/utils'
+import { logActivity } from '@/lib/audit'
+import toast, { Toaster } from 'react-hot-toast'
+import { 
+  Handshake, Plus, Search, Calendar, DollarSign, CheckCircle2, Clock, 
+  AlertTriangle, Printer, Share2, Trash2, Edit3, Wallet, Landmark, 
+  Building2, User, FileText, Check, X, ChevronRight, Copy, ExternalLink, 
+  Layers, ArrowDownRight, Sparkles, Calculator, ShieldAlert, Phone,
+  Mail, MessageSquare, ArrowRight, RefreshCw, Eye, ArrowUpRight
+} from 'lucide-react'
+
+// ==============================================================================
+// TİPLER
+// ==============================================================================
+export interface Partner {
+  id: string
+  name: string
+  phone?: string | null
+  email?: string | null
+  company_id?: string | null
+  default_tax_rate: number
+  default_commission_rate: number
+  balance: number
+  notes?: string | null
+  created_at?: string
+  company?: { name: string; is_personal: boolean }
+}
+
+export interface PartnerSettlement {
+  id: string
+  partner_id: string
+  company_id?: string | null
+  job_title: string
+  job_date: string
+  job_type: 'project' | 'service'
+  customer_name?: string | null
+  invoice_no?: string | null
+  invoice_amount: number
+  collection_status: 'collected' | 'pending'
+  collection_source_type?: 'bank' | 'cash' | 'none'
+  collection_source_id?: string | null
+  material_cost_shop: number
+  material_cost_external: number
+  tax_rate: number
+  tax_amount: number
+  shop_profit_share: number
+  other_expenses: number
+  partner_payout: number
+  payout_status: 'unpaid' | 'partial' | 'paid'
+  paid_amount: number
+  remaining_payout: number
+  notes?: string | null
+  created_at?: string
+  partner?: { name: string }
+  company?: { name: string; is_personal: boolean }
+}
+
+export interface PartnerTransaction {
+  id: string
+  partner_id: string
+  settlement_id?: string | null
+  tx_type: 'payment' | 'earning'
+  amount: number
+  tx_date: string
+  payment_source_type?: 'bank' | 'cash'
+  payment_source_id?: string
+  transfer_id?: string
+  description?: string
+  created_at?: string
+}
+
+interface Company { id: string; name: string; is_personal: boolean }
+interface BankAccount { id: string; bank_name: string; account_name: string; balance: number; currency: string; company_id?: string | null }
+interface CashRegister { id: string; name: string; balance: number; currency: string; company_id?: string | null }
+
+function getLocalTodayISO() { 
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}` 
+}
+
+function formatDateTR(dateStr?: string) { 
+  if (!dateStr) return ''
+  const parts = dateStr.split('-')
+  if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`
+  return dateStr 
+}
+
+export default function PartnersPage() {
+  const { profile, isAdmin } = useAuth()
+  const isRestricted = !isAdmin && !!profile?.allowed_companies && profile.allowed_companies.length > 0
+
+  // Ana State'ler
+  const [partners, setPartners] = useState<Partner[]>([])
+  const [settlements, setSettlements] = useState<PartnerSettlement[]>([])
+  const [transactions, setTransactions] = useState<PartnerTransaction[]>([])
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [banks, setBanks] = useState<BankAccount[]>([])
+  const [cashes, setCashes] = useState<CashRegister[]>([])
+
+  // Filtreler & Seçimler
+  const [selectedPartnerId, setSelectedPartnerId] = useState<string>('')
+  const [companyFilter, setCompanyFilter] = useState<string>('all')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [activeTab, setActiveTab] = useState<'settlements' | 'transactions'>('settlements')
+  const [isLoading, setIsLoading] = useState(true)
+  const [isTableMissing, setIsTableMissing] = useState(false)
+
+  // Modal State'leri
+  const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false)
+  const [editingPartner, setEditingPartner] = useState<Partner | null>(null)
+  const [partnerName, setPartnerName] = useState('')
+  const [partnerPhone, setPartnerPhone] = useState('')
+  const [partnerEmail, setPartnerEmail] = useState('')
+  const [partnerCompanyId, setPartnerCompanyId] = useState('common')
+  const [partnerTaxRate, setPartnerTaxRate] = useState('20')
+  const [partnerCommissionRate, setPartnerCommissionRate] = useState('0')
+  const [partnerNotes, setPartnerNotes] = useState('')
+
+  // Hakediş (İş) Modalı State'leri
+  const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false)
+  const [editingSettlement, setEditingSettlement] = useState<PartnerSettlement | null>(null)
+  const [settlePartnerId, setSettlePartnerId] = useState('')
+  const [settleCompanyId, setSettleCompanyId] = useState('common')
+  const [settleJobTitle, setSettleJobTitle] = useState('')
+  const [settleJobDate, setSettleJobDate] = useState(getLocalTodayISO())
+  const [settleJobType, setSettleJobType] = useState<'project' | 'service'>('project')
+  const [settleCustomerName, setSettleCustomerName] = useState('')
+  const [settleInvoiceNo, setSettleInvoiceNo] = useState('')
+  const [settleInvoiceAmount, setSettleInvoiceAmount] = useState('')
+  const [settleCollectionStatus, setSettleCollectionStatus] = useState<'collected' | 'pending'>('collected')
+  const [settleCollectionSource, setSettleCollectionSource] = useState('')
+  const [settleMaterialShop, setSettleMaterialShop] = useState('')
+  const [settleMaterialExternal, setSettleMaterialExternal] = useState('')
+  const [settleTaxRate, setSettleTaxRate] = useState('20')
+  const [settleShopProfit, setSettleShopProfit] = useState('')
+  const [settleOtherExpenses, setSettleOtherExpenses] = useState('')
+  const [settleNotes, setSettleNotes] = useState('')
+
+  // Hakediş Ödeme Modalı
+  const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false)
+  const [payoutPartnerId, setPayoutPartnerId] = useState('')
+  const [payoutSettlementId, setPayoutSettlementId] = useState<string>('')
+  const [payoutAmount, setPayoutAmount] = useState('')
+  const [payoutDate, setPayoutDate] = useState(getLocalTodayISO())
+  const [payoutSource, setPayoutSource] = useState('') // 'bank|<id>' veya 'cash|<id>'
+  const [payoutDescription, setPayoutDescription] = useState('')
+
+  // Makbuz / Pusula Modal
+  const [printSettlement, setPrintSettlement] = useState<PartnerSettlement | null>(null)
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false)
+  const printRef = useRef<HTMLDivElement>(null)
+
+  // Onay Dialog
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean; title: string; message: string; confirmText: string; cancelText: string; isDanger: boolean; onConfirm: () => void;
+  }>({ isOpen: false, title: '', message: '', confirmText: '', cancelText: '', isDanger: false, onConfirm: () => {} })
+
+  // ==============================================================================
+  // VERİ YÜKLEME
+  // ==============================================================================
+  useEffect(() => {
+    fetchInitialData()
+  }, [])
+
+  async function fetchInitialData() {
+    setIsLoading(true)
+    await Promise.all([
+      fetchCompanies(),
+      fetchPaymentSources(),
+      fetchPartners(),
+      fetchSettlements(),
+      fetchTransactions()
+    ])
+    setIsLoading(false)
+  }
+
+  async function fetchCompanies() {
+    const { data } = await supabase.from('companies').select('*').order('name', { ascending: true })
+    let comps = data || []
+    if (isRestricted) {
+      comps = comps.filter(c => !c.is_personal && profile?.allowed_companies?.includes(c.id))
+    }
+    setCompanies(comps)
+    if (isRestricted && comps.length > 0) {
+      setCompanyFilter(comps[0].id)
+      setPartnerCompanyId(comps[0].id)
+      setSettleCompanyId(comps[0].id)
+    }
+  }
+
+  async function fetchPaymentSources() {
+    const { data: bData } = await supabase.from('bank_accounts').select('id, bank_name, account_name, balance, currency, company_id')
+    const { data: cData } = await supabase.from('cash_registers').select('id, name, balance, currency, company_id')
+    let bList = bData || []
+    let cList = cData || []
+    if (isRestricted) {
+      bList = bList.filter(b => b.company_id && profile?.allowed_companies?.includes(b.company_id))
+      cList = cList.filter(c => c.company_id && profile?.allowed_companies?.includes(c.company_id))
+    }
+    setBanks(bList)
+    setCashes(cList)
+  }
+
+  async function fetchPartners() {
+    const { data, error } = await supabase
+      .from('partners')
+      .select('*, company:companies(name, is_personal)')
+      .order('name', { ascending: true })
+
+    if (error) {
+      if (error.code === 'PGRST205' || error.message?.includes('partners')) {
+        setIsTableMissing(true)
+        const cached = localStorage.getItem('ctc_partners_cache')
+        if (cached) {
+          try { setPartners(JSON.parse(cached)) } catch {}
+        }
+      }
+      return
+    }
+
+    setPartners(data || [])
+    if (data && data.length > 0 && !selectedPartnerId) {
+      setSelectedPartnerId(data[0].id)
+    }
+  }
+
+  async function fetchSettlements() {
+    const { data, error } = await supabase
+      .from('partner_settlements')
+      .select('*, company:companies(name, is_personal), partner:partners(name)')
+      .order('job_date', { ascending: false })
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      if (error.code === 'PGRST205' || error.message?.includes('partner_settlements')) {
+        setIsTableMissing(true)
+        const cached = localStorage.getItem('ctc_partner_settlements_cache')
+        if (cached) {
+          try { setSettlements(JSON.parse(cached)) } catch {}
+        }
+      }
+      return
+    }
+
+    setSettlements(data || [])
+  }
+
+  async function fetchTransactions() {
+    const { data, error } = await supabase
+      .from('partner_transactions')
+      .select('*')
+      .order('tx_date', { ascending: false })
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      if (error.code === 'PGRST205' || error.message?.includes('partner_transactions')) {
+        const cached = localStorage.getItem('ctc_partner_txs_cache')
+        if (cached) {
+          try { setTransactions(JSON.parse(cached)) } catch {}
+        }
+      }
+      return
+    }
+
+    setTransactions(data || [])
+  }
+
+  // ==============================================================================
+  // MUTLAK HESAPLAMA YARDIMCILARI
+  // ==============================================================================
+  async function recalculateAbsolutePartnerBalance(partnerId: string) {
+    try {
+      const { data: sData } = await supabase.from('partner_settlements').select('partner_payout').eq('partner_id', partnerId)
+      const { data: tData } = await supabase.from('partner_transactions').select('amount, tx_type').eq('partner_id', partnerId)
+
+      let totalEarned = 0
+      sData?.forEach(s => { totalEarned += Number(s.partner_payout) || 0 })
+
+      let totalPaid = 0
+      tData?.forEach(t => {
+        if (t.tx_type === 'payment') totalPaid += Number(t.amount) || 0
+      })
+
+      const netBalance = totalEarned - totalPaid
+
+      await supabase.from('partners').update({ balance: netBalance }).eq('id', partnerId)
+      setPartners(prev => prev.map(p => p.id === partnerId ? { ...p, balance: netBalance } : p))
+      return netBalance
+    } catch (e) {
+      console.error('Error recalculating partner balance:', e)
+      return 0
+    }
+  }
+
+  async function recalculateAbsoluteCashBalance(cashId: string) {
+    const { data: txs } = await supabase.from('cash_transactions').select('amount, tx_type').eq('cash_register_id', cashId)
+    let absoluteBal = 0
+    txs?.forEach(t => { absoluteBal += t.tx_type === 'in' ? Number(t.amount) : -Number(t.amount) })
+    await supabase.from('cash_registers').update({ balance: absoluteBal }).eq('id', cashId)
+    setCashes(prev => prev.map(c => c.id === cashId ? { ...c, balance: absoluteBal } : c))
+  }
+
+  async function recalculateAbsoluteBankBalance(bankId: string) {
+    const { data: txs } = await supabase.from('bank_transactions').select('amount, tx_type, status').eq('bank_account_id', bankId)
+    let absoluteBal = 0
+    txs?.forEach(t => {
+      if (t.status !== 'pending') absoluteBal += t.tx_type === 'in' ? Number(t.amount) : -Number(t.amount)
+    })
+    await supabase.from('bank_accounts').update({ balance: absoluteBal }).eq('id', bankId)
+    setBanks(prev => prev.map(b => b.id === bankId ? { ...b, balance: absoluteBal } : b))
+  }
+
+  // ==============================================================================
+  // CANLI HESAPLAMA (MODAL FORMÜLÜ)
+  // ==============================================================================
+  const liveSettlementCalc = useMemo(() => {
+    const invAmt = parseFloat(settleInvoiceAmount) || 0
+    const matShop = parseFloat(settleMaterialShop) || 0
+    const matExt = parseFloat(settleMaterialExternal) || 0
+    const taxPct = parseFloat(settleTaxRate) || 0
+    const shopProfit = parseFloat(settleShopProfit) || 0
+    const otherExp = parseFloat(settleOtherExpenses) || 0
+
+    const taxAmt = Number(((invAmt * taxPct) / 100).toFixed(2))
+    const totalDeductions = matShop + matExt + taxAmt + shopProfit + otherExp
+    const partnerPayout = Math.max(0, Number((invAmt - totalDeductions).toFixed(2)))
+    const shopRetained = matShop + taxAmt + shopProfit
+
+    return {
+      invAmt,
+      matShop,
+      matExt,
+      taxAmt,
+      shopProfit,
+      otherExp,
+      totalDeductions,
+      partnerPayout,
+      shopRetained
+    }
+  }, [settleInvoiceAmount, settleMaterialShop, settleMaterialExternal, settleTaxRate, settleShopProfit, settleOtherExpenses])
+
+  // ==============================================================================
+  // PARTNER İŞLEMLERİ (EKLE / DÜZENLE / SİL)
+  // ==============================================================================
+  function openAddPartnerModal() {
+    setEditingPartner(null)
+    setPartnerName('')
+    setPartnerPhone('')
+    setPartnerEmail('')
+    setPartnerCompanyId(isRestricted && companies.length > 0 ? companies[0].id : 'common')
+    setPartnerTaxRate('20')
+    setPartnerCommissionRate('0')
+    setPartnerNotes('')
+    setIsPartnerModalOpen(true)
+  }
+
+  function openEditPartnerModal(p: Partner) {
+    setEditingPartner(p)
+    setPartnerName(p.name)
+    setPartnerPhone(p.phone || '')
+    setPartnerEmail(p.email || '')
+    setPartnerCompanyId(p.company_id || 'common')
+    setPartnerTaxRate(p.default_tax_rate?.toString() || '20')
+    setPartnerCommissionRate(p.default_commission_rate?.toString() || '0')
+    setPartnerNotes(p.notes || '')
+    setIsPartnerModalOpen(true)
+  }
+
+  async function handleSavePartner(e: React.FormEvent) {
+    e.preventDefault()
+    if (!partnerName.trim()) {
+      toast.error('Lütfen çözüm ortağının adını girin.')
+      return
+    }
+
+    const finalCompId = partnerCompanyId === 'common' ? null : partnerCompanyId
+    const payload = {
+      name: partnerName.trim(),
+      phone: partnerPhone.trim() || null,
+      email: partnerEmail.trim() || null,
+      company_id: finalCompId,
+      default_tax_rate: parseFloat(partnerTaxRate) || 20,
+      default_commission_rate: parseFloat(partnerCommissionRate) || 0,
+      notes: partnerNotes.trim() || null,
+      updated_at: new Date().toISOString()
+    }
+
+    try {
+      if (editingPartner) {
+        const { error } = await supabase.from('partners').update(payload).eq('id', editingPartner.id)
+        if (error) {
+          // LocalStorage fallback
+          const updated = partners.map(p => p.id === editingPartner.id ? { ...p, ...payload } : p)
+          setPartners(updated)
+          localStorage.setItem('ctc_partners_cache', JSON.stringify(updated))
+        } else {
+          await logActivity('partner', 'UPDATE', `Çözüm ortağı güncellendi: ${payload.name}`, editingPartner.id, 0, 'TRY', editingPartner, payload, finalCompId)
+        }
+        toast.success('Çözüm ortağı güncellendi.')
+      } else {
+        const newId = crypto.randomUUID()
+        const newPartner: Partner = {
+          id: newId,
+          ...payload,
+          balance: 0,
+          created_at: new Date().toISOString()
+        }
+        const { error } = await supabase.from('partners').insert([newPartner])
+        if (error) {
+          // LocalStorage fallback
+          const updated = [...partners, newPartner]
+          setPartners(updated)
+          localStorage.setItem('ctc_partners_cache', JSON.stringify(updated))
+        } else {
+          await logActivity('partner', 'INSERT', `Yeni çözüm ortağı eklendi: ${payload.name}`, newId, 0, 'TRY', null, newPartner, finalCompId)
+        }
+        setSelectedPartnerId(newId)
+        toast.success('Yeni çözüm ortağı başarıyla eklendi.')
+      }
+      setIsPartnerModalOpen(false)
+      fetchPartners()
+    } catch (err: any) {
+      toast.error('Kayıt sırasında hata oluştu: ' + err.message)
+    }
+  }
+
+  function handleDeletePartner(partnerId: string) {
+    const p = partners.find(item => item.id === partnerId)
+    if (!p) return
+
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Çözüm Ortağını Sil',
+      message: `"${p.name}" adlı çözüm ortağını ve buna bağlı tüm hakediş kayıtlarını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`,
+      confirmText: 'Evet, Sil',
+      cancelText: 'Vazgeç',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+        const { error } = await supabase.from('partners').delete().eq('id', partnerId)
+        if (error) {
+          const updated = partners.filter(item => item.id !== partnerId)
+          setPartners(updated)
+          localStorage.setItem('ctc_partners_cache', JSON.stringify(updated))
+        }
+        await logActivity('partner', 'DELETE', `Çözüm ortağı silindi: ${p.name}`, partnerId, p.balance, 'TRY', p, null, p.company_id)
+        toast.success('Çözüm ortağı silindi.')
+        if (selectedPartnerId === partnerId) {
+          const rem = partners.filter(item => item.id !== partnerId)
+          setSelectedPartnerId(rem.length > 0 ? rem[0].id : '')
+        }
+        fetchPartners()
+        fetchSettlements()
+      }
+    })
+  }
+
+  // ==============================================================================
+  // HAKEDİŞ / İŞ HESAPLAŞMA İŞLEMLERİ
+  // ==============================================================================
+  function openAddSettlementModal(targetPartnerId?: string) {
+    setEditingSettlement(null)
+    const pId = targetPartnerId || selectedPartnerId || (partners[0]?.id || '')
+    const selectedP = partners.find(p => p.id === pId)
+    setSettlePartnerId(pId)
+    setSettleCompanyId(selectedP?.company_id || (isRestricted && companies.length > 0 ? companies[0].id : 'common'))
+    setSettleJobTitle('')
+    setSettleJobDate(getLocalTodayISO())
+    setSettleJobType('project')
+    setSettleCustomerName('')
+    setSettleInvoiceNo('')
+    setSettleInvoiceAmount('')
+    setSettleCollectionStatus('collected')
+    setSettleCollectionSource('')
+    setSettleMaterialShop('')
+    setSettleMaterialExternal('')
+    setSettleTaxRate(selectedP?.default_tax_rate?.toString() || '20')
+    setSettleShopProfit('')
+    setSettleOtherExpenses('')
+    setSettleNotes('')
+    setIsSettlementModalOpen(true)
+  }
+
+  function openEditSettlementModal(s: PartnerSettlement) {
+    setEditingSettlement(s)
+    setSettlePartnerId(s.partner_id)
+    setSettleCompanyId(s.company_id || 'common')
+    setSettleJobTitle(s.job_title)
+    setSettleJobDate(s.job_date)
+    setSettleJobType(s.job_type)
+    setSettleCustomerName(s.customer_name || '')
+    setSettleInvoiceNo(s.invoice_no || '')
+    setSettleInvoiceAmount(s.invoice_amount?.toString() || '')
+    setSettleCollectionStatus(s.collection_status)
+    setSettleCollectionSource(
+      s.collection_source_type && s.collection_source_id ? `${s.collection_source_type}|${s.collection_source_id}` : ''
+    )
+    setSettleMaterialShop(s.material_cost_shop?.toString() || '')
+    setSettleMaterialExternal(s.material_cost_external?.toString() || '')
+    setSettleTaxRate(s.tax_rate?.toString() || '20')
+    setSettleShopProfit(s.shop_profit_share?.toString() || '')
+    setSettleOtherExpenses(s.other_expenses?.toString() || '')
+    setSettleNotes(s.notes || '')
+    setIsSettlementModalOpen(true)
+  }
+
+  async function handleSaveSettlement(e: React.FormEvent) {
+    e.preventDefault()
+    if (!settlePartnerId) {
+      toast.error('Lütfen bir çözüm ortağı seçin.')
+      return
+    }
+    if (!settleJobTitle.trim()) {
+      toast.error('Lütfen iş / proje başlığını girin.')
+      return
+    }
+
+    const calc = liveSettlementCalc
+    const finalCompId = settleCompanyId === 'common' ? null : settleCompanyId
+
+    let colSourceType: 'bank' | 'cash' | 'none' = 'none'
+    let colSourceId: string | null = null
+    if (settleCollectionSource) {
+      const parts = settleCollectionSource.split('|')
+      colSourceType = parts[0] as any
+      colSourceId = parts[1]
+    }
+
+    const paidAmt = editingSettlement ? editingSettlement.paid_amount : 0
+    const remPayout = Math.max(0, calc.partnerPayout - paidAmt)
+    const payoutStatus: 'unpaid' | 'partial' | 'paid' = 
+      remPayout === 0 && calc.partnerPayout > 0 ? 'paid' : paidAmt > 0 ? 'partial' : 'unpaid'
+
+    const payload = {
+      partner_id: settlePartnerId,
+      company_id: finalCompId,
+      job_title: settleJobTitle.trim(),
+      job_date: settleJobDate,
+      job_type: settleJobType,
+      customer_name: settleCustomerName.trim() || null,
+      invoice_no: settleInvoiceNo.trim() || null,
+      invoice_amount: calc.invAmt,
+      collection_status: settleCollectionStatus,
+      collection_source_type: colSourceType,
+      collection_source_id: colSourceId,
+      material_cost_shop: calc.matShop,
+      material_cost_external: calc.matExt,
+      tax_rate: parseFloat(settleTaxRate) || 20,
+      tax_amount: calc.taxAmt,
+      shop_profit_share: calc.shopProfit,
+      other_expenses: calc.otherExp,
+      partner_payout: calc.partnerPayout,
+      payout_status: payoutStatus,
+      paid_amount: paidAmt,
+      remaining_payout: remPayout,
+      notes: settleNotes.trim() || null,
+      updated_at: new Date().toISOString()
+    }
+
+    try {
+      if (editingSettlement) {
+        const { error } = await supabase.from('partner_settlements').update(payload).eq('id', editingSettlement.id)
+        if (error) {
+          const updated = settlements.map(s => s.id === editingSettlement.id ? { ...s, ...payload } : s)
+          setSettlements(updated)
+          localStorage.setItem('ctc_partner_settlements_cache', JSON.stringify(updated))
+        } else {
+          await logActivity('partner_settlement', 'UPDATE', `Hakediş hesaplaşması güncellendi: ${payload.job_title}`, editingSettlement.id, calc.partnerPayout, 'TRY', editingSettlement, payload, finalCompId)
+        }
+        toast.success('Hakediş kaydı güncellendi.')
+      } else {
+        const newId = crypto.randomUUID()
+        const newRecord: PartnerSettlement = {
+          id: newId,
+          ...payload,
+          created_at: new Date().toISOString()
+        }
+        const { error } = await supabase.from('partner_settlements').insert([newRecord])
+        if (error) {
+          const updated = [newRecord, ...settlements]
+          setSettlements(updated)
+          localStorage.setItem('ctc_partner_settlements_cache', JSON.stringify(updated))
+        } else {
+          await logActivity('partner_settlement', 'INSERT', `Yeni hakediş hesaplaşması: ${payload.job_title} (Net: ${calc.partnerPayout} ₺)`, newId, calc.partnerPayout, 'TRY', null, newRecord, finalCompId)
+        }
+        toast.success('Hakediş hesaplaşması başarıyla kaydedildi.')
+      }
+
+      await recalculateAbsolutePartnerBalance(settlePartnerId)
+      setIsSettlementModalOpen(false)
+      fetchSettlements()
+      fetchPartners()
+    } catch (err: any) {
+      toast.error('Hata oluştu: ' + err.message)
+    }
+  }
+
+  function handleDeleteSettlement(s: PartnerSettlement) {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Hakediş Kaydını Sil',
+      message: `"${s.job_title}" işine ait hakediş kaydını silmek istediğinize emin misiniz? Ortağın bakiyesi bu tutar kadar azalacaktır.`,
+      confirmText: 'Evet, Sil',
+      cancelText: 'Vazgeç',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+        const { error } = await supabase.from('partner_settlements').delete().eq('id', s.id)
+        if (error) {
+          const updated = settlements.filter(item => item.id !== s.id)
+          setSettlements(updated)
+          localStorage.setItem('ctc_partner_settlements_cache', JSON.stringify(updated))
+        }
+        await logActivity('partner_settlement', 'DELETE', `Hakediş silindi: ${s.job_title}`, s.id, s.partner_payout, 'TRY', s, null, s.company_id)
+        await recalculateAbsolutePartnerBalance(s.partner_id)
+        toast.success('Hakediş kaydı silindi.')
+        fetchSettlements()
+        fetchPartners()
+      }
+    })
+  }
+
+  // ==============================================================================
+  // HAKEDİŞ ÖDEMESİ YAPMA (KASA / BANKA ÇIKIŞI)
+  // ==============================================================================
+  function openPayoutModal(partnerId?: string, settlement?: PartnerSettlement) {
+    const targetPid = partnerId || selectedPartnerId || (partners[0]?.id || '')
+    const targetPartner = partners.find(p => p.id === targetPid)
+    if (!targetPartner) {
+      toast.error('Lütfen bir çözüm ortağı seçin.')
+      return
+    }
+
+    setPayoutPartnerId(targetPid)
+    if (settlement) {
+      setPayoutSettlementId(settlement.id)
+      setPayoutAmount(settlement.remaining_payout > 0 ? settlement.remaining_payout.toString() : settlement.partner_payout.toString())
+      setPayoutDescription(`Hakediş Ödemesi: ${settlement.job_title}`)
+    } else {
+      setPayoutSettlementId('')
+      setPayoutAmount(targetPartner.balance > 0 ? targetPartner.balance.toString() : '')
+      setPayoutDescription(`Çözüm Ortağı Hakediş Ödemesi - ${targetPartner.name}`)
+    }
+    setPayoutDate(getLocalTodayISO())
+    setPayoutSource('')
+    setIsPayoutModalOpen(true)
+  }
+
+  async function handleExecutePayout(e: React.FormEvent) {
+    e.preventDefault()
+    const amt = parseFloat(payoutAmount)
+    if (!amt || amt <= 0) {
+      toast.error('Lütfen geçerli bir ödeme tutarı girin.')
+      return
+    }
+    if (!payoutSource) {
+      toast.error('Lütfen ödemenin çıkacağı Kasa veya Banka Hesabını seçin.')
+      return
+    }
+
+    const partner = partners.find(p => p.id === payoutPartnerId)
+    if (!partner) return
+
+    const parts = payoutSource.split('|')
+    const sourceType = parts[0] as 'bank' | 'cash'
+    const sourceId = parts[1]
+    const payoutTxId = crypto.randomUUID()
+    const transferKey = `PARTNER-PAY-${payoutTxId}`
+    const finalCompId = partner.company_id || (isRestricted && companies.length > 0 ? companies[0].id : null)
+
+    try {
+      // 1. Partner Transaction tablosuna yaz
+      const partnerTx: PartnerTransaction = {
+        id: payoutTxId,
+        partner_id: payoutPartnerId,
+        settlement_id: payoutSettlementId || null,
+        tx_type: 'payment',
+        amount: amt,
+        tx_date: payoutDate,
+        payment_source_type: sourceType,
+        payment_source_id: sourceId,
+        transfer_id: transferKey,
+        description: payoutDescription.trim() || `Hakediş Ödemesi: ${partner.name}`,
+        created_at: new Date().toISOString()
+      }
+
+      await supabase.from('partner_transactions').insert([partnerTx])
+
+      // 2. Kasa veya Banka Hesabından Parayı Düş
+      if (sourceType === 'cash') {
+        const cashRec = cashes.find(c => c.id === sourceId)
+        await supabase.from('cash_transactions').insert([{
+          cash_register_id: sourceId,
+          company_id: finalCompId,
+          tx_date: payoutDate,
+          description: `🤝 Çözüm Ortağı Hakedişi: ${partner.name} (${partnerTx.description})`,
+          tx_type: 'out',
+          amount: amt,
+          currency: cashRec?.currency || 'TRY',
+          exchange_rate: 1,
+          is_transfer: true,
+          transfer_id: transferKey
+        }])
+        await recalculateAbsoluteCashBalance(sourceId)
+      } else if (sourceType === 'bank') {
+        const bankRec = banks.find(b => b.id === sourceId)
+        await supabase.from('bank_transactions').insert([{
+          bank_account_id: sourceId,
+          company_id: finalCompId,
+          tx_date: payoutDate,
+          description: `🤝 Çözüm Ortağı Hakedişi: ${partner.name} (${partnerTx.description})`,
+          tx_type: 'out',
+          amount: amt,
+          currency: bankRec?.currency || 'TRY',
+          exchange_rate: 1,
+          is_transfer: true,
+          status: 'completed',
+          transfer_id: transferKey
+        }])
+        await recalculateAbsoluteBankBalance(sourceId)
+      }
+
+      // 3. Varsa ilgili hakediş kaydındaki paid_amount güncelle
+      if (payoutSettlementId) {
+        const st = settlements.find(s => s.id === payoutSettlementId)
+        if (st) {
+          const newPaid = (st.paid_amount || 0) + amt
+          const newRem = Math.max(0, st.partner_payout - newPaid)
+          const newStatus: 'unpaid' | 'partial' | 'paid' = newRem === 0 ? 'paid' : 'partial'
+          await supabase.from('partner_settlements').update({
+            paid_amount: newPaid,
+            remaining_payout: newRem,
+            payout_status: newStatus
+          }).eq('id', st.id)
+        }
+      }
+
+      // 4. Partner Bakiyesini Mutlak Olarak Yeniden Hesapla
+      await recalculateAbsolutePartnerBalance(payoutPartnerId)
+      await logActivity('partner_tx', 'INSERT', `Hakediş ödendi: ${partner.name} - ${formatMoney(amt, 'TRY').formatted}`, payoutTxId, amt, 'TRY', null, partnerTx, finalCompId)
+
+      toast.success('Ödeme başarıyla gerçekleştirildi ve hesap bakiyesi güncellendi.')
+      setIsPayoutModalOpen(false)
+      fetchPartners()
+      fetchSettlements()
+      fetchTransactions()
+      fetchPaymentSources()
+    } catch (err: any) {
+      toast.error('Ödeme işlemi sırasında hata: ' + err.message)
+    }
+  }
+
+  // ==============================================================================
+  // HESAPLAŞMA PUSULASI & WHATSAPP METNİ
+  // ==============================================================================
+  function openPrintModal(s: PartnerSettlement) {
+    setPrintSettlement(s)
+    setIsPrintModalOpen(true)
+  }
+
+  function copyWhatsAppText(s: PartnerSettlement) {
+    const partner = partners.find(p => p.id === s.partner_id)
+    const text = `🤝 *İŞ HESAPLAŞMA PUSULASI*
+----------------------------------------
+📌 *İş:* ${s.job_title}
+📅 *Tarih:* ${formatDateTR(s.job_date)}
+👤 *Çözüm Ortağı:* ${partner?.name || '-'}
+🏢 *Müşteri:* ${s.customer_name || '-'}
+📄 *Fatura No:* ${s.invoice_no || '-'}
+
+💰 *Fatura / Tahsilat Tutarı:* ${formatMoney(s.invoice_amount, 'TRY').formatted}
+(-) Mağaza Malzemeleri: ${formatMoney(s.material_cost_shop, 'TRY').formatted}
+(-) Dış Alış Malzemeleri: ${formatMoney(s.material_cost_external, 'TRY').formatted}
+(-) KDV / Vergi Payı (%${s.tax_rate}): ${formatMoney(s.tax_amount, 'TRY').formatted}
+(-) Servis / Şirket Payı: ${formatMoney(s.shop_profit_share, 'TRY').formatted}
+${s.other_expenses > 0 ? `(-) Diğer Masraflar: ${formatMoney(s.other_expenses, 'TRY').formatted}\n` : ''}----------------------------------------
+👉 *NET HAKEDİŞİNİZ:* *${formatMoney(s.partner_payout, 'TRY').formatted}*
+💵 *Ödenen Tutar:* ${formatMoney(s.paid_amount, 'TRY').formatted}
+⏳ *Kalan Hakediş:* *${formatMoney(s.remaining_payout, 'TRY').formatted}*
+----------------------------------------
+CTC Master Ledger Mutabakat Bilgisidir.`
+
+    navigator.clipboard.writeText(text)
+    toast.success('Pusula metni panoya kopyalandı! WhatsApp\'a yapıştırabilirsiniz.')
+  }
+
+  function handlePrint() {
+    window.print()
+  }
+
+  function copyMigrationSql() {
+    const sql = `-- CTC Master Ledger - Çözüm Ortakları Tabloları
+CREATE TABLE IF NOT EXISTS public.partners (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    phone TEXT,
+    email TEXT,
+    company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
+    default_tax_rate NUMERIC(5, 2) NOT NULL DEFAULT 20.00,
+    default_commission_rate NUMERIC(5, 2) NOT NULL DEFAULT 0.00,
+    balance NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.partner_settlements (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    partner_id UUID NOT NULL REFERENCES public.partners(id) ON DELETE CASCADE,
+    company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
+    job_title TEXT NOT NULL,
+    job_date DATE NOT NULL,
+    job_type TEXT NOT NULL DEFAULT 'project',
+    customer_name TEXT,
+    invoice_no TEXT,
+    invoice_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    collection_status TEXT NOT NULL DEFAULT 'collected',
+    collection_source_type TEXT,
+    collection_source_id UUID,
+    material_cost_shop NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    material_cost_external NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    tax_rate NUMERIC(5, 2) NOT NULL DEFAULT 20.00,
+    tax_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    shop_profit_share NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    other_expenses NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    partner_payout NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    payout_status TEXT NOT NULL DEFAULT 'unpaid',
+    paid_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    remaining_payout NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.partner_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    partner_id UUID NOT NULL REFERENCES public.partners(id) ON DELETE CASCADE,
+    settlement_id UUID REFERENCES public.partner_settlements(id) ON DELETE SET NULL,
+    tx_type TEXT NOT NULL DEFAULT 'payment',
+    amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    tx_date DATE NOT NULL,
+    payment_source_type TEXT,
+    payment_source_id UUID,
+    transfer_id TEXT,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);`
+
+    navigator.clipboard.writeText(sql)
+    toast.success('SQL panoya kopyalandı! Supabase SQL Editor alanında çalıştırabilirsiniz.')
+  }
+
+  // ==============================================================================
+  // HESAPLANAN ÖZETLER
+  // ==============================================================================
+  const filteredPartners = useMemo(() => {
+    return partners.filter(p => {
+      const matchComp = companyFilter === 'all' || p.company_id === companyFilter
+      const matchSearch = p.name.toLocaleLowerCase('tr-TR').includes(searchTerm.toLocaleLowerCase('tr-TR')) ||
+                          (p.phone && p.phone.includes(searchTerm))
+      return matchComp && matchSearch
+    })
+  }, [partners, companyFilter, searchTerm])
+
+  const selectedPartner = useMemo(() => {
+    return partners.find(p => p.id === selectedPartnerId) || filteredPartners[0] || null
+  }, [partners, selectedPartnerId, filteredPartners])
+
+  const partnerSettlements = useMemo(() => {
+    if (!selectedPartner) return []
+    return settlements.filter(s => s.partner_id === selectedPartner.id)
+  }, [settlements, selectedPartner])
+
+  const partnerTransactions = useMemo(() => {
+    if (!selectedPartner) return []
+    return transactions.filter(t => t.partner_id === selectedPartner.id)
+  }, [transactions, selectedPartner])
+
+  // Genel İstatistikler
+  const totalVolume = useMemo(() => settlements.reduce((sum, s) => sum + (Number(s.invoice_amount) || 0), 0), [settlements])
+  const totalPartnerPayout = useMemo(() => settlements.reduce((sum, s) => sum + (Number(s.partner_payout) || 0), 0), [settlements])
+  const totalShopEarnings = useMemo(() => {
+    return settlements.reduce((sum, s) => {
+      return sum + (Number(s.material_cost_shop) || 0) + (Number(s.shop_profit_share) || 0) + (Number(s.tax_amount) || 0)
+    }, 0)
+  }, [settlements])
+  const totalPendingDebt = useMemo(() => partners.reduce((sum, p) => sum + (Number(p.balance) || 0), 0), [partners])
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-32px)] bg-[#070b14] text-slate-100 overflow-hidden font-sans">
+      <Toaster position="top-right" />
+
+      {/* VERİTABANI TABLOSU EKSİK UYARISI BANNERI */}
+      {isTableMissing && (
+        <div className="bg-amber-950/50 border-b border-amber-500/40 px-4 py-2 flex items-center justify-between text-xs text-amber-300 shrink-0">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={15} className="text-amber-400 shrink-0 animate-pulse" />
+            <span>
+              <strong>Veritabanı Tablosu Hazır:</strong> Supabase SQL Editor'da <code className="bg-amber-900/60 px-1 py-0.5 rounded font-mono text-amber-200">supabase/partners.sql</code> dosyasını bir defa çalıştırarak kalıcı hale getirebilirsiniz. (Geçici olarak veriler tarayıcıda çalışır).
+            </span>
+          </div>
+          <button 
+            onClick={copyMigrationSql}
+            className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition-colors shadow text-xs cursor-pointer active:scale-95"
+          >
+            <Copy size={12} /> SQL'i Kopyala
+          </button>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* --- ÜST BAŞLIK VE GENEL KPI KARTLARI --- */}
+      {/* ========================================================================= */}
+      <div className="p-3 sm:p-4 border-b border-slate-800 bg-[#0a0f1d] shrink-0">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-indigo-600/10 border border-indigo-500/30 text-indigo-400 rounded-xl shadow-inner">
+              <Handshake size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base sm:text-lg font-black text-white tracking-wide">Çözüm Ortakları & Hakediş</h1>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-950 text-indigo-300 border border-indigo-800/60">
+                  {partners.length} Ortak
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Dış işler, taşeronluk, fatura kesimi, malzeme düşümü ve net hakediş hesaplaşma yönetimi
+              </p>
+            </div>
+          </div>
+
+          {/* KPI İstatistik Şeridi */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="bg-[#060a12] border border-slate-800/80 px-3 py-1.5 rounded-xl">
+              <span className="text-[9px] text-slate-500 uppercase font-bold block">Toplam Fatura Hacmi</span>
+              <span className="text-xs sm:text-sm font-mono font-bold text-slate-200">
+                {formatMoney(totalVolume, 'TRY').formatted}
+              </span>
+            </div>
+
+            <div className="bg-[#060a12] border border-emerald-900/40 px-3 py-1.5 rounded-xl">
+              <span className="text-[9px] text-emerald-400/80 uppercase font-bold block">Mağaza Kazancı / Malzeme</span>
+              <span className="text-xs sm:text-sm font-mono font-bold text-emerald-400">
+                {formatMoney(totalShopEarnings, 'TRY').formatted}
+              </span>
+            </div>
+
+            <div className="bg-[#060a12] border border-rose-900/40 px-3 py-1.5 rounded-xl">
+              <span className="text-[9px] text-rose-400/80 uppercase font-bold block">Toplam Hakediş Borcumuz</span>
+              <span className="text-xs sm:text-sm font-mono font-black text-rose-400">
+                {formatMoney(totalPendingDebt, 'TRY').formatted}
+              </span>
+            </div>
+
+            <button
+              onClick={openAddPartnerModal}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-950/50 flex items-center gap-1.5 active:scale-95 cursor-pointer"
+            >
+              <Plus size={15} /> Yeni Ortak Ekle
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* --- ANA GÖVDE: SOLDA ORTAKLAR LİSTESİ, SAĞDA HAKEDİŞ DETAYLARI --- */}
+      {/* ========================================================================= */}
+      <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden p-3 gap-3">
+        
+        {/* SOL PANEL: ÇÖZÜM ORTAKLARI LİSTESİ */}
+        <div className="w-full md:w-80 lg:w-96 flex flex-col bg-[#0d1322] border border-slate-800/80 rounded-xl overflow-hidden shrink-0 shadow-lg">
+          
+          {/* Arama ve Şirket Filtresi */}
+          <div className="p-2.5 border-b border-slate-800/80 bg-[#0a0f1d] space-y-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Çözüm ortağı ara..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-[#070b14] border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              />
+              {searchTerm && (
+                <button onClick={() => setSearchTerm('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            {companies.length > 1 && !isRestricted && (
+              <select
+                value={companyFilter}
+                onChange={(e) => setCompanyFilter(e.target.value)}
+                className="w-full bg-[#070b14] border border-slate-800 rounded-lg px-2.5 py-1 text-[11px] text-slate-300 focus:outline-none"
+              >
+                <option value="all">Tüm Merkezler</option>
+                {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            )}
+          </div>
+
+          {/* Ortaklar Listesi */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5">
+            {filteredPartners.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-8 text-center text-slate-500 text-xs">
+                <Handshake size={32} className="mb-2 opacity-30 text-indigo-400" />
+                <p className="font-semibold">Kayıtlı ortak bulunamadı.</p>
+                <p className="text-[10px] text-slate-600 mt-1">Yukarıdaki butondan yeni ortak ekleyebilirsiniz.</p>
+              </div>
+            ) : (
+              filteredPartners.map((p) => {
+                const isSelected = selectedPartner?.id === p.id
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => setSelectedPartnerId(p.id)}
+                    className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                      isSelected
+                        ? 'bg-indigo-950/60 border-indigo-500 shadow-md ring-1 ring-indigo-500/30'
+                        : 'bg-[#070b14] border-slate-800/80 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-xs text-white truncate">{p.name}</span>
+                        {p.company && (
+                          <span className="text-[8px] px-1 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/40 shrink-0">
+                            {p.company.name}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
+                        {p.phone && <span className="flex items-center gap-0.5"><Phone size={9} /> {formatPhoneNumber(p.phone)}</span>}
+                        <span>• %{p.default_tax_rate} KDV</span>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <div className={`text-xs font-mono font-black ${p.balance > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {formatMoney(p.balance, 'TRY').formatted}
+                      </div>
+                      <span className="text-[8px] uppercase tracking-wider text-slate-500">
+                        {p.balance > 0 ? 'Ödenecek' : 'Bakiye Sıfır'}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+        </div>
+
+        {/* SAĞ PANEL: SEÇİLİ ORTAK DETAYI & HAKEDİŞ İŞLEMLERİ */}
+        <div className="flex-1 flex flex-col bg-[#0d1322] border border-slate-800/80 rounded-xl overflow-hidden min-w-0 shadow-lg">
+          
+          {selectedPartner ? (
+            <>
+              {/* Ortak Profil Başlık Bandı */}
+              <div className="p-3 bg-[#0a0f1d] border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-900 text-white flex items-center justify-center font-black text-sm shadow-md">
+                    {selectedPartner.name.substring(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-sm sm:text-base font-bold text-white">{selectedPartner.name}</h2>
+                      <button 
+                        onClick={() => openEditPartnerModal(selectedPartner)}
+                        className="text-slate-400 hover:text-amber-400 transition-colors p-1"
+                        title="Ortağı Düzenle"
+                      >
+                        <Edit3 size={13} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeletePartner(selectedPartner.id)}
+                        className="text-slate-500 hover:text-rose-400 transition-colors p-1"
+                        title="Ortağı Sil"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-0.5">
+                      {selectedPartner.phone && <span>📞 {formatPhoneNumber(selectedPartner.phone)}</span>}
+                      <span>📊 Varsayılan Vergi Kesintisi: %{selectedPartner.default_tax_rate}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sağ: Bakiye Kartı ve Hızlı İşlem Butonları */}
+                <div className="flex items-center gap-2.5 self-end sm:self-auto">
+                  <div className="bg-[#070b14] border border-slate-800 px-3 py-1.5 rounded-xl text-right">
+                    <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold block">Güncel Hakediş Alacağı</span>
+                    <span className={`text-base font-mono font-black ${selectedPartner.balance > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                      {formatMoney(selectedPartner.balance, 'TRY').formatted}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={() => openAddSettlementModal(selectedPartner.id)}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-950/40 flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  >
+                    <Plus size={14} /> Yeni Hakediş Ekle
+                  </button>
+
+                  <button
+                    onClick={() => openPayoutModal(selectedPartner.id)}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-950/40 flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  >
+                    <DollarSign size={14} /> Hakediş Öde
+                  </button>
+                </div>
+              </div>
+
+              {/* Sekmeler: Hakediş Kayıtları | Ödeme Geçmişi */}
+              <div className="flex items-center gap-1 p-2 bg-[#080d19] border-b border-slate-800/80 text-xs font-semibold shrink-0">
+                <button
+                  onClick={() => setActiveTab('settlements')}
+                  className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeTab === 'settlements'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  }`}
+                >
+                  <FileText size={13} />
+                  <span>Hakediş & İş Hesaplaşmaları ({partnerSettlements.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('transactions')}
+                  className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeTab === 'transactions'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                  }`}
+                >
+                  <Wallet size={13} />
+                  <span>Kasa / Banka Ödemeleri ({partnerTransactions.length})</span>
+                </button>
+              </div>
+
+              {/* SEKME 1: HAKEDİŞ KAYITLARI TABLOSU */}
+              {activeTab === 'settlements' && (
+                <div className="flex-1 overflow-auto custom-scrollbar p-2">
+                  {partnerSettlements.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center p-12 text-center text-slate-500">
+                      <FileText size={36} className="mb-2 opacity-30 text-indigo-400" />
+                      <p className="text-xs font-semibold">Bu ortağa ait henüz kayıtlı iş / hakediş bulunmuyor.</p>
+                      <button
+                        onClick={() => openAddSettlementModal(selectedPartner.id)}
+                        className="mt-3 text-xs bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-lg hover:bg-indigo-600/30 transition-colors"
+                      >
+                        + İlk Hakedişi Ekle
+                      </button>
+                    </div>
+                  ) : (
+                    <table className="w-full text-left text-[11px] relative">
+                      <thead className="sticky top-0 bg-[#0a0f1d] z-10 border-b border-slate-800 text-slate-400 font-medium">
+                        <tr>
+                          <th className="p-2.5">Tarih</th>
+                          <th className="p-2.5">İş / Proje & Müşteri</th>
+                          <th className="p-2.5 text-right">Fatura Tutarı</th>
+                          <th className="p-2.5 text-right text-amber-400">Düşülen Maliyetler</th>
+                          <th className="p-2.5 text-right text-indigo-300 font-bold bg-indigo-950/20">Net Hakediş</th>
+                          <th className="p-2.5 text-right text-emerald-400">Ödenen</th>
+                          <th className="p-2.5 text-right text-rose-400">Kalan Borç</th>
+                          <th className="p-2.5 text-center">Durum</th>
+                          <th className="p-2.5 text-center w-28">İşlem</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/50">
+                        {partnerSettlements.map((s) => {
+                          const totalDeducted = s.material_cost_shop + s.material_cost_external + s.tax_amount + s.shop_profit_share + s.other_expenses
+                          return (
+                            <tr key={s.id} className="hover:bg-slate-800/30 transition-colors font-mono">
+                              <td className="p-2.5 text-slate-400 align-top">{formatDateTR(s.job_date)}</td>
+                              
+                              <td className="p-2.5 text-slate-200 font-sans align-top">
+                                <div className="flex items-center gap-1.5 font-bold text-white">
+                                  <span>{s.job_type === 'service' ? '🔧' : '🏗️'}</span>
+                                  <span>{s.job_title}</span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                                  {s.customer_name && <span>Müşteri: <strong>{s.customer_name}</strong></span>}
+                                  {s.invoice_no && <span>Fatura: #{s.invoice_no}</span>}
+                                </div>
+                              </td>
+
+                              <td className="p-2.5 text-right font-bold text-slate-200 align-top">
+                                {formatMoney(s.invoice_amount, 'TRY').formatted}
+                              </td>
+
+                              <td className="p-2.5 text-right text-amber-400/90 align-top font-medium" title={`Mağaza: ${s.material_cost_shop}₺ | Dış: ${s.material_cost_external}₺ | Vergi (%${s.tax_rate}): ${s.tax_amount}₺ | Servis Payı: ${s.shop_profit_share}₺`}>
+                                -{formatMoney(totalDeducted, 'TRY').formatted}
+                              </td>
+
+                              <td className="p-2.5 text-right font-black text-indigo-300 align-top bg-indigo-950/20">
+                                {formatMoney(s.partner_payout, 'TRY').formatted}
+                              </td>
+
+                              <td className="p-2.5 text-right font-semibold text-emerald-400 align-top">
+                                {formatMoney(s.paid_amount, 'TRY').formatted}
+                              </td>
+
+                              <td className="p-2.5 text-right font-bold text-rose-400 align-top">
+                                {formatMoney(s.remaining_payout, 'TRY').formatted}
+                              </td>
+
+                              <td className="p-2.5 text-center align-top font-sans">
+                                <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                                  s.payout_status === 'paid'
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                    : s.payout_status === 'partial'
+                                    ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                    : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                                }`}>
+                                  {s.payout_status === 'paid' ? <CheckCircle2 size={10} /> : <Clock size={10} />}
+                                  {s.payout_status === 'paid' ? 'Ödendi' : s.payout_status === 'partial' ? 'Kısmi Ödendi' : 'Ödenmedi'}
+                                </span>
+                              </td>
+
+                              <td className="p-2.5 text-center align-top font-sans">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    onClick={() => openPrintModal(s)}
+                                    className="p-1 text-slate-400 hover:text-indigo-400 transition-colors"
+                                    title="Pusula / Makbuz Görüntüle & Yazdır"
+                                  >
+                                    <Printer size={13} />
+                                  </button>
+                                  <button
+                                    onClick={() => copyWhatsAppText(s)}
+                                    className="p-1 text-slate-400 hover:text-emerald-400 transition-colors"
+                                    title="WhatsApp Metni Kopyala"
+                                  >
+                                    <Share2 size={13} />
+                                  </button>
+                                  {s.remaining_payout > 0 && (
+                                    <button
+                                      onClick={() => openPayoutModal(s.partner_id, s)}
+                                      className="p-1 text-slate-400 hover:text-amber-400 transition-colors"
+                                      title="Bu İşe Mahsuben Hızlı Öde"
+                                    >
+                                      <DollarSign size={13} />
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => openEditSettlementModal(s)}
+                                    className="p-1 text-slate-400 hover:text-indigo-400 transition-colors"
+                                    title="Düzenle"
+                                  >
+                                    <Edit3 size={13} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteSettlement(s)}
+                                    className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
+                                    title="Sil"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+
+              {/* SEKME 2: ÖDEME GEÇMİŞİ TABLOSU */}
+              {activeTab === 'transactions' && (
+                <div className="flex-1 overflow-auto custom-scrollbar p-2">
+                  {partnerTransactions.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center p-12 text-center text-slate-500">
+                      <Wallet size={36} className="mb-2 opacity-30 text-emerald-400" />
+                      <p className="text-xs font-semibold">Bu ortağa ait henüz bir ödeme çıkışı yapılmamış.</p>
+                      <button
+                        onClick={() => openPayoutModal(selectedPartner.id)}
+                        className="mt-3 text-xs bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg hover:bg-emerald-600/30 transition-colors"
+                      >
+                        💸 Hakediş Ödemesi Yap
+                      </button>
+                    </div>
+                  ) : (
+                    <table className="w-full text-left text-[11px] relative">
+                      <thead className="sticky top-0 bg-[#0a0f1d] z-10 border-b border-slate-800 text-slate-400 font-medium">
+                        <tr>
+                          <th className="p-2.5">Tarih</th>
+                          <th className="p-2.5">Açıklama</th>
+                          <th className="p-2.5">Ödeme Kaynağı (Kasa / Banka)</th>
+                          <th className="p-2.5 text-right text-rose-400">Çıkan Tutar</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/50">
+                        {partnerTransactions.map((t) => {
+                          const bankName = t.payment_source_type === 'bank' ? banks.find(b => b.id === t.payment_source_id)?.bank_name : null
+                          const cashName = t.payment_source_type === 'cash' ? cashes.find(c => c.id === t.payment_source_id)?.name : null
+                          return (
+                            <tr key={t.id} className="hover:bg-slate-800/30 transition-colors font-mono">
+                              <td className="p-2.5 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
+                              <td className="p-2.5 text-slate-200 font-sans align-top">
+                                <div className="font-medium text-white">{t.description}</div>
+                                {t.transfer_id && <span className="text-[9px] text-slate-500 font-mono">{t.transfer_id}</span>}
+                              </td>
+                              <td className="p-2.5 text-slate-300 font-sans align-top">
+                                {t.payment_source_type === 'bank' ? (
+                                  <span className="flex items-center gap-1 text-blue-400">
+                                    <Landmark size={12} /> {bankName || 'Banka Hesabı'}
+                                  </span>
+                                ) : (
+                                  <span className="flex items-center gap-1 text-emerald-400">
+                                    <Wallet size={12} /> {cashName || 'Nakit Kasa'}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-2.5 text-right font-black text-rose-400 align-top">
+                                -{formatMoney(t.amount, 'TRY').formatted}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-slate-500">
+              <Handshake size={48} className="mb-3 opacity-20 text-indigo-400 animate-pulse" />
+              <p className="text-sm font-bold text-slate-400">Lütfen soldan bir çözüm ortağı seçin</p>
+              <p className="text-xs text-slate-500 mt-1">veya yeni bir ortak kartı oluşturarak başlayın.</p>
+            </div>
+          )}
+
+        </div>
+
+      </div>
+
+      {/* ========================================================================= */}
+      {/* --- MODAL 1: YENİ ORTAK EKLE / DÜZENLE --- */}
+      {/* ========================================================================= */}
+      {isPartnerModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-md p-5 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col">
+            
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-lg">
+                  <Handshake size={18} />
+                </div>
+                <h3 className="text-sm font-bold text-white">
+                  {editingPartner ? 'Çözüm Ortağını Düzenle' : 'Yeni Çözüm Ortağı Tanımla'}
+                </h3>
+              </div>
+              <button onClick={() => setIsPartnerModalOpen(false)} className="text-slate-400 hover:text-white p-1">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePartner} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Ortak / Usta Adı Soyadı *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Örn: Ahmet Durmaz, Usta Mehmet..."
+                  value={partnerName}
+                  onChange={(e) => setPartnerName(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Telefon</label>
+                  <input
+                    type="text"
+                    placeholder="0532..."
+                    value={partnerPhone}
+                    onChange={(e) => setPartnerPhone(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">E-posta</label>
+                  <input
+                    type="email"
+                    placeholder="ornek@mail.com"
+                    value={partnerEmail}
+                    onChange={(e) => setPartnerEmail(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Varsayılan KDV / Vergi (%)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={partnerTaxRate}
+                    onChange={(e) => setPartnerTaxRate(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors font-mono"
+                  />
+                  <span className="text-[9px] text-slate-500 mt-0.5 block">Faturadan düşülecek vergi</span>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">İlgili Şirket / Merkez</label>
+                  <select
+                    value={partnerCompanyId}
+                    onChange={(e) => setPartnerCompanyId(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  >
+                    {!isRestricted && <option value="common">Ortak / Bağımsız</option>}
+                    {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Notlar / Özel Anlaşma</label>
+                <textarea
+                  rows={2}
+                  placeholder="Anlaşma şartları, IBAN vb..."
+                  value={partnerNotes}
+                  onChange={(e) => setPartnerNotes(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors resize-none"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPartnerModalOpen(false)}
+                  className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition-colors"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-950/40"
+                >
+                  {editingPartner ? 'Güncelle' : 'Kaydet'}
+                </button>
+              </div>
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* --- MODAL 2: YENİ HAKEDİŞ / İŞ HESAPLAŞMA FORMU (CANLI FORMÜL) --- */}
+      {/* ========================================================================= */}
+      {isSettlementModalOpen && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-2xl p-5 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[92vh] overflow-y-auto custom-scrollbar">
+            
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-lg">
+                  <Calculator size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white">
+                    {editingSettlement ? 'Hakediş Hesaplaşmasını Düzenle' : 'Yeni İş & Hakediş Hesaplaşması'}
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    Müşteri faturasından mağaza malzemeleri, dış maliyetler ve vergi payı düşülerek net hakediş hesaplanır.
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setIsSettlementModalOpen(false)} className="text-slate-400 hover:text-white p-1">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSettlement} className="space-y-3.5 text-xs">
+              
+              {/* Üst Satır: Ortak Seçimi, İş Türü, Tarih */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#070b14] p-3 rounded-xl border border-slate-800/80">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Çözüm Ortağı *</label>
+                  <select
+                    required
+                    value={settlePartnerId}
+                    onChange={(e) => {
+                      setSettlePartnerId(e.target.value)
+                      const p = partners.find(item => item.id === e.target.value)
+                      if (p) {
+                        setSettleTaxRate(p.default_tax_rate.toString())
+                        if (p.company_id) setSettleCompanyId(p.company_id)
+                      }
+                    }}
+                    className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">Ortak Seç...</option>
+                    {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">İş Türü *</label>
+                  <select
+                    value={settleJobType}
+                    onChange={(e) => setSettleJobType(e.target.value as any)}
+                    className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="project">🏗️ Dış Proje / Montaj & Malzemeli Satış</option>
+                    <option value="service">🔧 Teknik Servis Cihaz Onarımı</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">İş Tarihi *</label>
+                  <input
+                    type="date"
+                    required
+                    value={settleJobDate}
+                    onChange={(e) => setSettleJobDate(e.target.value)}
+                    className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* İş Başlığı & Müşteri Bilgileri */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-400 mb-1 font-medium">İş / Proje Başlığı *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Örn: Ali Bey Villa Kamera & Network Kurulumu, MacBook Anakart Tamiri..."
+                    value={settleJobTitle}
+                    onChange={(e) => setSettleJobTitle(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Müşteri Adı / Ünvanı</label>
+                  <input
+                    type="text"
+                    placeholder="Müşteri Adı..."
+                    value={settleCustomerName}
+                    onChange={(e) => setSettleCustomerName(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Fatura & Tahsilat Bilgisi */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-indigo-950/20 p-3 rounded-xl border border-indigo-900/40">
+                <div>
+                  <label className="block text-indigo-300 mb-1 font-bold">Müşteri Fatura Tutarı (₺) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="0.00"
+                    value={settleInvoiceAmount}
+                    onChange={(e) => setSettleInvoiceAmount(e.target.value)}
+                    className="w-full bg-[#070b14] border border-indigo-500/50 rounded-lg px-3 py-2 text-indigo-300 font-black font-mono focus:outline-none focus:border-indigo-400 text-sm"
+                  />
+                  <span className="text-[9px] text-slate-400 block mt-0.5">Müşteriye kesilen KDV dahil ciro</span>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Fatura No</label>
+                  <input
+                    type="text"
+                    placeholder="GİB2026000001"
+                    value={settleInvoiceNo}
+                    onChange={(e) => setSettleInvoiceNo(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Tahsilat Durumu</label>
+                  <select
+                    value={settleCollectionStatus}
+                    onChange={(e) => setSettleCollectionStatus(e.target.value as any)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-2.5 py-2 text-white focus:outline-none"
+                  >
+                    <option value="collected">✅ Tahsil Edildi (Hesapta/Kasada)</option>
+                    <option value="pending">⏳ Müşteri Ödemesi Bekleniyor</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Düşülecek Kalemler & Maliyetler */}
+              <div className="bg-[#070b14] p-3 rounded-xl border border-slate-800 space-y-3">
+                <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider block">
+                  ✂️ Faturadan Düşülecek Maliyet ve Kesintiler
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-medium">Mağaza Malzemeleri (₺)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={settleMaterialShop}
+                      onChange={(e) => setSettleMaterialShop(e.target.value)}
+                      className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-amber-300 font-mono focus:outline-none"
+                    />
+                    <span className="text-[9px] text-slate-500 block mt-0.5">Stoktan verilen kârlı bedel</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-medium">Dış Alış Malzemeleri (₺)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={settleMaterialExternal}
+                      onChange={(e) => setSettleMaterialExternal(e.target.value)}
+                      className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-amber-300 font-mono focus:outline-none"
+                    />
+                    <span className="text-[9px] text-slate-500 block mt-0.5">Bize fatura edilen dış alımlar</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-medium">KDV / Vergi Payı (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={settleTaxRate}
+                      onChange={(e) => setSettleTaxRate(e.target.value)}
+                      className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-amber-300 font-mono focus:outline-none"
+                    />
+                    <span className="text-[9px] text-slate-500 block mt-0.5">Tutar: {formatMoney(liveSettlementCalc.taxAmt, 'TRY').formatted}</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-medium">Bizim Servis / Kâr Payımız (₺)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={settleShopProfit}
+                      onChange={(e) => setSettleShopProfit(e.target.value)}
+                      className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-amber-300 font-mono focus:outline-none"
+                    />
+                    <span className="text-[9px] text-slate-500 block mt-0.5">Dükkan işçilik / kâr payı</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-medium">Diğer Masraflar (Kargo / Ulaşım vb.) (₺)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={settleOtherExpenses}
+                      onChange={(e) => setSettleOtherExpenses(e.target.value)}
+                      className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-amber-300 font-mono focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-medium">Açıklama & Detaylar</label>
+                    <input
+                      type="text"
+                      placeholder="Kullanılan parçalar, cihaz arızası vb..."
+                      value={settleNotes}
+                      onChange={(e) => setSettleNotes(e.target.value)}
+                      className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-300 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* CANLI HESAPLAŞMA PUSULASI ÖZETİ */}
+              <div className="bg-gradient-to-r from-[#0d172a] via-[#0b1324] to-[#0d172a] p-3.5 rounded-xl border border-indigo-500/40 shadow-inner flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400">Müşteri Faturası:</span>
+                    <span className="font-mono font-bold text-white">{formatMoney(liveSettlementCalc.invAmt, 'TRY').formatted}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                    <span>Toplam Düşümler:</span>
+                    <span className="font-mono text-amber-400">-{formatMoney(liveSettlementCalc.totalDeductions, 'TRY').formatted}</span>
+                    <span className="text-[10px] text-slate-500">(Malzeme + Vergi + Kâr)</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <span className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block">Dükkana Kalan Pay</span>
+                    <span className="text-xs font-mono font-bold text-emerald-400">
+                      +{formatMoney(liveSettlementCalc.shopRetained, 'TRY').formatted}
+                    </span>
+                  </div>
+
+                  <div className="border-l border-slate-700 pl-4 text-right">
+                    <span className="text-[9px] uppercase tracking-wider text-indigo-300 font-bold block">👉 Ortağa Net Hakediş</span>
+                    <span className="text-lg font-mono font-black text-indigo-300">
+                      {formatMoney(liveSettlementCalc.partnerPayout, 'TRY').formatted}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Butonlar */}
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSettlementModalOpen(false)}
+                  className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition-colors"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-950/40"
+                >
+                  {editingSettlement ? 'Hakedişi Güncelle' : 'Hakedişi Kaydet'}
+                </button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* --- MODAL 3: HAKEDİŞ ÖDEMESİ YAP (KASA / BANKA ÇIKIŞI) --- */}
+      {/* ========================================================================= */}
+      {isPayoutModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-md p-5 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col">
+            
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                  <DollarSign size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Çözüm Ortağı Hakediş Ödemesi</h3>
+                  <p className="text-[10px] text-slate-400">
+                    Ödeme doğrudan seçtiğiniz Kasa veya Banka hesabından düşülecektir.
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setIsPayoutModalOpen(false)} className="text-slate-400 hover:text-white p-1">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleExecutePayout} className="space-y-3.5 text-xs">
+              
+              <div className="bg-[#070b14] p-3 rounded-xl border border-slate-800">
+                <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold block mb-1">Ödeme Yapılacak Ortak</span>
+                <span className="text-sm font-bold text-white">
+                  {partners.find(p => p.id === payoutPartnerId)?.name}
+                </span>
+                <div className="text-[10px] text-rose-400 font-mono mt-1 font-semibold">
+                  Toplam Bekleyen Borç: {formatMoney(partners.find(p => p.id === payoutPartnerId)?.balance || 0, 'TRY').formatted}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Ödeme Kaynağı (Nereden Çıkacak?) *</label>
+                <select
+                  required
+                  value={payoutSource}
+                  onChange={(e) => setPayoutSource(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                >
+                  <option value="">Kasa veya Banka Seçiniz...</option>
+                  {cashes.length > 0 && (
+                    <optgroup label="💵 Nakit Kasalar">
+                      {cashes.map(c => (
+                        <option key={`cash|${c.id}`} value={`cash|${c.id}`}>
+                          {c.name} (Bakiye: {formatMoney(c.balance, c.currency).formatted})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {banks.length > 0 && (
+                    <optgroup label="🏦 Banka Hesapları">
+                      {banks.map(b => (
+                        <option key={`bank|${b.id}`} value={`bank|${b.id}`}>
+                          {b.bank_name} - {b.account_name} (Bakiye: {formatMoney(b.balance, b.currency).formatted})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Ödenecek Tutar (₺) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="0.00"
+                    value={payoutAmount}
+                    onChange={(e) => setPayoutAmount(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-emerald-400 font-mono font-bold text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1 font-medium">Ödeme Tarihi *</label>
+                  <input
+                    type="date"
+                    required
+                    value={payoutDate}
+                    onChange={(e) => setPayoutDate(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Açıklama</label>
+                <input
+                  type="text"
+                  placeholder="Banka havalesi, elden nakit ödeme vb..."
+                  value={payoutDescription}
+                  onChange={(e) => setPayoutDescription(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPayoutModalOpen(false)}
+                  className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition-colors"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-emerald-950/40"
+                >
+                  Ödemeyi Onayla & Düş
+                </button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* --- MODAL 4: HESAPLAŞMA PUSULASI / MAKBUZ GÖRÜNÜMÜ & YAZDIR --- */}
+      {/* ========================================================================= */}
+      {isPrintModalOpen && printSettlement && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-lg p-5 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 print:hidden">
+              <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <Printer size={16} /> Hesaplaşma Pusulası Önizleme
+              </h3>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => copyWhatsAppText(printSettlement)}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
+                >
+                  <Share2 size={12} /> WhatsApp Metni
+                </button>
+                <button
+                  onClick={handlePrint}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
+                >
+                  <Printer size={12} /> Yazdır / PDF
+                </button>
+                <button onClick={() => setIsPrintModalOpen(false)} className="text-slate-400 hover:text-white p-1">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Yazdırılabilir Pusula Alanı */}
+            <div ref={printRef} className="p-4 bg-white text-slate-900 rounded-xl my-3 text-xs overflow-y-auto font-sans leading-relaxed">
+              <div className="border-b-2 border-slate-900 pb-3 mb-3 flex justify-between items-start">
+                <div>
+                  <h1 className="text-base font-black tracking-wider text-slate-900">CTC MASTER LEDGER</h1>
+                  <p className="text-[10px] text-slate-600">Dış İş & Hakediş Hesaplaşma Pusulası</p>
+                </div>
+                <div className="text-right text-[10px] text-slate-600">
+                  <p className="font-bold">Tarih: {formatDateTR(printSettlement.job_date)}</p>
+                  <p>Fatura: #{printSettlement.invoice_no || '-'}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-3 text-[11px]">
+                <div className="bg-slate-50 p-2 rounded border border-slate-200">
+                  <span className="text-[9px] uppercase font-bold text-slate-500 block">Çözüm Ortağı</span>
+                  <span className="font-bold text-slate-900">{partners.find(p => p.id === printSettlement.partner_id)?.name}</span>
+                </div>
+                <div className="bg-slate-50 p-2 rounded border border-slate-200">
+                  <span className="text-[9px] uppercase font-bold text-slate-500 block">Müşteri</span>
+                  <span className="font-bold text-slate-900">{printSettlement.customer_name || 'Belirtilmedi'}</span>
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">İş / Proje Tanımı</span>
+                <p className="font-semibold text-slate-800 bg-slate-100 p-2 rounded">
+                  {printSettlement.job_type === 'service' ? '🔧 ' : '🏗️ '}{printSettlement.job_title}
+                </p>
+              </div>
+
+              {/* Hesap Tablosu */}
+              <table className="w-full text-left text-xs mb-3 border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-300 text-slate-600 text-[10px]">
+                    <th className="py-1">Hesap Kalemi</th>
+                    <th className="py-1 text-right">Tutar</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-mono">
+                  <tr>
+                    <td className="py-1.5 font-bold font-sans">Müşteri Fatura / Tahsilat Tutarı</td>
+                    <td className="py-1.5 text-right font-bold text-slate-900">
+                      {formatMoney(printSettlement.invoice_amount, 'TRY').formatted}
+                    </td>
+                  </tr>
+                  {printSettlement.material_cost_shop > 0 && (
+                    <tr className="text-slate-600">
+                      <td className="py-1.5 font-sans">(-) Mağaza / Stok Malzemeleri</td>
+                      <td className="py-1.5 text-right">-{formatMoney(printSettlement.material_cost_shop, 'TRY').formatted}</td>
+                    </tr>
+                  )}
+                  {printSettlement.material_cost_external > 0 && (
+                    <tr className="text-slate-600">
+                      <td className="py-1.5 font-sans">(-) Dış Alış Malzemeleri</td>
+                      <td className="py-1.5 text-right">-{formatMoney(printSettlement.material_cost_external, 'TRY').formatted}</td>
+                    </tr>
+                  )}
+                  {printSettlement.tax_amount > 0 && (
+                    <tr className="text-slate-600">
+                      <td className="py-1.5 font-sans">(-) KDV & Vergi Kesintisi (%{printSettlement.tax_rate})</td>
+                      <td className="py-1.5 text-right">-{formatMoney(printSettlement.tax_amount, 'TRY').formatted}</td>
+                    </tr>
+                  )}
+                  {printSettlement.shop_profit_share > 0 && (
+                    <tr className="text-slate-600">
+                      <td className="py-1.5 font-sans">(-) Şirket Servis / Komisyon Payı</td>
+                      <td className="py-1.5 text-right">-{formatMoney(printSettlement.shop_profit_share, 'TRY').formatted}</td>
+                    </tr>
+                  )}
+                  {printSettlement.other_expenses > 0 && (
+                    <tr className="text-slate-600">
+                      <td className="py-1.5 font-sans">(-) Diğer Masraflar</td>
+                      <td className="py-1.5 text-right">-{formatMoney(printSettlement.other_expenses, 'TRY').formatted}</td>
+                    </tr>
+                  )}
+                  <tr className="border-t-2 border-slate-900 bg-slate-50 font-bold">
+                    <td className="py-2 text-indigo-900 font-sans">👉 NET HAKEDİŞ TUTARI</td>
+                    <td className="py-2 text-right text-indigo-900 text-sm">
+                      {formatMoney(printSettlement.partner_payout, 'TRY').formatted}
+                    </td>
+                  </tr>
+                  <tr className="text-emerald-700">
+                    <td className="py-1.5 font-sans">Şu Ana Kadar Ödenen</td>
+                    <td className="py-1.5 text-right">{formatMoney(printSettlement.paid_amount, 'TRY').formatted}</td>
+                  </tr>
+                  <tr className="text-rose-700 font-bold">
+                    <td className="py-1.5 font-sans">Kalan Hakediş Bakiyesi</td>
+                    <td className="py-1.5 text-right">{formatMoney(printSettlement.remaining_payout, 'TRY').formatted}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div className="border-t border-slate-200 pt-6 mt-6 grid grid-cols-2 gap-4 text-center text-[10px] text-slate-500">
+                <div>
+                  <p className="font-bold text-slate-700 mb-8">Düzenleyen Firma</p>
+                  <p>İmza / Kaşe</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-700 mb-8">Çözüm Ortağı</p>
+                  <p>İmza / Mutabakat</p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* --- ÖZEL ONAY MODALI --- */}
+      {/* ========================================================================= */}
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 999999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-center">
+            <div className={`mx-auto flex items-center justify-center h-14 w-14 rounded-full mb-5 ${confirmDialog.isDanger ? 'bg-rose-500/10 text-rose-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
+              {confirmDialog.isDanger ? <AlertTriangle size={28} /> : <RefreshCw size={28} />}
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">{confirmDialog.title}</h3>
+            <p className="text-[11px] text-slate-400 mb-6 leading-relaxed px-2">{confirmDialog.message}</p>
+            <div className="flex gap-3 w-full">
+              <button onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))} className="flex-1 px-4 py-2.5 rounded-xl text-slate-300 bg-slate-800 hover:bg-slate-700 font-medium transition-colors text-xs">
+                {confirmDialog.cancelText}
+              </button>
+              <button onClick={confirmDialog.onConfirm} className={`flex-1 px-4 py-2.5 rounded-xl text-white font-bold transition-all active:scale-95 text-xs shadow-lg ${confirmDialog.isDanger ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-900/20' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-900/20'}`}>
+                {confirmDialog.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  )
+}

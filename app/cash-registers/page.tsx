@@ -313,6 +313,9 @@ export default function CashRegistersPage() {
       } else if (transferId.startsWith('POS-')) {
         toast.error('Bu işlem Mağaza (POS) modülünden otomatik yansımıştır. Lütfen işlemi ait olduğu modülden iptal edin.');
         return;
+      } else if (transferId.startsWith('PARTNER-')) {
+        toast.error('Bu işlem Çözüm Ortakları modülünden otomatik yansımıştır. Lütfen işlemi Çözüm Ortakları ekranından yönetin.');
+        return;
       }
     }
 
@@ -550,7 +553,7 @@ export default function CashRegistersPage() {
                           >
                             <td className="p-2.5 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
                             <td className="p-2.5 text-slate-200 font-sans align-top">
-                               <div className="flex items-center gap-2 mb-1">{t.transfer_id?.startsWith('POS') ? <span className="text-[9px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">Mağaza</span> : t.transfer_id?.startsWith('SUPP') ? <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/30 flex items-center gap-1">Tedarikçi Ödemesi</span> : t.transfer_id?.startsWith('CUST') ? <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-1">Müşteri Tahsilatı</span> : t.transfer_id?.startsWith('EXP') ? <span className="text-[9px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded border border-rose-500/30 flex items-center gap-1">Gider Ödemesi</span> : t.is_transfer ? <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1"><ArrowRightLeft size={10}/> Kasa/Banka Transferi</span> : ''} {t.description}</div>
+                               <div className="flex items-center gap-2 mb-1">{t.transfer_id?.startsWith('POS') ? <span className="text-[9px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">Mağaza</span> : t.transfer_id?.startsWith('SUPP') ? <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/30 flex items-center gap-1">Tedarikçi Ödemesi</span> : t.transfer_id?.startsWith('CUST') ? <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-1">Müşteri Tahsilatı</span> : t.transfer_id?.startsWith('EXP') ? <span className="text-[9px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded border border-rose-500/30 flex items-center gap-1">Gider Ödemesi</span> : t.transfer_id?.startsWith('PARTNER-PAY') ? <span className="text-[9px] bg-teal-500/20 text-teal-300 px-1.5 py-0.5 rounded border border-teal-500/30 flex items-center gap-1">🤝 Çözüm Ortağı Ödemesi</span> : t.transfer_id?.startsWith('PARTNER-INC') ? <span className="text-[9px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/30 flex items-center gap-1">🤝 Ortak İşi Tahsilatı</span> : t.is_transfer ? <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1"><ArrowRightLeft size={10}/> Kasa/Banka Transferi</span> : ''} {t.description}</div>
                                <div className="flex items-center gap-1 text-[9px] text-slate-500">
                                   {t.company ? (t.company.is_personal ? <Home size={10} className="text-slate-400"/> : <Building size={10} className="text-indigo-400"/>) : <Globe size={10} className="text-emerald-500/70"/>}
                                   {t.company ? t.company.name : 'Ortak / Bağımsız İşlem'}

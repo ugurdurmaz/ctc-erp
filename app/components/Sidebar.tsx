@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
-import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, Receipt, Building2, Briefcase, Key, History, PieChart, Store, ChevronLeft, ChevronRight, Users, Wrench, BadgePercent, BookOpen } from 'lucide-react'
+import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, Receipt, Building2, Briefcase, Key, History, PieChart, Store, ChevronLeft, ChevronRight, Users, Wrench, BadgePercent, BookOpen, Handshake } from 'lucide-react'
 
 const allMenuItems = [
   { label: 'Genel Durum', href: '/', icon: LayoutDashboard, moduleKey: 'dashboard' },
@@ -18,6 +18,7 @@ const allMenuItems = [
   { label: 'Hizmet Yönetimi', href: '/services', icon: Briefcase, moduleKey: 'services' },
   { label: 'Satıcılar (Borç)', href: '/suppliers', icon: ArrowDownLeft, moduleKey: 'suppliers' },
   { label: 'Müşteriler (Alacak)', href: '/customers', icon: ArrowUpRight, moduleKey: 'customers' },
+  { label: 'Çözüm Ortakları', href: '/partners', icon: Handshake, moduleKey: 'partners' },
   { label: 'Genel Giderler', href: '/expenses', icon: Receipt, moduleKey: 'expenses' },
   { label: 'Abonelik / Kredi', href: '/subscriptions', icon: Key, moduleKey: 'subscriptions' },
   { label: 'Raporlar (P&L)', href: '/reports', icon: PieChart, moduleKey: 'reports' },

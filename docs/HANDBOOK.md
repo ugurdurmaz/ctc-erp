@@ -198,6 +198,8 @@ Kasa/banka/kart hareket tablolarındaki `transfer_id` alanı, hareketin **hangi 
 | `LOAN-INST-<loan_id>-<no>` | Banka Kredileri (taksit ödemesi, banka çıkışı) | Yalnız Banka Kredileri ekranı (taksit iptali) |
 | `LOAN-EXP-<loan_id>-<no>` | Banka Kredileri (taksit faiz gideri) | Yalnız Banka Kredileri ekranı (taksit iptali) |
 | `LOAN-DISBURSE-<loan_id>` | Banka Kredileri (kredi kullandırımı, banka girişi) | Yalnız Banka Kredileri ekranı |
+| `PARTNER-PAY-<id>` | Çözüm Ortakları (hakediş ödemesi, kasa/banka çıkışı) | Yalnız Çözüm Ortakları ekranı |
+| `PARTNER-INC-<id>` | Çözüm Ortakları (ortak işi müşteri tahsilatı, giriş) | Yalnız Çözüm Ortakları ekranı |
 
 Abonelik tahsilatları `transfer_id` **kullanmaz**; açıklama metni (`Abonelik Tahsilatı: <kullanıcı> (<ad>)`) ile eşleştirilir.
 
@@ -264,6 +266,10 @@ Bazı kayıtlar **açıklama string'i ile** tanınır. Bu metinler değiştirili
 
 **`bank_loans`** — `loan_name`, `bank_name`, `bank_account_id?`, `company_id?`, `loan_type (commercial|consumer|vehicle|housing|other)`, `principal_amount`, `interest_rate`, `total_installments`, `paid_installments`, `monthly_installment`, `total_payment`, `total_interest`, `remaining_principal`, `remaining_total`, `currency ('TRY')`, `start_date`, `first_due_date`, `status (active|completed|cancelled)`, `notes?`, `installments_plan (jsonb[])`
 - `installments_plan` satır şekli: `{ installment_no, due_date, total_amount, principal_amount, interest_amount, remaining_principal_after, status ('pending'|'paid'), payment_date?, bank_account_id?, bank_tx_id?, expense_tx_id?, is_opening_settled? }`
+
+**`partners`** — `name`, `phone?`, `email?`, `company_id?`, `default_tax_rate`, `default_commission_rate`, `balance` (türev), `notes?`
+**`partner_settlements`** — `partner_id`, `company_id?`, `job_title`, `job_date`, `job_type (project|service)`, `customer_name?`, `invoice_no?`, `invoice_amount`, `collection_status (collected|pending)`, `collection_source_type?`, `collection_source_id?`, `material_cost_shop`, `material_cost_external`, `tax_rate`, `tax_amount`, `shop_profit_share`, `other_expenses`, `partner_payout`, `payout_status (unpaid|partial|paid)`, `paid_amount`, `remaining_payout`, `notes?`
+**`partner_transactions`** — `partner_id`, `settlement_id?`, `tx_type (payment|earning)`, `amount`, `tx_date`, `payment_source_type (bank|cash)`, `payment_source_id`, `transfer_id ('PARTNER-PAY-<uuid>')`, `description`
 
 **`stock_transactions`** — `stock_id`, `company_id?`, `tx_date`, `description`, `tx_type (in|out)`, `quantity`, `unit_price`, `currency`, `vat_rate`
 
