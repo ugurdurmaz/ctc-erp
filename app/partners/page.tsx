@@ -830,7 +830,15 @@ export default function PartnersPage() {
           }
         }
 
-        const { error } = await supabase.from('partner_settlements').update(payload).eq('id', editingSettlement.id)
+        let { error } = await supabase.from('partner_settlements').update(payload).eq('id', editingSettlement.id)
+        if (error && (error.code === 'PGRST204' || error.message?.includes('items_breakdown'))) {
+          // Veritabanında items_breakdown kolonu henüz eklenmemişse kolonsuz kaydetmeyi dene:
+          const { items_breakdown, ...withoutItems } = payload as any
+          const retry = await supabase.from('partner_settlements').update(withoutItems).eq('id', editingSettlement.id)
+          if (!retry.error) {
+            error = null
+          }
+        }
         if (error) {
           console.error('Settlement update error:', error)
           if (error.code === '42501' || error.message?.toLowerCase().includes('row-level security') || error.message?.toLowerCase().includes('violates')) {
@@ -878,7 +886,15 @@ export default function PartnersPage() {
           }
         }
 
-        const { error } = await supabase.from('partner_settlements').insert([newRecord])
+        let { error } = await supabase.from('partner_settlements').insert([newRecord])
+        if (error && (error.code === 'PGRST204' || error.message?.includes('items_breakdown'))) {
+          // Veritabanında items_breakdown kolonu henüz eklenmemişse kolonsuz kaydetmeyi dene:
+          const { items_breakdown, ...withoutItems } = newRecord as any
+          const retry = await supabase.from('partner_settlements').insert([withoutItems])
+          if (!retry.error) {
+            error = null
+          }
+        }
         if (error) {
           console.error('Settlement insert error:', error)
           if (error.code === '42501' || error.message?.toLowerCase().includes('row-level security') || error.message?.toLowerCase().includes('violates')) {
@@ -1170,6 +1186,7 @@ CREATE TABLE IF NOT EXISTS public.partner_settlements (
     payout_status TEXT NOT NULL DEFAULT 'unpaid',
     paid_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
     remaining_payout NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    items_breakdown JSONB NOT NULL DEFAULT '[]'::jsonb,
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
