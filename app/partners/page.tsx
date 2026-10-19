@@ -1573,9 +1573,8 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                               <td className="p-2.5 text-slate-400 align-top">{formatDateTR(s.job_date)}</td>
                               
                               <td className="p-2.5 text-slate-200 font-sans align-top">
-                                <div className="flex items-center gap-1.5 font-bold text-white">
-                                  <span>{s.job_type === 'service' ? '🔧' : '🏗️'}</span>
-                                  <span>{s.job_title}</span>
+                                <div className="font-bold text-white">
+                                  {s.job_title}
                                 </div>
                                 <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
                                   {s.customer_name && <span>Müşteri: <strong>{s.customer_name}</strong></span>}
@@ -1866,8 +1865,8 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
 
             <form onSubmit={handleSaveSettlement} className="space-y-3.5 text-xs">
               
-              {/* Üst Satır: Ortak Seçimi, İş Türü, Tarih */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#070b14] p-3 rounded-xl border border-slate-800/80">
+              {/* Üst Satır: Ortak Seçimi ve Tarih */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-[#070b14] p-3 rounded-xl border border-slate-800/80">
                 <div>
                   <label className="block text-slate-400 mb-1 font-medium">Çözüm Ortağı *</label>
                   <select
@@ -1885,18 +1884,6 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                   >
                     <option value="">Ortak Seç...</option>
                     {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 mb-1 font-medium">İş Türü *</label>
-                  <select
-                    value={settleJobType}
-                    onChange={(e) => setSettleJobType(e.target.value as any)}
-                    className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="project">🏗️ Dış Proje / Montaj & Malzemeli Satış</option>
-                    <option value="service">🔧 Teknik Servis Cihaz Onarımı</option>
                   </select>
                 </div>
 
@@ -2596,7 +2583,7 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
               <div className="mb-3">
                 <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">İş / Proje Tanımı</span>
                 <p className="font-semibold text-slate-800 bg-slate-100 p-2 rounded">
-                  {printSettlement.job_type === 'service' ? '🔧 ' : '🏗️ '}{printSettlement.job_title}
+                  {printSettlement.job_title}
                 </p>
               </div>
 
