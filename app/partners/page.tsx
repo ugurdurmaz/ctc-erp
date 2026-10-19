@@ -109,8 +109,8 @@ export default function PartnersPage() {
   const [activeTab, setActiveTab] = useState<'settlements' | 'transactions'>('settlements')
   const [isLoading, setIsLoading] = useState(true)
   const [isTableMissing, setIsTableMissing] = useState(false)
+  const [isRlsRestricted, setIsRlsRestricted] = useState(false)
 
-  // Modal State'leri
   const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false)
   const [editingPartner, setEditingPartner] = useState<Partner | null>(null)
   const [partnerName, setPartnerName] = useState('')
@@ -213,19 +213,41 @@ export default function PartnersPage() {
       .order('name', { ascending: true })
 
     if (error) {
+      if (error.code === '42501' || error.message?.toLowerCase().includes('row-level security') || error.message?.toLowerCase().includes('violates')) {
+        setIsRlsRestricted(true)
+      }
       if (error.code === 'PGRST205' || error.message?.includes('partners')) {
         setIsTableMissing(true)
-        const cached = localStorage.getItem('ctc_partners_cache')
-        if (cached) {
-          try { setPartners(JSON.parse(cached)) } catch {}
-        }
+      }
+      const cached = localStorage.getItem('ctc_partners_cache')
+      if (cached) {
+        try { setPartners(JSON.parse(cached)) } catch {}
       }
       return
     }
 
-    setPartners(data || [])
-    if (data && data.length > 0 && !selectedPartnerId) {
-      setSelectedPartnerId(data[0].id)
+    if (data && data.length > 0) {
+      setPartners(data)
+      localStorage.setItem('ctc_partners_cache', JSON.stringify(data))
+      if (!selectedPartnerId) {
+        setSelectedPartnerId(data[0].id)
+      }
+    } else {
+      // Supabase 0 kayıt döndüyse ama yerel önbellekte (ör: RLS nedeniyle veritabanına henüz yazılamamış) kayıt varsa koru:
+      const cached = localStorage.getItem('ctc_partners_cache')
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setPartners(parsed)
+            if (!selectedPartnerId) {
+              setSelectedPartnerId(parsed[0].id)
+            }
+            return
+          }
+        } catch {}
+      }
+      setPartners([])
     }
   }
 
@@ -237,17 +259,35 @@ export default function PartnersPage() {
       .order('created_at', { ascending: false })
 
     if (error) {
+      if (error.code === '42501' || error.message?.toLowerCase().includes('row-level security') || error.message?.toLowerCase().includes('violates')) {
+        setIsRlsRestricted(true)
+      }
       if (error.code === 'PGRST205' || error.message?.includes('partner_settlements')) {
         setIsTableMissing(true)
-        const cached = localStorage.getItem('ctc_partner_settlements_cache')
-        if (cached) {
-          try { setSettlements(JSON.parse(cached)) } catch {}
-        }
+      }
+      const cached = localStorage.getItem('ctc_partner_settlements_cache')
+      if (cached) {
+        try { setSettlements(JSON.parse(cached)) } catch {}
       }
       return
     }
 
-    setSettlements(data || [])
+    if (data && data.length > 0) {
+      setSettlements(data)
+      localStorage.setItem('ctc_partner_settlements_cache', JSON.stringify(data))
+    } else {
+      const cached = localStorage.getItem('ctc_partner_settlements_cache')
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setSettlements(parsed)
+            return
+          }
+        } catch {}
+      }
+      setSettlements([])
+    }
   }
 
   async function fetchTransactions() {
@@ -258,6 +298,9 @@ export default function PartnersPage() {
       .order('created_at', { ascending: false })
 
     if (error) {
+      if (error.code === '42501' || error.message?.toLowerCase().includes('row-level security') || error.message?.toLowerCase().includes('violates')) {
+        setIsRlsRestricted(true)
+      }
       if (error.code === 'PGRST205' || error.message?.includes('partner_transactions')) {
         const cached = localStorage.getItem('ctc_partner_txs_cache')
         if (cached) {
@@ -267,8 +310,24 @@ export default function PartnersPage() {
       return
     }
 
-    setTransactions(data || [])
+    if (data && data.length > 0) {
+      setTransactions(data)
+      localStorage.setItem('ctc_partner_txs_cache', JSON.stringify(data))
+    } else {
+      const cached = localStorage.getItem('ctc_partner_txs_cache')
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setTransactions(parsed)
+            return
+          }
+        } catch {}
+      }
+      setTransactions([])
+    }
   }
+
 
   // ==============================================================================
   // MUTLAK HESAPLAMA YARDIMCILARI
@@ -394,13 +453,20 @@ export default function PartnersPage() {
       if (editingPartner) {
         const { error } = await supabase.from('partners').update(payload).eq('id', editingPartner.id)
         if (error) {
-          // LocalStorage fallback
+          console.error('Partner update error:', error)
+          if (error.code === '42501' || error.message?.toLowerCase().includes('row-level security') || error.message?.toLowerCase().includes('violates')) {
+            setIsRlsRestricted(true)
+            toast.error('Supabase RLS kuralı nedeniyle veritabanına kaydedilemedi! İzin kodunu çalıştırmanız gerekiyor.', { duration: 7000 })
+          } else {
+            toast.error('Veritabanına kaydedilemedi: ' + error.message)
+          }
           const updated = partners.map(p => p.id === editingPartner.id ? { ...p, ...payload } : p)
           setPartners(updated)
           localStorage.setItem('ctc_partners_cache', JSON.stringify(updated))
-        } else {
-          await logActivity('partner', 'UPDATE', `Çözüm ortağı güncellendi: ${payload.name}`, editingPartner.id, 0, 'TRY', editingPartner, payload, finalCompId)
+          setIsPartnerModalOpen(false)
+          return
         }
+        await logActivity('partner', 'UPDATE', `Çözüm ortağı güncellendi: ${payload.name}`, editingPartner.id, 0, 'TRY', editingPartner, payload, finalCompId)
         toast.success('Çözüm ortağı güncellendi.')
       } else {
         const newId = crypto.randomUUID()
@@ -412,13 +478,22 @@ export default function PartnersPage() {
         }
         const { error } = await supabase.from('partners').insert([newPartner])
         if (error) {
-          // LocalStorage fallback
+          console.error('Partner insert error:', error)
+          if (error.code === '42501' || error.message?.toLowerCase().includes('row-level security') || error.message?.toLowerCase().includes('violates')) {
+            setIsRlsRestricted(true)
+            toast.error('Supabase RLS kuralı nedeniyle ortak veritabanına yazılamadı! Lütfen sarı başlıktaki izin kodunu çalıştırın.', { duration: 8000 })
+          } else {
+            toast.error('Veritabanına kaydedilemedi: ' + error.message)
+          }
+          // Yerel state ve önbelleğe alıp sayfada anında göster (fetchPartners çağırıp silinmesini engelle)
           const updated = [...partners, newPartner]
           setPartners(updated)
+          setSelectedPartnerId(newId)
           localStorage.setItem('ctc_partners_cache', JSON.stringify(updated))
-        } else {
-          await logActivity('partner', 'INSERT', `Yeni çözüm ortağı eklendi: ${payload.name}`, newId, 0, 'TRY', null, newPartner, finalCompId)
+          setIsPartnerModalOpen(false)
+          return
         }
+        await logActivity('partner', 'INSERT', `Yeni çözüm ortağı eklendi: ${payload.name}`, newId, 0, 'TRY', null, newPartner, finalCompId)
         setSelectedPartnerId(newId)
         toast.success('Yeni çözüm ortağı başarıyla eklendi.')
       }
@@ -566,12 +641,20 @@ export default function PartnersPage() {
       if (editingSettlement) {
         const { error } = await supabase.from('partner_settlements').update(payload).eq('id', editingSettlement.id)
         if (error) {
+          console.error('Settlement update error:', error)
+          if (error.code === '42501' || error.message?.toLowerCase().includes('row-level security') || error.message?.toLowerCase().includes('violates')) {
+            setIsRlsRestricted(true)
+            toast.error('Supabase RLS kuralı nedeniyle hakediş güncellenemedi! İzin kodunu çalıştırmanız gerekiyor.', { duration: 7000 })
+          } else {
+            toast.error('Veritabanı hatası: ' + error.message)
+          }
           const updated = settlements.map(s => s.id === editingSettlement.id ? { ...s, ...payload } : s)
           setSettlements(updated)
           localStorage.setItem('ctc_partner_settlements_cache', JSON.stringify(updated))
-        } else {
-          await logActivity('partner_settlement', 'UPDATE', `Hakediş hesaplaşması güncellendi: ${payload.job_title}`, editingSettlement.id, calc.partnerPayout, 'TRY', editingSettlement, payload, finalCompId)
+          setIsSettlementModalOpen(false)
+          return
         }
+        await logActivity('partner_settlement', 'UPDATE', `Hakediş hesaplaşması güncellendi: ${payload.job_title}`, editingSettlement.id, calc.partnerPayout, 'TRY', editingSettlement, payload, finalCompId)
         toast.success('Hakediş kaydı güncellendi.')
       } else {
         const newId = crypto.randomUUID()
@@ -582,12 +665,20 @@ export default function PartnersPage() {
         }
         const { error } = await supabase.from('partner_settlements').insert([newRecord])
         if (error) {
+          console.error('Settlement insert error:', error)
+          if (error.code === '42501' || error.message?.toLowerCase().includes('row-level security') || error.message?.toLowerCase().includes('violates')) {
+            setIsRlsRestricted(true)
+            toast.error('Supabase RLS kuralı nedeniyle hakediş veritabanına yazılamadı! Lütfen sarı başlıktaki izin kodunu çalıştırın.', { duration: 8000 })
+          } else {
+            toast.error('Veritabanı hatası: ' + error.message)
+          }
           const updated = [newRecord, ...settlements]
           setSettlements(updated)
           localStorage.setItem('ctc_partner_settlements_cache', JSON.stringify(updated))
-        } else {
-          await logActivity('partner_settlement', 'INSERT', `Yeni hakediş hesaplaşması: ${payload.job_title} (Net: ${calc.partnerPayout} ₺)`, newId, calc.partnerPayout, 'TRY', null, newRecord, finalCompId)
+          setIsSettlementModalOpen(false)
+          return
         }
+        await logActivity('partner_settlement', 'INSERT', `Yeni hakediş hesaplaşması: ${payload.job_title} (Net: ${calc.partnerPayout} ₺)`, newId, calc.partnerPayout, 'TRY', null, newRecord, finalCompId)
         toast.success('Hakediş hesaplaşması başarıyla kaydedildi.')
       }
 
@@ -689,7 +780,17 @@ export default function PartnersPage() {
         created_at: new Date().toISOString()
       }
 
-      await supabase.from('partner_transactions').insert([partnerTx])
+      const { error: txErr } = await supabase.from('partner_transactions').insert([partnerTx])
+      if (txErr) {
+        console.error('Partner transaction error:', txErr)
+        if (txErr.code === '42501' || txErr.message?.toLowerCase().includes('row-level security') || txErr.message?.toLowerCase().includes('violates')) {
+          setIsRlsRestricted(true)
+          toast.error('Supabase RLS kuralı nedeniyle ödeme hareketi veritabanına yazılamadı! Lütfen izin kodunu çalıştırın.', { duration: 8000 })
+        }
+        const updatedTxs = [partnerTx, ...transactions]
+        setTransactions(updatedTxs)
+        localStorage.setItem('ctc_partner_txs_cache', JSON.stringify(updatedTxs))
+      }
 
       // 2. Kasa veya Banka Hesabından Parayı Düş
       if (sourceType === 'cash') {
@@ -849,11 +950,42 @@ CREATE TABLE IF NOT EXISTS public.partner_transactions (
     transfer_id TEXT,
     description TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);`
+);
+
+ALTER TABLE public.partners ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "partners_all_access" ON public.partners;
+CREATE POLICY "partners_all_access" ON public.partners FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.partner_settlements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "partner_settlements_all_access" ON public.partner_settlements;
+CREATE POLICY "partner_settlements_all_access" ON public.partner_settlements FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.partner_transactions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "partner_transactions_all_access" ON public.partner_transactions;
+CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions FOR ALL USING (true) WITH CHECK (true);`
 
     navigator.clipboard.writeText(sql)
     toast.success('SQL panoya kopyalandı! Supabase SQL Editor alanında çalıştırabilirsiniz.')
   }
+
+  function copyRlsSql() {
+    const sql = `-- CTC Master Ledger - Çözüm Ortakları RLS Güvenlik İzinleri
+ALTER TABLE public.partners ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "partners_all_access" ON public.partners;
+CREATE POLICY "partners_all_access" ON public.partners FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.partner_settlements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "partner_settlements_all_access" ON public.partner_settlements;
+CREATE POLICY "partner_settlements_all_access" ON public.partner_settlements FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.partner_transactions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "partner_transactions_all_access" ON public.partner_transactions;
+CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions FOR ALL USING (true) WITH CHECK (true);`
+
+    navigator.clipboard.writeText(sql)
+    toast.success('RLS izin kodu panoya kopyalandı! Supabase SQL Editor alanında çalıştırabilirsiniz.')
+  }
+
 
   // ==============================================================================
   // HESAPLANAN ÖZETLER
@@ -897,18 +1029,36 @@ CREATE TABLE IF NOT EXISTS public.partner_transactions (
 
       {/* VERİTABANI TABLOSU EKSİK UYARISI BANNERI */}
       {isTableMissing && (
-        <div className="bg-amber-950/50 border-b border-amber-500/40 px-4 py-2 flex items-center justify-between text-xs text-amber-300 shrink-0">
+        <div className="bg-amber-950/60 border-b border-amber-500/50 px-4 py-2.5 flex items-center justify-between text-xs text-amber-300 shrink-0">
           <div className="flex items-center gap-2">
             <AlertTriangle size={15} className="text-amber-400 shrink-0 animate-pulse" />
             <span>
-              <strong>Veritabanı Tablosu Hazır:</strong> Supabase SQL Editor'da <code className="bg-amber-900/60 px-1 py-0.5 rounded font-mono text-amber-200">supabase/partners.sql</code> dosyasını bir defa çalıştırarak kalıcı hale getirebilirsiniz. (Geçici olarak veriler tarayıcıda çalışır).
+              <strong>Veritabanı Tablosu Hazır:</strong> Supabase SQL Editor&apos;da <code className="bg-amber-900/60 px-1 py-0.5 rounded font-mono text-amber-200">supabase/partners.sql</code> dosyasını bir defa çalıştırarak kalıcı hale getirebilirsiniz. (Geçici olarak veriler tarayıcıda çalışır).
             </span>
           </div>
           <button 
             onClick={copyMigrationSql}
-            className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition-colors shadow text-xs cursor-pointer active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition-colors shadow text-xs cursor-pointer active:scale-95 shrink-0"
           >
-            <Copy size={12} /> SQL'i Kopyala
+            <Copy size={12} /> SQL&apos;i Kopyala
+          </button>
+        </div>
+      )}
+
+      {/* RLS GÜVENLİK İZNİ EKSİK UYARISI BANNERI */}
+      {isRlsRestricted && !isTableMissing && (
+        <div className="bg-amber-950/70 border-b border-amber-500/60 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-200 shrink-0 shadow-lg">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={16} className="text-amber-400 shrink-0 animate-bounce" />
+            <span>
+              <strong>Veritabanı İzni (RLS) Gerekli:</strong> Supabase güvenlik kuralları (Row Level Security) gereği ortak kayıtları doğrudan veritabanına yazılamadı (geçici olarak tarayıcıda tutuluyor). Kalıcı olması için izin kodunu Supabase SQL Editor&apos;de çalıştırınız.
+            </span>
+          </div>
+          <button 
+            onClick={copyRlsSql}
+            className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition-all shadow text-xs cursor-pointer active:scale-95 shrink-0 self-start sm:self-auto"
+          >
+            <Copy size={13} /> İzin Kodunu Kopyala
           </button>
         </div>
       )}
