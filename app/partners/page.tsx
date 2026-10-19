@@ -923,6 +923,31 @@ export default function PartnersPage() {
     }
   }
 
+  async function handleToggleCollectionStatus(s: PartnerSettlement) {
+    const newStatus: 'collected' | 'pending' = s.collection_status === 'collected' ? 'pending' : 'collected'
+
+    // Veritabanını güncelle
+    const { error } = await supabase.from('partner_settlements').update({
+      collection_status: newStatus,
+      updated_at: new Date().toISOString()
+    }).eq('id', s.id)
+
+    // Yerel state ve önbelleği güncelle
+    const updated = settlements.map(item => item.id === s.id ? { ...item, collection_status: newStatus } : item)
+    setSettlements(updated)
+    localStorage.setItem('ctc_partner_settlements_cache', JSON.stringify(updated))
+
+    if (error) {
+      console.warn('Collection status update warning:', error)
+    }
+
+    if (newStatus === 'collected') {
+      toast.success('Müşteri faturası tahsil edildi olarak işaretlendi! ✅')
+    } else {
+      toast('Tahsilat bekliyor durumuna alındı.', { icon: '⏳' })
+    }
+  }
+
   function handleDeleteSettlement(s: PartnerSettlement) {
     setConfirmDialog({
       isOpen: true,
@@ -1593,9 +1618,33 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                                 <div className="font-bold text-white">
                                   {s.job_title}
                                 </div>
-                                <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                                <div className="text-[10px] text-slate-400 flex flex-wrap items-center gap-2 mt-1">
                                   {s.customer_name && <span>Müşteri: <strong>{s.customer_name}</strong></span>}
                                   {s.invoice_no && <span>Fatura: #{s.invoice_no}</span>}
+                                  
+                                  {/* Müşteri Tahsilat Durumu & Hızlı Değiştirme Butonu */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleCollectionStatus(s)}
+                                    className={`inline-flex items-center gap-1 text-[9px] font-semibold px-2 py-0.5 rounded-md cursor-pointer transition select-none ${
+                                      s.collection_status === 'collected'
+                                        ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-700/50 hover:bg-emerald-900/60'
+                                        : 'bg-amber-950/60 text-amber-300 border border-amber-600/60 hover:bg-amber-900/60 hover:border-amber-500 animate-pulse hover:animate-none'
+                                    }`}
+                                    title={s.collection_status === 'collected' ? "Fatura tahsil edildi (Durumu değiştirmek için tıklayın)" : "Müşteri ödediyse 'Tahsil Edildi' yapmak için tıklayın"}
+                                  >
+                                    {s.collection_status === 'collected' ? (
+                                      <>
+                                        <CheckCircle2 size={10} className="text-emerald-400 shrink-0" />
+                                        <span>Fatura Tahsil Edildi</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Clock size={10} className="text-amber-400 shrink-0" />
+                                        <span>Tahsilat Bekliyor (Ödendi Yap ✓)</span>
+                                      </>
+                                    )}
+                                  </button>
                                 </div>
                               </td>
 
