@@ -1890,13 +1890,8 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                       setSettlePartnerId(e.target.value)
                       const p = partners.find(item => item.id === e.target.value)
                       if (p) {
-                        const defRate = p.default_tax_rate ?? 20
-                        setSettleTaxRate(defRate.toString())
+                        setSettleTaxRate((p.default_tax_rate ?? 20).toString())
                         if (p.company_id) setSettleCompanyId(p.company_id)
-                        const inv = parseFloat(settleInvoiceAmount) || 0
-                        if (inv > 0 && (!settleTaxAmount || settleTaxAmount === '0')) {
-                          setSettleTaxAmount(((inv * defRate) / 100).toFixed(2))
-                        }
                       }
                     }}
                     className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500"
@@ -1966,16 +1961,7 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                     required
                     placeholder="0.00"
                     value={settleInvoiceAmount}
-                    onChange={(e) => {
-                      const val = e.target.value
-                      setSettleInvoiceAmount(val)
-                      const inv = parseFloat(val) || 0
-                      const p = partners.find(item => item.id === settlePartnerId)
-                      const defRate = p?.default_tax_rate ?? 20
-                      if (inv > 0 && (!settleTaxAmount || settleTaxAmount === '0')) {
-                        setSettleTaxAmount(((inv * defRate) / 100).toFixed(2))
-                      }
-                    }}
+                    onChange={(e) => setSettleInvoiceAmount(e.target.value)}
                     className="w-full bg-[#070b14] border border-indigo-500/50 rounded-lg px-3 py-2 text-indigo-300 font-black font-mono focus:outline-none focus:border-indigo-400 text-sm"
                   />
                   <span className="text-[9px] text-slate-400 block mt-0.5">Müşteriye kesilen KDV dahil ciro</span>
