@@ -6,17 +6,37 @@ import { useAuth } from '@/lib/auth-context'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import { logActivity } from '@/lib/audit'
 import toast, { Toaster } from 'react-hot-toast'
+import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
 import { 
   Handshake, Plus, Search, Calendar, DollarSign, CheckCircle2, Clock, 
   AlertTriangle, Printer, Share2, Trash2, Edit3, Wallet, Landmark, 
   Building2, User, FileText, Check, X, ChevronRight, Copy, ExternalLink, 
   Layers, ArrowDownRight, Sparkles, Calculator, ShieldAlert, Phone,
-  Mail, MessageSquare, ArrowRight, RefreshCw, Eye, ArrowUpRight
+  Mail, MessageSquare, ArrowRight, RefreshCw, Eye, ArrowUpRight, Package
 } from 'lucide-react'
 
 // ==============================================================================
 // TİPLER
 // ==============================================================================
+export interface SettlementItem {
+  stock_id?: string
+  name: string
+  quantity: number
+  unit_price: number
+  total: number
+}
+
+export interface StockItem {
+  id: string
+  name: string
+  sku?: string
+  category?: string
+  quantity: number
+  unit_price: number
+  currency?: string
+  warehouse_id?: string
+}
+
 export interface Partner {
   id: string
   name: string
@@ -54,11 +74,13 @@ export interface PartnerSettlement {
   payout_status: 'unpaid' | 'partial' | 'paid'
   paid_amount: number
   remaining_payout: number
+  items_breakdown?: SettlementItem[]
   notes?: string | null
   created_at?: string
   partner?: { name: string }
   company?: { name: string; is_personal: boolean }
 }
+
 
 export interface PartnerTransaction {
   id: string
@@ -141,6 +163,29 @@ export default function PartnersPage() {
   const [settleOtherExpenses, setSettleOtherExpenses] = useState('')
   const [settleNotes, setSettleNotes] = useState('')
 
+  // Depo Malzeme Seçimi & Otomatik Stok Düşümü State'leri
+  const [stocks, setStocks] = useState<StockItem[]>([])
+  const [rates, setRates] = useState<{ USD: number; EUR: number }>({ USD: 34.25, EUR: 37.80 })
+  const [settleItems, setSettleItems] = useState<SettlementItem[]>([])
+  const [selectedStockId, setSelectedStockId] = useState('')
+  const [selectedStockQty, setSelectedStockQty] = useState('1')
+  const [selectedStockPrice, setSelectedStockPrice] = useState('')
+  const [stockSearchQuery, setStockSearchQuery] = useState('')
+  const [isStockDropdownOpen, setIsStockDropdownOpen] = useState(false)
+  const [deductFromInventory, setDeductFromInventory] = useState(true)
+  const stockDropdownRef = useRef<HTMLDivElement>(null)
+
+  // Dropdown dışına tıklandığında menüyü kapat
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (stockDropdownRef.current && !stockDropdownRef.current.contains(e.target as Node)) {
+        setIsStockDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   // Hakediş Ödeme Modalı
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false)
   const [payoutPartnerId, setPayoutPartnerId] = useState('')
@@ -174,10 +219,61 @@ export default function PartnersPage() {
       fetchPaymentSources(),
       fetchPartners(),
       fetchSettlements(),
-      fetchTransactions()
+      fetchTransactions(),
+      fetchStocks(),
+      fetchExchangeRates()
     ])
     setIsLoading(false)
   }
+
+  async function fetchStocks() {
+    const { data } = await supabase.from('stocks').select('id, name, sku, category, quantity, unit_price, currency, warehouse_id').order('name')
+    setStocks(data || [])
+  }
+
+  async function fetchExchangeRates() {
+    try {
+      const res = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' })
+      const data = await res.json()
+      if (data && data.rates) {
+        setRates({
+          USD: Number(data.rates.TRY.toFixed(4)),
+          EUR: Number((data.rates.TRY / data.rates.EUR).toFixed(4))
+        })
+      }
+    } catch {}
+  }
+
+  const getTryPrice = (price: number, curr?: string) => {
+    if (curr === 'USD') return Number((price * (rates.USD || 34.25)).toFixed(2))
+    if (curr === 'EUR') return Number((price * (rates.EUR || 37.80)).toFixed(2))
+    return price
+  }
+
+  async function recalculateAbsoluteStock(stockId: string) {
+    try {
+      await recalculateStockLedger(supabase, stockId, rates)
+    } catch (err) {
+      console.error('Stok mutlak hesaplama hatası:', err)
+    }
+  }
+
+  // Arama Sorgusuna Göre Filtrelenmiş Depo Ürünleri
+  const filteredStocks = useMemo(() => {
+    const q = stockSearchQuery.toLocaleLowerCase('tr-TR').trim()
+    if (!q) return stocks.slice(0, 60)
+    return stocks.filter(s => {
+      const nameMatch = s.name.toLocaleLowerCase('tr-TR').includes(q)
+      const skuMatch = s.sku ? s.sku.toLocaleLowerCase('tr-TR').includes(q) : false
+      const catMatch = s.category ? s.category.toLocaleLowerCase('tr-TR').includes(q) : false
+      return nameMatch || skuMatch || catMatch
+    }).sort((a, b) => {
+      if (b.quantity > 0 && a.quantity <= 0) return 1
+      if (a.quantity > 0 && b.quantity <= 0) return -1
+      return a.name.localeCompare(b.name, 'tr-TR')
+    }).slice(0, 60)
+  }, [stocks, stockSearchQuery])
+
 
   async function fetchCompanies() {
     const { data } = await supabase.from('companies').select('*').order('name', { ascending: true })
@@ -558,6 +654,13 @@ export default function PartnersPage() {
     setSettleShopProfit('')
     setSettleOtherExpenses('')
     setSettleNotes('')
+    setSettleItems([])
+    setSelectedStockId('')
+    setSelectedStockQty('1')
+    setSelectedStockPrice('')
+    setStockSearchQuery('')
+    setIsStockDropdownOpen(false)
+    setDeductFromInventory(true)
     setIsSettlementModalOpen(true)
   }
 
@@ -581,7 +684,50 @@ export default function PartnersPage() {
     setSettleShopProfit(s.shop_profit_share?.toString() || '')
     setSettleOtherExpenses(s.other_expenses?.toString() || '')
     setSettleNotes(s.notes || '')
+    setSettleItems(Array.isArray(s.items_breakdown) ? s.items_breakdown : [])
+    setSelectedStockId('')
+    setSelectedStockQty('1')
+    setSelectedStockPrice('')
+    setStockSearchQuery('')
+    setIsStockDropdownOpen(false)
+    setDeductFromInventory(true)
     setIsSettlementModalOpen(true)
+  }
+
+  function handleAddStockItem() {
+    if (!selectedStockId) return
+    const stock = stocks.find(s => s.id === selectedStockId)
+    if (!stock) return
+
+    const qty = parseInt(selectedStockQty) || 1
+    const unitPriceTry = selectedStockPrice !== '' ? (parseFloat(selectedStockPrice) || 0) : getTryPrice(stock.unit_price, stock.currency)
+    const total = Number((qty * unitPriceTry).toFixed(2))
+
+    const newItem: SettlementItem = {
+      stock_id: stock.id,
+      name: stock.name,
+      quantity: qty,
+      unit_price: unitPriceTry,
+      total
+    }
+
+    const updated = [...settleItems, newItem]
+    setSettleItems(updated)
+    const sum = updated.reduce((s, it) => s + it.total, 0)
+    setSettleMaterialShop(sum.toString())
+
+    setSelectedStockId('')
+    setSelectedStockPrice('')
+    setSelectedStockQty('1')
+    setStockSearchQuery('')
+    setIsStockDropdownOpen(false)
+  }
+
+  function handleRemoveStockItem(index: number) {
+    const updated = settleItems.filter((_, i) => i !== index)
+    setSettleItems(updated)
+    const sum = updated.reduce((s, it) => s + it.total, 0)
+    setSettleMaterialShop(sum > 0 ? sum.toString() : '')
   }
 
   async function handleSaveSettlement(e: React.FormEvent) {
@@ -633,12 +779,50 @@ export default function PartnersPage() {
       payout_status: payoutStatus,
       paid_amount: paidAmt,
       remaining_payout: remPayout,
+      items_breakdown: settleItems,
       notes: settleNotes.trim() || null,
       updated_at: new Date().toISOString()
     }
 
     try {
       if (editingSettlement) {
+        // 1. Önceki stok çıkışlarını temizle ve eski stokları geri yükle
+        const { data: oldStockTxs } = await supabase
+          .from('stock_transactions')
+          .select('id, stock_id')
+          .like('description', `%[PARTNER-SETTLE:${editingSettlement.id}]%`)
+
+        if (oldStockTxs && oldStockTxs.length > 0) {
+          const affected = new Set(oldStockTxs.map(t => t.stock_id))
+          await supabase.from('stock_transactions').delete().in('id', oldStockTxs.map(t => t.id))
+          for (const sId of Array.from(affected)) {
+            await recalculateAbsoluteStock(sId)
+          }
+        }
+
+        // 2. Yeni stok çıkışlarını yap
+        if (deductFromInventory && settleItems.length > 0) {
+          const stockInserts = settleItems.filter(it => it.stock_id).map(it => ({
+            stock_id: it.stock_id,
+            company_id: finalCompId,
+            tx_date: settleJobDate,
+            description: `[PARTNER-SETTLE:${editingSettlement.id}] 🤝 Çözüm Ortağı Malzemesi (${settleJobTitle.trim()}) - ${it.name}`,
+            tx_type: 'out',
+            quantity: it.quantity,
+            unit_price: it.unit_price,
+            currency: 'TRY',
+            vat_rate: 0
+          }))
+          if (stockInserts.length > 0) {
+            await supabase.from('stock_transactions').insert(stockInserts)
+            for (const it of settleItems) {
+              if (it.stock_id) {
+                await recalculateAbsoluteStock(it.stock_id)
+              }
+            }
+          }
+        }
+
         const { error } = await supabase.from('partner_settlements').update(payload).eq('id', editingSettlement.id)
         if (error) {
           console.error('Settlement update error:', error)
@@ -663,6 +847,30 @@ export default function PartnersPage() {
           ...payload,
           created_at: new Date().toISOString()
         }
+
+        // Stok Çıkışlarını Yap
+        if (deductFromInventory && settleItems.length > 0) {
+          const stockInserts = settleItems.filter(it => it.stock_id).map(it => ({
+            stock_id: it.stock_id,
+            company_id: finalCompId,
+            tx_date: settleJobDate,
+            description: `[PARTNER-SETTLE:${newId}] 🤝 Çözüm Ortağı Malzemesi (${settleJobTitle.trim()}) - ${it.name}`,
+            tx_type: 'out',
+            quantity: it.quantity,
+            unit_price: it.unit_price,
+            currency: 'TRY',
+            vat_rate: 0
+          }))
+          if (stockInserts.length > 0) {
+            await supabase.from('stock_transactions').insert(stockInserts)
+            for (const it of settleItems) {
+              if (it.stock_id) {
+                await recalculateAbsoluteStock(it.stock_id)
+              }
+            }
+          }
+        }
+
         const { error } = await supabase.from('partner_settlements').insert([newRecord])
         if (error) {
           console.error('Settlement insert error:', error)
@@ -683,6 +891,7 @@ export default function PartnersPage() {
       }
 
       await recalculateAbsolutePartnerBalance(settlePartnerId)
+      await fetchStocks()
       setIsSettlementModalOpen(false)
       fetchSettlements()
       fetchPartners()
@@ -695,12 +904,28 @@ export default function PartnersPage() {
     setConfirmDialog({
       isOpen: true,
       title: 'Hakediş Kaydını Sil',
-      message: `"${s.job_title}" işine ait hakediş kaydını silmek istediğinize emin misiniz? Ortağın bakiyesi bu tutar kadar azalacaktır.`,
+      message: `"${s.job_title}" işine ait hakediş kaydını silmek istediğinize emin misiniz? Ortağın bakiyesi bu tutar kadar azalacak ve depodan düşülen malzemeler stoğa geri iade edilecektir.`,
       confirmText: 'Evet, Sil',
       cancelText: 'Vazgeç',
       isDanger: true,
       onConfirm: async () => {
         setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+
+        // 1. İlgili stock_transactions temizliği ve stok mutlak iadesi
+        const { data: oldStockTxs } = await supabase
+          .from('stock_transactions')
+          .select('id, stock_id')
+          .like('description', `%[PARTNER-SETTLE:${s.id}]%`)
+
+        if (oldStockTxs && oldStockTxs.length > 0) {
+          const affected = new Set(oldStockTxs.map(t => t.stock_id))
+          await supabase.from('stock_transactions').delete().in('id', oldStockTxs.map(t => t.id))
+          for (const sId of Array.from(affected)) {
+            await recalculateAbsoluteStock(sId)
+          }
+          await fetchStocks()
+        }
+
         const { error } = await supabase.from('partner_settlements').delete().eq('id', s.id)
         if (error) {
           const updated = settlements.filter(item => item.id !== s.id)
@@ -709,12 +934,13 @@ export default function PartnersPage() {
         }
         await logActivity('partner_settlement', 'DELETE', `Hakediş silindi: ${s.job_title}`, s.id, s.partner_payout, 'TRY', s, null, s.company_id)
         await recalculateAbsolutePartnerBalance(s.partner_id)
-        toast.success('Hakediş kaydı silindi.')
+        toast.success('Hakediş kaydı ve kullanılan stoklar iade edilerek silindi.')
         fetchSettlements()
         fetchPartners()
       }
     })
   }
+
 
   // ==============================================================================
   // HAKEDİŞ ÖDEMESİ YAPMA (KASA / BANKA ÇIKIŞI)
@@ -866,6 +1092,10 @@ export default function PartnersPage() {
 
   function copyWhatsAppText(s: PartnerSettlement) {
     const partner = partners.find(p => p.id === s.partner_id)
+    const itemsText = s.items_breakdown && s.items_breakdown.length > 0
+      ? `\n📦 *Kullanılan Mağaza Malzemeleri:*\n` + s.items_breakdown.map(it => `  • ${it.quantity}x ${it.name} (${formatMoney(it.total, 'TRY').formatted})`).join('\n') + `\n`
+      : ''
+
     const text = `🤝 *İŞ HESAPLAŞMA PUSULASI*
 ----------------------------------------
 📌 *İş:* ${s.job_title}
@@ -875,7 +1105,7 @@ export default function PartnersPage() {
 📄 *Fatura No:* ${s.invoice_no || '-'}
 
 💰 *Fatura / Tahsilat Tutarı:* ${formatMoney(s.invoice_amount, 'TRY').formatted}
-(-) Mağaza Malzemeleri: ${formatMoney(s.material_cost_shop, 'TRY').formatted}
+(-) Mağaza Malzemeleri: ${formatMoney(s.material_cost_shop, 'TRY').formatted}${itemsText}
 (-) Dış Alış Malzemeleri: ${formatMoney(s.material_cost_external, 'TRY').formatted}
 (-) KDV / Vergi Payı (%${s.tax_rate}): ${formatMoney(s.tax_amount, 'TRY').formatted}
 (-) Servis / Şirket Payı: ${formatMoney(s.shop_profit_share, 'TRY').formatted}
@@ -1754,6 +1984,237 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                 </div>
               </div>
 
+              {/* DEPODAN KULLANILAN MALZEMELER (STOKTAN DÜŞÜM) */}
+              <div className="bg-gradient-to-r from-purple-950/30 via-slate-900/60 to-purple-950/30 p-3.5 rounded-xl border border-purple-500/30 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-purple-600/20 text-purple-400 border border-purple-500/30">
+                      <Package size={15} />
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-bold text-purple-300 uppercase tracking-wider block">
+                        Depodan Malzeme Seçimi (Stoktan Düşüm)
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        Mağaza deposundan verilen parçaları seçin; adetler stoktan otomatik düşülür ve tutarı faturadan kesilir.
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-purple-200 bg-purple-900/40 px-2.5 py-1 rounded-lg border border-purple-500/40 self-start sm:self-auto">
+                    <input
+                      type="checkbox"
+                      checked={deductFromInventory}
+                      onChange={(e) => setDeductFromInventory(e.target.checked)}
+                      className="rounded text-purple-600 focus:ring-0 focus:ring-offset-0 bg-slate-900 border-slate-700 w-3.5 h-3.5"
+                    />
+                    <span>Stoktan Otomatik Düş</span>
+                  </label>
+                </div>
+
+                {/* Parça Arama ve Ekleme Satırı */}
+                <div className="bg-[#070b14] p-2.5 rounded-xl border border-slate-800 space-y-2">
+                  {selectedStockId ? (
+                    (() => {
+                      const st = stocks.find(s => s.id === selectedStockId)
+                      return (
+                        <div className="flex items-center justify-between p-2 bg-purple-950/40 border border-purple-500/40 rounded-xl">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Package size={14} className="text-purple-400 shrink-0" />
+                            <div className="truncate">
+                              <span className="font-bold text-white text-xs block truncate">{st?.name}</span>
+                              <span className="text-[10px] text-slate-400">
+                                Mevcut Stok: <b className={(st?.quantity || 0) > 0 ? "text-emerald-400" : "text-rose-400"}>{st?.quantity || 0} Adet</b>
+                                {st?.sku && <span className="ml-1 text-slate-500 font-mono">({st.sku})</span>}
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedStockId('')
+                              setSelectedStockPrice('')
+                              setStockSearchQuery('')
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition cursor-pointer shrink-0"
+                            title="Farklı ürün seç"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      )
+                    })()
+                  ) : (
+                    <div className="relative" ref={stockDropdownRef}>
+                      <div className="relative">
+                        <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="🔍 Depodan Ürün / Malzeme Ara (İsim, Model, Barkod)..."
+                          value={stockSearchQuery}
+                          onChange={(e) => {
+                            setStockSearchQuery(e.target.value)
+                            setIsStockDropdownOpen(true)
+                          }}
+                          onFocus={() => setIsStockDropdownOpen(true)}
+                          className="w-full pl-8 pr-7 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-white text-[11px] placeholder:text-slate-500 focus:outline-none focus:border-purple-500"
+                        />
+                        {stockSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStockSearchQuery('')
+                              setIsStockDropdownOpen(false)
+                            }}
+                            className="absolute right-2.5 top-2 text-slate-500 hover:text-slate-300"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Dropdown Sonuçları */}
+                      {isStockDropdownOpen && (
+                        <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-[#0f172a] border border-purple-500/40 rounded-xl shadow-2xl overflow-hidden max-h-56 flex flex-col animate-in fade-in duration-100">
+                          <div className="p-1.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between text-[10px] text-purple-300 font-medium">
+                            <span>Depodaki Ürünler ({filteredStocks.length})</span>
+                            <span className="text-slate-500">Seçmek için tıklayın</span>
+                          </div>
+                          <div className="overflow-y-auto custom-scrollbar divide-y divide-slate-800/50">
+                            {filteredStocks.length === 0 ? (
+                              <div className="p-3 text-center text-slate-500 text-[11px]">
+                                Aramanıza uygun ürün bulunamadı.
+                              </div>
+                            ) : (
+                              filteredStocks.map((st) => {
+                                const tryVal = getTryPrice(st.unit_price, st.currency)
+                                return (
+                                  <button
+                                    key={st.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedStockId(st.id)
+                                      setSelectedStockPrice(tryVal.toString())
+                                      setIsStockDropdownOpen(false)
+                                      setStockSearchQuery('')
+                                    }}
+                                    className="w-full p-2 text-left hover:bg-purple-950/40 flex items-center justify-between gap-2 transition cursor-pointer group"
+                                  >
+                                    <div className="min-w-0">
+                                      <span className="font-medium text-slate-200 text-[11px] block truncate group-hover:text-purple-300">
+                                        {st.name}
+                                      </span>
+                                      <div className="flex items-center gap-1.5 text-[9px] text-slate-400 mt-0.5">
+                                        {st.sku && <span className="font-mono text-slate-500">Kod: {st.sku} •</span>}
+                                        {st.category && <span>{st.category} •</span>}
+                                        <span className={st.quantity > 0 ? "text-emerald-400 font-bold" : "text-rose-400"}>
+                                          {st.quantity > 0 ? `Stok: ${st.quantity} ad.` : 'Tükendi (0)'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <span className="font-mono font-bold text-white text-[11px] block">
+                                        {formatMoney(tryVal, 'TRY').formatted}
+                                      </span>
+                                      {st.currency && st.currency !== 'TRY' && (
+                                        <span className="font-mono text-[9px] text-slate-500 block">
+                                          {formatMoney(st.unit_price, st.currency).formatted}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </button>
+                                )
+                              })
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Adet, Fiyat ve Ekle Butonu */}
+                  <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] text-slate-400">Adet:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={selectedStockQty}
+                        onChange={(e) => setSelectedStockQty(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            handleAddStockItem()
+                          }
+                        }}
+                        className="w-14 px-2 py-1 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] font-mono text-center focus:outline-none focus:border-purple-500"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-1 flex-1 min-w-0">
+                      <span className="text-[10px] text-slate-400 shrink-0">Birim Fiyat ₺:</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={selectedStockPrice}
+                        onChange={(e) => setSelectedStockPrice(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            handleAddStockItem()
+                          }
+                        }}
+                        disabled={!selectedStockId}
+                        className="w-full px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-white text-[11px] font-mono text-right focus:outline-none focus:border-purple-500 disabled:opacity-40"
+                        title="Ortağa yansıtılacak kârlı birim fiyat"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleAddStockItem}
+                      disabled={!selectedStockId}
+                      className="px-3.5 py-1 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold text-[11px] rounded-lg transition shrink-0 cursor-pointer flex items-center gap-1 shadow-sm shadow-purple-600/30 active:scale-95"
+                    >
+                      <Plus size={12} />
+                      <span>Listeye Ekle</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Eklenen Malzemeler Tablosu / Listesi */}
+                {settleItems.length > 0 && (
+                  <div className="space-y-1.5 bg-[#070b14]/70 p-2.5 rounded-xl border border-slate-800">
+                    <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 px-1 border-b border-slate-800 pb-1">
+                      <span>Eklenen Ürünler ({settleItems.length})</span>
+                      <span>Toplam: <b className="text-purple-300 font-mono text-xs">{formatMoney(settleItems.reduce((s, it) => s + it.total, 0), 'TRY').formatted}</b></span>
+                    </div>
+                    <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
+                      {settleItems.map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between p-1.5 bg-slate-900/60 border border-slate-800 rounded-lg text-[11px]">
+                          <div className="flex items-center gap-2 truncate pr-2">
+                            <span className="text-slate-300 font-medium truncate">{item.name}</span>
+                            <span className="text-[10px] text-purple-400 font-mono">({item.quantity} ad. × {formatMoney(item.unit_price, 'TRY').formatted})</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="font-mono font-bold text-amber-300 text-xs">{formatMoney(item.total, 'TRY').formatted}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveStockItem(idx)}
+                              className="text-slate-500 hover:text-rose-400 p-0.5 rounded cursor-pointer transition"
+                              title="Listeden Kaldır"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Düşülecek Kalemler & Maliyetler */}
               <div className="bg-[#070b14] p-3 rounded-xl border border-slate-800 space-y-3">
                 <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider block">
@@ -1771,8 +2232,11 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                       onChange={(e) => setSettleMaterialShop(e.target.value)}
                       className="w-full bg-[#0d1322] border border-slate-700 rounded-lg px-2.5 py-1.5 text-amber-300 font-mono focus:outline-none"
                     />
-                    <span className="text-[9px] text-slate-500 block mt-0.5">Stoktan verilen kârlı bedel</span>
+                    <span className="text-[9px] text-slate-500 block mt-0.5">
+                      {settleItems.length > 0 ? "Depo listesinden otomatik hesaplandı" : "Stoktan verilen kârlı bedel"}
+                    </span>
                   </div>
+
 
                   <div>
                     <label className="block text-slate-400 mb-1 font-medium">Dış Alış Malzemeleri (₺)</label>
@@ -2094,11 +2558,28 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                     </td>
                   </tr>
                   {printSettlement.material_cost_shop > 0 && (
-                    <tr className="text-slate-600">
-                      <td className="py-1.5 font-sans">(-) Mağaza / Stok Malzemeleri</td>
-                      <td className="py-1.5 text-right">-{formatMoney(printSettlement.material_cost_shop, 'TRY').formatted}</td>
-                    </tr>
+                    <>
+                      <tr className="text-slate-600">
+                        <td className="py-1.5 font-sans">(-) Mağaza / Stok Malzemeleri</td>
+                        <td className="py-1.5 text-right">-{formatMoney(printSettlement.material_cost_shop, 'TRY').formatted}</td>
+                      </tr>
+                      {printSettlement.items_breakdown && printSettlement.items_breakdown.length > 0 && (
+                        <tr>
+                          <td colSpan={2} className="pb-2 pt-0.5">
+                            <div className="bg-slate-50 border border-slate-200 rounded p-1.5 space-y-0.5 text-[10px] text-slate-500 font-sans">
+                              {printSettlement.items_breakdown.map((it, idx) => (
+                                <div key={idx} className="flex justify-between">
+                                  <span>• {it.quantity}x {it.name} ({formatMoney(it.unit_price, 'TRY').formatted})</span>
+                                  <span className="font-mono">{formatMoney(it.total, 'TRY').formatted}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   )}
+
                   {printSettlement.material_cost_external > 0 && (
                     <tr className="text-slate-600">
                       <td className="py-1.5 font-sans">(-) Dış Alış Malzemeleri</td>
