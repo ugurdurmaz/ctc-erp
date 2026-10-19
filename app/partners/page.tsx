@@ -12,7 +12,8 @@ import {
   AlertTriangle, Printer, Share2, Trash2, Edit3, Wallet, Landmark, 
   Building2, User, FileText, Check, X, ChevronRight, Copy, ExternalLink, 
   Layers, ArrowDownRight, Sparkles, Calculator, ShieldAlert, Phone,
-  Mail, MessageSquare, ArrowRight, RefreshCw, Eye, ArrowUpRight, Package
+  Mail, MessageSquare, ArrowRight, RefreshCw, Eye, ArrowUpRight, Package,
+  ArrowDownLeft
 } from 'lucide-react'
 
 // ==============================================================================
@@ -196,6 +197,12 @@ export default function PartnersPage() {
   const [payoutDate, setPayoutDate] = useState(getLocalTodayISO())
   const [payoutSource, setPayoutSource] = useState('') // 'bank|<id>' veya 'cash|<id>'
   const [payoutDescription, setPayoutDescription] = useState('')
+
+  // Müşteri Fatura Tahsilat Modalı (Banka / Kasa Girişi)
+  const [isCollectionModalOpen, setIsCollectionModalOpen] = useState(false)
+  const [collectionSettlement, setCollectionSettlement] = useState<PartnerSettlement | null>(null)
+  const [collectionSource, setCollectionSource] = useState('none') // 'none' | 'bank|<id>' | 'cash|<id>'
+  const [collectionDate, setCollectionDate] = useState(getLocalTodayISO())
 
   // Makbuz / Pusula Modal
   const [printSettlement, setPrintSettlement] = useState<PartnerSettlement | null>(null)
@@ -853,6 +860,62 @@ export default function PartnersPage() {
           setIsSettlementModalOpen(false)
           return
         }
+
+        // Tahsilat durumuna göre hesap hareketlerini senkronize et
+        const colTransferKey = `PARTNER-COL-${editingSettlement.id}`
+        const { data: oldBTxs } = await supabase.from('bank_transactions').select('bank_account_id').eq('transfer_id', colTransferKey)
+        const { data: oldCTxs } = await supabase.from('cash_transactions').select('cash_register_id').eq('transfer_id', colTransferKey)
+        
+        await supabase.from('bank_transactions').delete().eq('transfer_id', colTransferKey)
+        await supabase.from('cash_transactions').delete().eq('transfer_id', colTransferKey)
+
+        if (oldBTxs) {
+          for (const b of oldBTxs) {
+            if (b.bank_account_id && b.bank_account_id !== colSourceId) await recalculateAbsoluteBankBalance(b.bank_account_id)
+          }
+        }
+        if (oldCTxs) {
+          for (const c of oldCTxs) {
+            if (c.cash_register_id && c.cash_register_id !== colSourceId) await recalculateAbsoluteCashBalance(c.cash_register_id)
+          }
+        }
+
+        if (settleCollectionStatus === 'collected' && colSourceType !== 'none' && colSourceId) {
+          const colTxDesc = `🤝 Müşteri Fatura Tahsilatı: ${settleJobTitle.trim()}${settleCustomerName ? ` (${settleCustomerName.trim()})` : ''}${settleInvoiceNo ? ` [Fat: #${settleInvoiceNo.trim()}]` : ''}`.trim()
+          if (colSourceType === 'bank') {
+            const bankRec = banks.find(b => b.id === colSourceId)
+            await supabase.from('bank_transactions').insert([{
+              bank_account_id: colSourceId,
+              company_id: finalCompId,
+              tx_date: settleJobDate,
+              description: colTxDesc,
+              tx_type: 'in',
+              amount: calc.invAmt,
+              currency: bankRec?.currency || 'TRY',
+              exchange_rate: 1,
+              is_transfer: true,
+              status: 'completed',
+              transfer_id: colTransferKey
+            }])
+            await recalculateAbsoluteBankBalance(colSourceId)
+          } else if (colSourceType === 'cash') {
+            const cashRec = cashes.find(c => c.id === colSourceId)
+            await supabase.from('cash_transactions').insert([{
+              cash_register_id: colSourceId,
+              company_id: finalCompId,
+              tx_date: settleJobDate,
+              description: colTxDesc,
+              tx_type: 'in',
+              amount: calc.invAmt,
+              currency: cashRec?.currency || 'TRY',
+              exchange_rate: 1,
+              is_transfer: true,
+              transfer_id: colTransferKey
+            }])
+            await recalculateAbsoluteCashBalance(colSourceId)
+          }
+        }
+
         await logActivity('partner_settlement', 'UPDATE', `Hakediş hesaplaşması güncellendi: ${payload.job_title}`, editingSettlement.id, calc.partnerPayout, 'TRY', editingSettlement, payload, finalCompId)
         toast.success('Hakediş kaydı güncellendi.')
       } else {
@@ -909,12 +972,52 @@ export default function PartnersPage() {
           setIsSettlementModalOpen(false)
           return
         }
+
+        // Eğer tahsilat durumu 'collected' ve bir banka/kasa hesabı seçilmişse, para girişini oluştur
+        if (settleCollectionStatus === 'collected' && colSourceType !== 'none' && colSourceId) {
+          const colTransferKey = `PARTNER-COL-${newId}`
+          const colTxDesc = `🤝 Müşteri Fatura Tahsilatı: ${settleJobTitle.trim()}${settleCustomerName ? ` (${settleCustomerName.trim()})` : ''}${settleInvoiceNo ? ` [Fat: #${settleInvoiceNo.trim()}]` : ''}`.trim()
+          if (colSourceType === 'bank') {
+            const bankRec = banks.find(b => b.id === colSourceId)
+            await supabase.from('bank_transactions').insert([{
+              bank_account_id: colSourceId,
+              company_id: finalCompId,
+              tx_date: settleJobDate,
+              description: colTxDesc,
+              tx_type: 'in',
+              amount: calc.invAmt,
+              currency: bankRec?.currency || 'TRY',
+              exchange_rate: 1,
+              is_transfer: true,
+              status: 'completed',
+              transfer_id: colTransferKey
+            }])
+            await recalculateAbsoluteBankBalance(colSourceId)
+          } else if (colSourceType === 'cash') {
+            const cashRec = cashes.find(c => c.id === colSourceId)
+            await supabase.from('cash_transactions').insert([{
+              cash_register_id: colSourceId,
+              company_id: finalCompId,
+              tx_date: settleJobDate,
+              description: colTxDesc,
+              tx_type: 'in',
+              amount: calc.invAmt,
+              currency: cashRec?.currency || 'TRY',
+              exchange_rate: 1,
+              is_transfer: true,
+              transfer_id: colTransferKey
+            }])
+            await recalculateAbsoluteCashBalance(colSourceId)
+          }
+        }
+
         await logActivity('partner_settlement', 'INSERT', `Yeni hakediş hesaplaşması: ${payload.job_title} (Net: ${calc.partnerPayout} ₺)`, newId, calc.partnerPayout, 'TRY', null, newRecord, finalCompId)
         toast.success('Hakediş hesaplaşması başarıyla kaydedildi.')
       }
 
       await recalculateAbsolutePartnerBalance(settlePartnerId)
       await fetchStocks()
+      await fetchPaymentSources()
       setIsSettlementModalOpen(false)
       fetchSettlements()
       fetchPartners()
@@ -923,28 +1026,179 @@ export default function PartnersPage() {
     }
   }
 
-  async function handleToggleCollectionStatus(s: PartnerSettlement) {
-    const newStatus: 'collected' | 'pending' = s.collection_status === 'collected' ? 'pending' : 'collected'
+  function handleCollectionButtonClick(s: PartnerSettlement) {
+    if (s.collection_status === 'pending') {
+      handleOpenCollectionModal(s)
+    } else {
+      setConfirmDialog({
+        isOpen: true,
+        title: 'Tahsilat Durumunu Geri Al',
+        message: `"${s.job_title}" işinin tahsilat durumunu 'Tahsilat Bekliyor' olarak değiştirmek istiyor musunuz? Varsa bu faturaya bağlı banka/kasa para girişi de hesaptan kaldırılacaktır.`,
+        confirmText: 'Evet, Geri Al',
+        cancelText: 'Vazgeç',
+        isDanger: false,
+        onConfirm: async () => {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+          await handleRevertCollection(s)
+        }
+      })
+    }
+  }
 
-    // Veritabanını güncelle
-    const { error } = await supabase.from('partner_settlements').update({
-      collection_status: newStatus,
+  function handleOpenCollectionModal(s: PartnerSettlement) {
+    setCollectionSettlement(s)
+    setCollectionDate(getLocalTodayISO())
+    setCollectionSource(
+      s.collection_source_type && s.collection_source_id && s.collection_source_type !== 'none'
+        ? `${s.collection_source_type}|${s.collection_source_id}`
+        : 'none'
+    )
+    setIsCollectionModalOpen(true)
+  }
+
+  async function handleRevertCollection(s: PartnerSettlement) {
+    const colTransferKey = `PARTNER-COL-${s.id}`
+    const { data: bTxs } = await supabase.from('bank_transactions').select('bank_account_id').eq('transfer_id', colTransferKey)
+    const { data: cTxs } = await supabase.from('cash_transactions').select('cash_register_id').eq('transfer_id', colTransferKey)
+
+    await supabase.from('bank_transactions').delete().eq('transfer_id', colTransferKey)
+    await supabase.from('cash_transactions').delete().eq('transfer_id', colTransferKey)
+
+    if (bTxs) {
+      for (const b of bTxs) {
+        if (b.bank_account_id) await recalculateAbsoluteBankBalance(b.bank_account_id)
+      }
+    }
+    if (cTxs) {
+      for (const c of cTxs) {
+        if (c.cash_register_id) await recalculateAbsoluteCashBalance(c.cash_register_id)
+      }
+    }
+
+    const updatePayload = {
+      collection_status: 'pending' as const,
+      collection_source_type: 'none' as const,
+      collection_source_id: null,
       updated_at: new Date().toISOString()
-    }).eq('id', s.id)
+    }
 
-    // Yerel state ve önbelleği güncelle
-    const updated = settlements.map(item => item.id === s.id ? { ...item, collection_status: newStatus } : item)
+    const { error } = await supabase.from('partner_settlements').update(updatePayload).eq('id', s.id)
+    if (error) {
+      console.warn('Revert collection status warning:', error)
+    }
+
+    const updated = settlements.map(item => item.id === s.id ? { ...item, ...updatePayload } : item)
     setSettlements(updated)
     localStorage.setItem('ctc_partner_settlements_cache', JSON.stringify(updated))
 
-    if (error) {
-      console.warn('Collection status update warning:', error)
+    await logActivity('partner_settlement', 'UPDATE', `Müşteri tahsilat durumu geri alındı: ${s.job_title}`, s.id, s.invoice_amount, 'TRY', s, updatePayload, s.company_id)
+
+    toast('Tahsilat durumu bekliyor olarak güncellendi ve hesap hareketi kaldırıldı.', { icon: '⏳' })
+    fetchSettlements()
+    fetchPaymentSources()
+  }
+
+  async function handleExecuteCollection(e: React.FormEvent) {
+    e.preventDefault()
+    if (!collectionSettlement) return
+
+    const s = collectionSettlement
+    const invAmt = Number(s.invoice_amount) || 0
+    const finalCompId = s.company_id || (isRestricted && companies.length > 0 ? companies[0].id : null)
+    const colTransferKey = `PARTNER-COL-${s.id}`
+
+    let sourceType: 'bank' | 'cash' | 'none' = 'none'
+    let sourceId: string | null = null
+
+    if (collectionSource && collectionSource !== 'none') {
+      const parts = collectionSource.split('|')
+      sourceType = parts[0] as 'bank' | 'cash'
+      sourceId = parts[1]
     }
 
-    if (newStatus === 'collected') {
-      toast.success('Müşteri faturası tahsil edildi olarak işaretlendi! ✅')
-    } else {
-      toast('Tahsilat bekliyor durumuna alındı.', { icon: '⏳' })
+    try {
+      // Önceki transfer hareketlerini temizle (mükerrerliği önlemek için)
+      const { data: oldBTxs } = await supabase.from('bank_transactions').select('bank_account_id').eq('transfer_id', colTransferKey)
+      const { data: oldCTxs } = await supabase.from('cash_transactions').select('cash_register_id').eq('transfer_id', colTransferKey)
+      await supabase.from('bank_transactions').delete().eq('transfer_id', colTransferKey)
+      await supabase.from('cash_transactions').delete().eq('transfer_id', colTransferKey)
+
+      if (oldBTxs) {
+        for (const b of oldBTxs) {
+          if (b.bank_account_id && b.bank_account_id !== sourceId) await recalculateAbsoluteBankBalance(b.bank_account_id)
+        }
+      }
+      if (oldCTxs) {
+        for (const c of oldCTxs) {
+          if (c.cash_register_id && c.cash_register_id !== sourceId) await recalculateAbsoluteCashBalance(c.cash_register_id)
+        }
+      }
+
+      const colTxDesc = `🤝 Müşteri Fatura Tahsilatı: ${s.job_title}${s.customer_name ? ` (${s.customer_name})` : ''}${s.invoice_no ? ` [Fat: #${s.invoice_no}]` : ''}`.trim()
+
+      if (sourceType === 'bank' && sourceId) {
+        const bankRec = banks.find(b => b.id === sourceId)
+        await supabase.from('bank_transactions').insert([{
+          bank_account_id: sourceId,
+          company_id: finalCompId,
+          tx_date: collectionDate,
+          description: colTxDesc,
+          tx_type: 'in',
+          amount: invAmt,
+          currency: bankRec?.currency || 'TRY',
+          exchange_rate: 1,
+          is_transfer: true,
+          status: 'completed',
+          transfer_id: colTransferKey
+        }])
+        await recalculateAbsoluteBankBalance(sourceId)
+      } else if (sourceType === 'cash' && sourceId) {
+        const cashRec = cashes.find(c => c.id === sourceId)
+        await supabase.from('cash_transactions').insert([{
+          cash_register_id: sourceId,
+          company_id: finalCompId,
+          tx_date: collectionDate,
+          description: colTxDesc,
+          tx_type: 'in',
+          amount: invAmt,
+          currency: cashRec?.currency || 'TRY',
+          exchange_rate: 1,
+          is_transfer: true,
+          transfer_id: colTransferKey
+        }])
+        await recalculateAbsoluteCashBalance(sourceId)
+      }
+
+      // Hakediş kaydını güncelle
+      const updatePayload = {
+        collection_status: 'collected' as const,
+        collection_source_type: sourceType,
+        collection_source_id: sourceId,
+        updated_at: new Date().toISOString()
+      }
+
+      const { error } = await supabase.from('partner_settlements').update(updatePayload).eq('id', s.id)
+      if (error) {
+        console.warn('Settlement collection update error:', error)
+      }
+
+      const updated = settlements.map(item => item.id === s.id ? { ...item, ...updatePayload } : item)
+      setSettlements(updated)
+      localStorage.setItem('ctc_partner_settlements_cache', JSON.stringify(updated))
+
+      await logActivity('partner_settlement', 'UPDATE', `Müşteri faturası tahsil edildi: ${s.job_title} (${formatMoney(invAmt, 'TRY').formatted})`, s.id, invAmt, 'TRY', s, updatePayload, finalCompId)
+
+      toast.success(
+        sourceType !== 'none'
+          ? 'Müşteri faturası tahsil edildi ve seçilen hesaba para girişi kaydedildi! 💰'
+          : 'Müşteri faturası tahsil edildi olarak işaretlendi! ✅'
+      )
+
+      setIsCollectionModalOpen(false)
+      fetchSettlements()
+      fetchPaymentSources()
+    } catch (err: any) {
+      toast.error('Tahsilat işlemi sırasında hata oluştu: ' + err.message)
     }
   }
 
@@ -952,14 +1206,31 @@ export default function PartnersPage() {
     setConfirmDialog({
       isOpen: true,
       title: 'Hakediş Kaydını Sil',
-      message: `"${s.job_title}" işine ait hakediş kaydını silmek istediğinize emin misiniz? Ortağın bakiyesi bu tutar kadar azalacak ve depodan düşülen malzemeler stoğa geri iade edilecektir.`,
+      message: `"${s.job_title}" işine ait hakediş kaydını silmek istediğinize emin misiniz? Ortağın bakiyesi bu tutar kadar azalacak, depodan düşülen malzemeler stoğa iade edilecek ve varsa banka/kasaya işlenmiş fatura tahsilatı kaldırılacaktır.`,
       confirmText: 'Evet, Sil',
       cancelText: 'Vazgeç',
       isDanger: true,
       onConfirm: async () => {
         setConfirmDialog(prev => ({ ...prev, isOpen: false }))
 
-        // 1. İlgili stock_transactions temizliği ve stok mutlak iadesi
+        // 1. Varsa bu faturaya bağlı banka / kasa tahsilat hareketlerini temizle
+        const colTransferId = `PARTNER-COL-${s.id}`
+        const { data: bTxs } = await supabase.from('bank_transactions').select('id, bank_account_id').eq('transfer_id', colTransferId)
+        if (bTxs && bTxs.length > 0) {
+          await supabase.from('bank_transactions').delete().eq('transfer_id', colTransferId)
+          for (const bt of bTxs) {
+            if (bt.bank_account_id) await recalculateAbsoluteBankBalance(bt.bank_account_id)
+          }
+        }
+        const { data: cTxs } = await supabase.from('cash_transactions').select('id, cash_register_id').eq('transfer_id', colTransferId)
+        if (cTxs && cTxs.length > 0) {
+          await supabase.from('cash_transactions').delete().eq('transfer_id', colTransferId)
+          for (const ct of cTxs) {
+            if (ct.cash_register_id) await recalculateAbsoluteCashBalance(ct.cash_register_id)
+          }
+        }
+
+        // 2. İlgili stock_transactions temizliği ve stok mutlak iadesi
         const { data: oldStockTxs } = await supabase
           .from('stock_transactions')
           .select('id, stock_id')
@@ -985,6 +1256,7 @@ export default function PartnersPage() {
         toast.success('Hakediş kaydı ve kullanılan stoklar iade edilerek silindi.')
         fetchSettlements()
         fetchPartners()
+        fetchPaymentSources()
       }
     })
   }
@@ -1625,18 +1897,28 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                                   {/* Müşteri Tahsilat Durumu & Hızlı Değiştirme Butonu */}
                                   <button
                                     type="button"
-                                    onClick={() => handleToggleCollectionStatus(s)}
-                                    className={`inline-flex items-center gap-1 text-[9px] font-semibold px-2 py-0.5 rounded-md cursor-pointer transition select-none ${
+                                    onClick={() => handleCollectionButtonClick(s)}
+                                    className={`inline-flex items-center gap-1.5 text-[9px] font-semibold px-2 py-0.5 rounded-md cursor-pointer transition select-none ${
                                       s.collection_status === 'collected'
                                         ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-700/50 hover:bg-emerald-900/60'
                                         : 'bg-amber-950/60 text-amber-300 border border-amber-600/60 hover:bg-amber-900/60 hover:border-amber-500 animate-pulse hover:animate-none'
                                     }`}
-                                    title={s.collection_status === 'collected' ? "Fatura tahsil edildi (Durumu değiştirmek için tıklayın)" : "Müşteri ödediyse 'Tahsil Edildi' yapmak için tıklayın"}
+                                    title={s.collection_status === 'collected' ? "Fatura tahsil edildi (Durumu geri almak için tıklayın)" : "Müşteri ödediyse tıklayarak Banka/Kasaya para girişini kaydedin"}
                                   >
                                     {s.collection_status === 'collected' ? (
                                       <>
                                         <CheckCircle2 size={10} className="text-emerald-400 shrink-0" />
                                         <span>Fatura Tahsil Edildi</span>
+                                        {s.collection_source_type === 'bank' && (
+                                          <span className="text-[8px] bg-emerald-900/80 px-1 py-0.2 rounded text-emerald-200 font-mono">
+                                            🏦 Banka
+                                          </span>
+                                        )}
+                                        {s.collection_source_type === 'cash' && (
+                                          <span className="text-[8px] bg-emerald-900/80 px-1 py-0.2 rounded text-emerald-200 font-mono">
+                                            💵 Kasa
+                                          </span>
+                                        )}
                                       </>
                                     ) : (
                                       <>
@@ -1992,43 +2274,90 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
               </div>
 
               {/* Fatura & Tahsilat Bilgisi */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-indigo-950/20 p-3 rounded-xl border border-indigo-900/40">
-                <div>
-                  <label className="block text-indigo-300 mb-1 font-bold">Müşteri Fatura Tutarı (₺) *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    placeholder="0.00"
-                    value={settleInvoiceAmount}
-                    onChange={(e) => setSettleInvoiceAmount(e.target.value)}
-                    className="w-full bg-[#070b14] border border-indigo-500/50 rounded-lg px-3 py-2 text-indigo-300 font-black font-mono focus:outline-none focus:border-indigo-400 text-sm"
-                  />
-                  <span className="text-[9px] text-slate-400 block mt-0.5">Müşteriye kesilen KDV dahil ciro</span>
+              <div className="bg-indigo-950/20 p-3 rounded-xl border border-indigo-900/40 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-indigo-300 mb-1 font-bold">Müşteri Fatura Tutarı (₺) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="0.00"
+                      value={settleInvoiceAmount}
+                      onChange={(e) => setSettleInvoiceAmount(e.target.value)}
+                      className="w-full bg-[#070b14] border border-indigo-500/50 rounded-lg px-3 py-2 text-indigo-300 font-black font-mono focus:outline-none focus:border-indigo-400 text-sm"
+                    />
+                    <span className="text-[9px] text-slate-400 block mt-0.5">Müşteriye kesilen KDV dahil ciro</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-medium">Fatura No</label>
+                    <input
+                      type="text"
+                      placeholder="GİB2026000001"
+                      value={settleInvoiceNo}
+                      onChange={(e) => setSettleInvoiceNo(e.target.value)}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-medium">Tahsilat Durumu</label>
+                    <select
+                      value={settleCollectionStatus}
+                      onChange={(e) => setSettleCollectionStatus(e.target.value as any)}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-2.5 py-2 text-white focus:outline-none"
+                    >
+                      <option value="collected">✅ Tahsil Edildi (Hesapta/Kasada)</option>
+                      <option value="pending">⏳ Müşteri Ödemesi Bekleniyor</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Fatura No</label>
-                  <input
-                    type="text"
-                    placeholder="GİB2026000001"
-                    value={settleInvoiceNo}
-                    onChange={(e) => setSettleInvoiceNo(e.target.value)}
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Tahsilat Durumu</label>
-                  <select
-                    value={settleCollectionStatus}
-                    onChange={(e) => setSettleCollectionStatus(e.target.value as any)}
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-2.5 py-2 text-white focus:outline-none"
-                  >
-                    <option value="collected">✅ Tahsil Edildi (Hesapta/Kasada)</option>
-                    <option value="pending">⏳ Müşteri Ödemesi Bekleniyor</option>
-                  </select>
-                </div>
+                {/* Eğer Tahsil Edildi seçildiyse: Giriş Yapılan Kasa / Banka */}
+                {settleCollectionStatus === 'collected' && (
+                  <div className="pt-2 border-t border-indigo-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#070b14]/50 p-2.5 rounded-lg border border-slate-800">
+                    <div className="flex-1">
+                      <label className="block text-indigo-300 font-medium text-[11px] mb-1">
+                        Tahsilatın Giriş Yapıldığı Hesap / Kasa
+                      </label>
+                      <select
+                        value={settleCollectionSource}
+                        onChange={(e) => setSettleCollectionSource(e.target.value)}
+                        className="w-full bg-[#0a0f1d] border border-indigo-500/40 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-400 transition-colors"
+                      >
+                        <option value="">⚡ Sadece Durumu Belirt (Hesap Hareketi Ekleme)</option>
+                        {banks.length > 0 && (
+                          <optgroup label="🏦 Banka Hesapları">
+                            {banks.map(b => (
+                              <option key={`bank|${b.id}`} value={`bank|${b.id}`}>
+                                {b.bank_name} - {b.account_name} ({formatMoney(b.balance, b.currency).formatted})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {cashes.length > 0 && (
+                          <optgroup label="💵 Kasalar">
+                            {cashes.map(c => (
+                              <option key={`cash|${c.id}`} value={`cash|${c.id}`}>
+                                {c.name} ({formatMoney(c.balance, c.currency).formatted})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    </div>
+                    {settleCollectionSource ? (
+                      <span className="text-[10px] text-emerald-400 font-medium sm:max-w-[220px] self-center">
+                        ✓ Kaydedildiğinde bu hesaba {formatMoney(liveSettlementCalc.invAmt, 'TRY').formatted} gelir işlenecektir.
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-500 sm:max-w-[220px] self-center">
+                        (Ekstre ile içeri aktarma yapıyorsanız hesap hareketi eklenmez)
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* DEPODAN KULLANILAN MALZEMELER (STOKTAN DÜŞÜM) */}
@@ -2583,6 +2912,143 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                   className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-emerald-950/40"
                 >
                   Ödemeyi Onayla & Düş
+                </button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* --- MODAL: MÜŞTERİ FATURA TAHSİLATI (BANKA / KASA GİRİŞİ) --- */}
+      {/* ========================================================================= */}
+      {isCollectionModalOpen && collectionSettlement && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-md p-5 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col">
+            
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                  <ArrowDownLeft size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Müşteri Fatura Tahsilatı</h3>
+                  <p className="text-[10px] text-slate-400">
+                    Faturanın tahsil edildiğini onaylayın ve seçtiğiniz hesaba tek tıkla işleyin.
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setIsCollectionModalOpen(false)} className="text-slate-400 hover:text-white p-1">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleExecuteCollection} className="space-y-3.5 text-xs">
+              
+              {/* İş & Fatura Özeti */}
+              <div className="bg-[#070b14] p-3 rounded-xl border border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold block">İş / Proje</span>
+                  <span className="text-[10px] text-indigo-400 font-mono">
+                    {formatDateTR(collectionSettlement.job_date)}
+                  </span>
+                </div>
+                <div className="text-xs font-bold text-white truncate">
+                  {collectionSettlement.job_title}
+                </div>
+                <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/80 text-[11px]">
+                  <span className="text-slate-400 truncate max-w-[200px]">
+                    {collectionSettlement.customer_name ? `Müşteri: ${collectionSettlement.customer_name}` : 'Müşteri Belirtilmedi'}
+                    {collectionSettlement.invoice_no ? ` (#${collectionSettlement.invoice_no})` : ''}
+                  </span>
+                  <div className="text-right">
+                    <span className="text-[9px] text-slate-500 block uppercase">Fatura Tutarı</span>
+                    <span className="text-sm font-black font-mono text-emerald-400">
+                      {formatMoney(collectionSettlement.invoice_amount, 'TRY').formatted}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tahsilat Tarihi */}
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Tahsilat Tarihi *</label>
+                <input
+                  type="date"
+                  required
+                  value={collectionDate}
+                  onChange={(e) => setCollectionDate(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
+
+              {/* Giriş Yapılacak Hesap / Kasa */}
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">
+                  Tahsilat Nereye Giriş Yapıldı? *
+                </label>
+                <select
+                  value={collectionSource}
+                  onChange={(e) => setCollectionSource(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                >
+                  <option value="none">⚡ Sadece Durumu Değiştir (Banka / Kasa Hareketi Ekleme)</option>
+                  {banks.length > 0 && (
+                    <optgroup label="🏦 Banka Hesapları">
+                      {banks.map(b => (
+                        <option key={`bank|${b.id}`} value={`bank|${b.id}`}>
+                          {b.bank_name} - {b.account_name} (Bakiye: {formatMoney(b.balance, b.currency).formatted})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {cashes.length > 0 && (
+                    <optgroup label="💵 Kasalar">
+                      {cashes.map(c => (
+                        <option key={`cash|${c.id}`} value={`cash|${c.id}`}>
+                          {c.name} (Bakiye: {formatMoney(c.balance, c.currency).formatted})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+
+              {/* Dinamik Bilgi Kutusu */}
+              {collectionSource && collectionSource !== 'none' ? (
+                <div className="bg-emerald-950/30 border border-emerald-600/30 p-2.5 rounded-xl text-[11px] text-emerald-300 flex items-start gap-2">
+                  <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span>
+                      Bu işlem onaylandığında seçilen hesaba <strong>{formatMoney(collectionSettlement.invoice_amount, 'TRY').formatted}</strong> tutarında para girişi işlenecek ve hesap bakiyesi anında artacaktır.
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-xl text-[10px] text-slate-400 flex items-start gap-2">
+                  <Clock size={15} className="text-amber-400 shrink-0 mt-0.5" />
+                  <span>
+                    Banka ekstrenizi Excel/CSV ile içeri aktarıyorsanız veya hesaba önceden manuel işlediyseniz mükerrer kayıt oluşmaması için "Sadece Durumu Değiştir" seçebilirsiniz.
+                  </span>
+                </div>
+              )}
+
+              {/* Butonlar */}
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCollectionModalOpen(false)}
+                  className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-emerald-950/40 cursor-pointer active:scale-95"
+                >
+                  Tahsilatı Kaydet ✓
                 </button>
               </div>
 
