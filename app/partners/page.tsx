@@ -1427,7 +1427,7 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                       </div>
                       <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
                         {p.phone && <span className="flex items-center gap-0.5"><Phone size={9} /> {formatPhoneNumber(p.phone)}</span>}
-                        <span>• %{p.default_tax_rate} KDV</span>
+                        {p.email && <span>• {p.email}</span>}
                       </div>
                     </div>
 
@@ -1478,7 +1478,8 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                     </div>
                     <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-0.5">
                       {selectedPartner.phone && <span>📞 {formatPhoneNumber(selectedPartner.phone)}</span>}
-                      <span>📊 Varsayılan Vergi Kesintisi: %{selectedPartner.default_tax_rate}</span>
+                      {selectedPartner.email && <span>✉️ {selectedPartner.email}</span>}
+                      {selectedPartner.company && <span>🏢 {selectedPartner.company.name}</span>}
                     </div>
                   </div>
                 </div>
@@ -1793,30 +1794,16 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1 font-medium">Varsayılan KDV / Vergi (%)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={partnerTaxRate}
-                    onChange={(e) => setPartnerTaxRate(e.target.value)}
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors font-mono"
-                  />
-                  <span className="text-[9px] text-slate-500 mt-0.5 block">Faturadan düşülecek vergi</span>
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 mb-1 font-medium">İlgili Şirket / Merkez</label>
-                  <select
-                    value={partnerCompanyId}
-                    onChange={(e) => setPartnerCompanyId(e.target.value)}
-                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                  >
-                    {!isRestricted && <option value="common">Ortak / Bağımsız</option>}
-                    {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">İlgili Şirket / Merkez</label>
+                <select
+                  value={partnerCompanyId}
+                  onChange={(e) => setPartnerCompanyId(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                >
+                  {!isRestricted && <option value="common">Ortak / Bağımsız (Tüm Şirketler)</option>}
+                  {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
               </div>
 
               <div>
@@ -2322,15 +2309,13 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                         <button
                           type="button"
                           onClick={() => {
-                            const p = partners.find(item => item.id === settlePartnerId)
-                            const rate = p?.default_tax_rate ?? 20
-                            const autoKdv = Number(((liveSettlementCalc.invAmt * rate) / 100).toFixed(2))
+                            const autoKdv = Number(((liveSettlementCalc.invAmt * 20) / 100).toFixed(2))
                             setSettleTaxAmount(autoKdv.toString())
                           }}
                           className="text-purple-400 hover:text-purple-300 hover:underline cursor-pointer"
-                          title="Standart KDV tutarını hesapla"
+                          title="Standart %20 KDV tutarını hesapla"
                         >
-                          %{partners.find(item => item.id === settlePartnerId)?.default_tax_rate ?? 20} KDV Hesapla
+                          %20 KDV Hesapla
                         </button>
                       )}
                     </div>
