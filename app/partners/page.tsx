@@ -334,7 +334,7 @@ export default function PartnersPage() {
     if (data && data.length > 0) {
       setPartners(data)
       localStorage.setItem('ctc_partners_cache', JSON.stringify(data))
-      if (!selectedPartnerId) {
+      if (!selectedPartnerId || !data.some(p => p.id === selectedPartnerId)) {
         setSelectedPartnerId(data[0].id)
       }
     } else {
@@ -1279,9 +1279,16 @@ export default function PartnersPage() {
       setPayoutAmount(settlement.remaining_payout > 0 ? settlement.remaining_payout.toString() : settlement.partner_payout.toString())
       setPayoutDescription(`Hakediş Ödemesi: ${settlement.job_title}`)
     } else {
-      setPayoutSettlementId('')
-      setPayoutAmount(targetPartner.balance > 0 ? targetPartner.balance.toString() : '')
-      setPayoutDescription(`Çözüm Ortağı Hakediş Ödemesi - ${targetPartner.name}`)
+      const unpaidSettlements = settlements.filter(s => s.partner_id === targetPid && s.payout_status !== 'paid')
+      if (unpaidSettlements.length === 1) {
+        setPayoutSettlementId(unpaidSettlements[0].id)
+        setPayoutAmount(unpaidSettlements[0].remaining_payout > 0 ? unpaidSettlements[0].remaining_payout.toString() : unpaidSettlements[0].partner_payout.toString())
+        setPayoutDescription(`Hakediş Ödemesi: ${unpaidSettlements[0].job_title}`)
+      } else {
+        setPayoutSettlementId('')
+        setPayoutAmount(targetPartner.balance > 0 ? targetPartner.balance.toString() : '')
+        setPayoutDescription(`Çözüm Ortağı Hakediş Ödemesi - ${targetPartner.name}`)
+      }
     }
     setPayoutDate(getLocalTodayISO())
     setPayoutSource('')
@@ -1311,6 +1318,57 @@ export default function PartnersPage() {
     const finalCompId = partner.company_id || (isRestricted && companies.length > 0 ? companies[0].id : null)
 
     try {
+      // 0. Partner veya Settlement Supabase'de yoksa önceden oluştur (Foreign Key koruması)
+      const { data: dbPartner } = await supabase.from('partners').select('id').eq('id', payoutPartnerId).maybeSingle()
+      if (!dbPartner) {
+        await supabase.from('partners').upsert([{
+          id: partner.id,
+          name: partner.name,
+          phone: partner.phone || null,
+          email: partner.email || null,
+          company_id: partner.company_id || null,
+          default_tax_rate: partner.default_tax_rate || 20,
+          default_commission_rate: partner.default_commission_rate || 0,
+          balance: partner.balance || 0,
+          notes: partner.notes || null
+        }])
+      }
+
+      if (payoutSettlementId) {
+        const targetSettlement = settlements.find(s => s.id === payoutSettlementId)
+        if (targetSettlement) {
+          const { data: dbSettle } = await supabase.from('partner_settlements').select('id').eq('id', payoutSettlementId).maybeSingle()
+          if (!dbSettle) {
+            await supabase.from('partner_settlements').upsert([{
+              id: targetSettlement.id,
+              partner_id: targetSettlement.partner_id,
+              company_id: targetSettlement.company_id || null,
+              job_title: targetSettlement.job_title,
+              job_date: targetSettlement.job_date,
+              job_type: targetSettlement.job_type,
+              customer_name: targetSettlement.customer_name || null,
+              invoice_no: targetSettlement.invoice_no || null,
+              invoice_amount: targetSettlement.invoice_amount,
+              collection_status: targetSettlement.collection_status,
+              collection_source_type: targetSettlement.collection_source_type || 'none',
+              collection_source_id: targetSettlement.collection_source_id || null,
+              material_cost_shop: targetSettlement.material_cost_shop,
+              material_cost_external: targetSettlement.material_cost_external,
+              tax_rate: targetSettlement.tax_rate,
+              tax_amount: targetSettlement.tax_amount,
+              shop_profit_share: targetSettlement.shop_profit_share,
+              other_expenses: targetSettlement.other_expenses,
+              partner_payout: targetSettlement.partner_payout,
+              payout_status: targetSettlement.payout_status,
+              paid_amount: targetSettlement.paid_amount,
+              remaining_payout: targetSettlement.remaining_payout,
+              items_breakdown: targetSettlement.items_breakdown || [],
+              notes: targetSettlement.notes || null
+            }])
+          }
+        }
+      }
+
       // 1. Partner Transaction tablosuna yaz
       const partnerTx: PartnerTransaction = {
         id: payoutTxId,
@@ -1329,14 +1387,14 @@ export default function PartnersPage() {
       const { error: txErr } = await supabase.from('partner_transactions').insert([partnerTx])
       if (txErr) {
         console.error('Partner transaction error:', txErr)
-        if (txErr.code === '42501' || txErr.message?.toLowerCase().includes('row-level security') || txErr.message?.toLowerCase().includes('violates')) {
+        if (txErr.code === '42501' || txErr.message?.toLowerCase().includes('row-level security')) {
           setIsRlsRestricted(true)
           toast.error('Supabase RLS kuralı nedeniyle ödeme hareketi veritabanına yazılamadı! Lütfen izin kodunu çalıştırın.', { duration: 8000 })
         }
-        const updatedTxs = [partnerTx, ...transactions]
-        setTransactions(updatedTxs)
-        localStorage.setItem('ctc_partner_txs_cache', JSON.stringify(updatedTxs))
       }
+      const updatedTxs = [partnerTx, ...transactions]
+      setTransactions(updatedTxs)
+      localStorage.setItem('ctc_partner_txs_cache', JSON.stringify(updatedTxs))
 
       // 2. Kasa veya Banka Hesabından Parayı Düş
       if (sourceType === 'cash') {
@@ -1372,26 +1430,43 @@ export default function PartnersPage() {
         await recalculateAbsoluteBankBalance(sourceId)
       }
 
-      // 3. Varsa ilgili hakediş kaydındaki paid_amount güncelle
-      if (payoutSettlementId) {
-        const st = settlements.find(s => s.id === payoutSettlementId)
-        if (st) {
-          const newPaid = (st.paid_amount || 0) + amt
-          const newRem = Math.max(0, st.partner_payout - newPaid)
-          const newStatus: 'unpaid' | 'partial' | 'paid' = newRem === 0 ? 'paid' : 'partial'
-          await supabase.from('partner_settlements').update({
-            paid_amount: newPaid,
-            remaining_payout: newRem,
-            payout_status: newStatus
-          }).eq('id', st.id)
+      // 3. İlgili hakediş(ler)deki paid_amount ve durumları hem Supabase'de hem local state'de güncelle
+      let remainingToApply = amt
+      const updatedSettlements = settlements.map(s => {
+        if (s.partner_id !== payoutPartnerId) return s
+        if (payoutSettlementId && s.id !== payoutSettlementId) return s
+        if (remainingToApply <= 0) return s
+
+        const currentRem = s.remaining_payout != null ? s.remaining_payout : (s.partner_payout - (s.paid_amount || 0))
+        const applyAmt = payoutSettlementId ? Math.min(amt, currentRem) : Math.min(remainingToApply, currentRem)
+        const newPaid = Number(((s.paid_amount || 0) + applyAmt).toFixed(2))
+        const newRem = Math.max(0, Number((s.partner_payout - newPaid).toFixed(2)))
+        const newStatus: 'unpaid' | 'partial' | 'paid' = newRem === 0 && s.partner_payout > 0 ? 'paid' : newPaid > 0 ? 'partial' : 'unpaid'
+
+        remainingToApply -= applyAmt
+
+        supabase.from('partner_settlements').update({
+          paid_amount: newPaid,
+          remaining_payout: newRem,
+          payout_status: newStatus,
+          updated_at: new Date().toISOString()
+        }).eq('id', s.id).then()
+
+        return {
+          ...s,
+          paid_amount: newPaid,
+          remaining_payout: newRem,
+          payout_status: newStatus
         }
-      }
+      })
+      setSettlements(updatedSettlements)
+      localStorage.setItem('ctc_partner_settlements_cache', JSON.stringify(updatedSettlements))
 
       // 4. Partner Bakiyesini Mutlak Olarak Yeniden Hesapla
       await recalculateAbsolutePartnerBalance(payoutPartnerId)
       await logActivity('partner_tx', 'INSERT', `Hakediş ödendi: ${partner.name} - ${formatMoney(amt, 'TRY').formatted}`, payoutTxId, amt, 'TRY', null, partnerTx, finalCompId)
 
-      toast.success('Ödeme başarıyla gerçekleştirildi ve hesap bakiyesi güncellendi.')
+      toast.success('Ödeme başarıyla gerçekleştirildi ve hakediş durumu güncellendi.')
       setIsPayoutModalOpen(false)
       fetchPartners()
       fetchSettlements()
@@ -2830,6 +2905,38 @@ CREATE POLICY "partner_transactions_all_access" ON public.partner_transactions F
                 <div className="text-[10px] text-rose-400 font-mono mt-1 font-semibold">
                   Toplam Bekleyen Borç: {formatMoney(partners.find(p => p.id === payoutPartnerId)?.balance || 0, 'TRY').formatted}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Hangi İş / Hakediş İçin Ödeniyor?</label>
+                <select
+                  value={payoutSettlementId}
+                  onChange={(e) => {
+                    const sId = e.target.value
+                    setPayoutSettlementId(sId)
+                    if (sId) {
+                      const st = settlements.find(s => s.id === sId)
+                      if (st) {
+                        setPayoutAmount(st.remaining_payout > 0 ? st.remaining_payout.toString() : st.partner_payout.toString())
+                        setPayoutDescription(`Hakediş Ödemesi: ${st.job_title}`)
+                      }
+                    } else {
+                      const p = partners.find(it => it.id === payoutPartnerId)
+                      setPayoutAmount(p && p.balance > 0 ? p.balance.toString() : '')
+                      setPayoutDescription(`Çözüm Ortağı Hakediş Ödemesi - ${p?.name || ''}`)
+                    }
+                  }}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                >
+                  <option value="">⚡ Genel Ödeme (Bekleyen Hakedişlere Sırayla Mahsup Et)</option>
+                  {settlements
+                    .filter(s => s.partner_id === payoutPartnerId)
+                    .map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.job_title} (Kalan: {formatMoney(s.remaining_payout, 'TRY').formatted} - {s.payout_status === 'paid' ? 'Ödendi' : s.payout_status === 'partial' ? 'Kısmi' : 'Ödenmedi'})
+                      </option>
+                    ))}
+                </select>
               </div>
 
               <div>
