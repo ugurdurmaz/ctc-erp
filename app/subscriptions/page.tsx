@@ -817,7 +817,13 @@ export default function SubscriptionsPage() {
                   <p className="text-[10px]">Aktif abone yok</p>
                 </div>
               ) : activeSubs.map(s => (
-                <div key={s.id} className="flex justify-between items-center border-b border-slate-800/50 pb-1.5"><span className="text-slate-300 font-medium">{s.username}</span><span className="text-[10px] text-emerald-400/80 font-mono">{getDaysRemaining(s.end_date)} Gün</span></div>
+                <div key={s.id} className="flex justify-between items-center border-b border-slate-800/50 pb-1.5 gap-2">
+                  <div className="flex items-center gap-1.5 truncate pr-1">
+                    <span className="text-slate-300 font-medium">{s.username}</span>
+                    {s.full_name && <span className="text-slate-500 font-normal truncate">({s.full_name})</span>}
+                  </div>
+                  <span className="text-[10px] text-emerald-400/80 font-mono shrink-0">{getDaysRemaining(s.end_date)} Gün</span>
+                </div>
               ))}
             </div>
           )}
@@ -839,7 +845,13 @@ export default function SubscriptionsPage() {
               ) : renewingSubs.map(s => {
                 const days = getDaysRemaining(s.end_date);
                 return (
-                  <div key={s.id} className="flex justify-between items-center border-b border-slate-800/50 pb-1.5"><span className="text-slate-300 font-medium">{s.username}</span><span className={`text-[10px] font-bold font-mono ${days <= 0 ? 'text-rose-400' : 'text-orange-400'}`}>{days <= 0 ? 'Süresi Doldu' : `${days} Gün Kaldı`}</span></div>
+                  <div key={s.id} className="flex justify-between items-center border-b border-slate-800/50 pb-1.5 gap-2">
+                    <div className="flex items-center gap-1.5 truncate pr-1">
+                      <span className="text-slate-300 font-medium">{s.username}</span>
+                      {s.full_name && <span className="text-slate-500 font-normal truncate">({s.full_name})</span>}
+                    </div>
+                    <span className={`text-[10px] font-bold font-mono shrink-0 ${days <= 0 ? 'text-rose-400' : 'text-orange-400'}`}>{days <= 0 ? 'Süresi Doldu' : `${days} Gün Kaldı`}</span>
+                  </div>
                 )
               })}
             </div>
@@ -860,7 +872,13 @@ export default function SubscriptionsPage() {
                   <p className="text-[10px]">Tüm ödemeler tahsil edilmiş</p>
                 </div>
               ) : pendingPaymentSubs.map(s => (
-                <div key={s.id} className="flex justify-between items-center border-b border-slate-800/50 pb-1.5"><span className="text-slate-300 font-medium truncate pr-2">{s.username}</span><span className="text-[10px] text-rose-400 font-mono font-bold shrink-0">{formatMoney(s.sale_price, s.currency).formatted}</span></div>
+                <div key={s.id} onClick={() => openPaymentModal(s.id)} title="Tahsilat Yap" className="flex justify-between items-center border-b border-slate-800/50 pb-1.5 gap-2 cursor-pointer hover:bg-rose-500/10 px-1 rounded transition-colors group">
+                  <div className="flex items-center gap-1.5 truncate pr-1">
+                    <span className="text-slate-200 font-medium group-hover:text-white transition-colors">{s.username}</span>
+                    {s.full_name && <span className="text-slate-400 font-normal truncate">({s.full_name})</span>}
+                  </div>
+                  <span className="text-[10px] text-rose-400 font-mono font-bold shrink-0">{formatMoney(s.sale_price, s.currency).formatted}</span>
+                </div>
               ))}
             </div>
           )}
