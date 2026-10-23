@@ -110,6 +110,7 @@ export default function RetailPOSPage() {
   
   const [isFetching, setIsFetching] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const isSavingRef = useRef<boolean>(false)
   const [isSyncing, setIsSyncing] = useState(false) 
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
   
@@ -170,6 +171,36 @@ export default function RetailPOSPage() {
         card: ''
       }
     ])
+  }
+
+  const handleDeleteRow = (id: string, categoryId: string) => {
+    setHasUnsavedChanges(true)
+    if (saveStatus !== 'idle') setSaveStatus('idle')
+    setRows(prev => {
+      const catRows = prev.filter(r => r.categoryId === categoryId)
+      if (catRows.length <= 1) {
+        return prev.map(r => r.id === id ? {
+          ...r,
+          description: '',
+          stockId: null,
+          supplierId: null,
+          quantity: '',
+          cost: '',
+          cash: '',
+          card: ''
+        } : r)
+      }
+      return prev.filter(r => r.id !== id)
+    })
+  }
+
+  const handleDiscardDraft = async () => {
+    const draftKey = `ctc_pos_draft_${currentDate}`
+    localStorage.removeItem(draftKey)
+    setIsDraftRestored(false)
+    setHasUnsavedChanges(false)
+    toast.success('Tarayıcı taslağı temizlendi, veritabanından yükleniyor...')
+    await fetchDayData(currentDate)
   }
 
   const [companies, setCompanies] = useState<Company[]>([])
@@ -450,7 +481,8 @@ export default function RetailPOSPage() {
   }, [currentDate])
 
   useEffect(() => {
-    if (!isDataLoaded || !hasUnsavedChanges || currentDate !== dataDateRef.current) return
+    // Kaydetme/senkronizasyon sırasında, veri tam yüklenmemişken veya kaydedilmemiş değişiklik yokken ASLA taslak yazma
+    if (isSavingRef.current || isSaving || isSyncing || isFetching || !isDataLoaded || !hasUnsavedChanges || currentDate !== dataDateRef.current) return
     
     const hasFilledRows = rows.some(r => r.description || parseValue(r.cost) > 0 || parseValue(r.cash) > 0 || parseValue(r.card) > 0)
     const hasData = hasFilledRows || parseValue(photoCash) > 0 || parseValue(photoCard) > 0 || dailyNotes.trim() !== '' || transfers.length > 0
@@ -460,7 +492,7 @@ export default function RetailPOSPage() {
       const draftData = { photoCash, photoCard, dailyNotes, transfers, rows }
       localStorage.setItem(draftKey, JSON.stringify(draftData))
     }
-  }, [rows, photoCash, photoCard, dailyNotes, transfers, currentDate, isDataLoaded, hasUnsavedChanges])
+  }, [rows, photoCash, photoCard, dailyNotes, transfers, currentDate, isDataLoaded, hasUnsavedChanges, isSaving, isSyncing, isFetching])
 
   useEffect(() => {
     const handleClickOutside = () => setActiveDropdownId(null);
@@ -1074,17 +1106,80 @@ export default function RetailPOSPage() {
         setDeliveredTickets([]);
       }
 
+      if (summary) {
+        setPhotoCash(formatValue(summary.photo_cash))
+        setPhotoCard(formatValue(summary.photo_card))
+        setDailyNotes(summary.daily_notes || '')
+      } else {
+        setPhotoCash('')
+        setPhotoCard('')
+        setDailyNotes('')
+      }
+
+      const { data: dbRows } = await supabase.from('pos_transactions').select('*').eq('date', dateStr)
+      const { data: dbTransfers } = await supabase.from('pos_bank_transfers').select('*').eq('date', dateStr)
+      const { data: daySuppTxs } = await supabase.from('supplier_transactions').select('id, supplier_id, description, amount, invoice_lines').like('description', `Mağaza Hizmet Alımı (POS-${dateStr})%`)
+
       const draftKey = `ctc_pos_draft_${dateStr}`
       const draftStr = localStorage.getItem(draftKey)
 
       if (draftStr) {
-        const draft = JSON.parse(draftStr)
-        const hasFilledRows = draft.rows?.some((r: any) => r.description || parseValue(r.cost) > 0 || parseValue(r.cash) > 0 || parseValue(r.card) > 0)
-        const hasNotes = !!draft.dailyNotes
-        const hasPhotos = parseValue(draft.photoCash) > 0 || parseValue(draft.photoCard) > 0
-        const hasTrans = draft.transfers?.length > 0
+        let shouldRestoreDraft = false
+        let parsedDraft: any = null
+        try {
+          parsedDraft = JSON.parse(draftStr)
+          const draftFilledRows = (parsedDraft.rows || []).filter((r: any) => 
+            (r.description && r.description.trim() !== '') || parseValue(r.cost) > 0 || parseValue(r.cash) > 0 || parseValue(r.card) > 0
+          )
+          const draftPhotoCash = parseValue(parsedDraft.photoCash)
+          const draftPhotoCard = parseValue(parsedDraft.photoCard)
+          const draftNotes = (parsedDraft.dailyNotes || '').trim()
+          const draftTransfers = parsedDraft.transfers || []
 
-        if (hasFilledRows || hasNotes || hasPhotos || hasTrans) {
+          const dbPhotoCash = Number(summary?.photo_cash || 0)
+          const dbPhotoCard = Number(summary?.photo_card || 0)
+          const dbNotes = (summary?.daily_notes || '').trim()
+          const nonFotokopiDbRows = (dbRows || []).filter(r => r.category_id !== 'fotokopi')
+
+          const isPhotoCashDiff = Math.abs(draftPhotoCash - dbPhotoCash) > 0.01
+          const isPhotoCardDiff = Math.abs(draftPhotoCard - dbPhotoCard) > 0.01
+          const isNotesDiff = draftNotes !== dbNotes
+          const isTransfersCountDiff = draftTransfers.length !== (dbTransfers || []).length
+
+          // Satış satırlarını karşılaştır
+          const draftSalesRows = draftFilledRows.filter((r: any) => r.categoryId !== EXPENSE_CATEGORY_ID)
+          const dbSalesRows = nonFotokopiDbRows.filter(r => r.category_id !== EXPENSE_CATEGORY_ID)
+
+          let isRowsDiff = draftSalesRows.length !== dbSalesRows.length
+          if (!isRowsDiff) {
+            for (const dr of draftSalesRows) {
+              const match = dbSalesRows.some(d => 
+                d.category_id === dr.categoryId &&
+                (d.description || '').trim() === (dr.description || '').trim() &&
+                Math.abs(Number(d.cash || 0) - parseValue(dr.cash)) < 0.01 &&
+                Math.abs(Number(d.card || 0) - parseValue(dr.card)) < 0.01
+              )
+              if (!match) {
+                isRowsDiff = true
+                break
+              }
+            }
+          }
+
+          const hasAnyDraftData = draftFilledRows.length > 0 || draftPhotoCash > 0 || draftPhotoCard > 0 || !!draftNotes || draftTransfers.length > 0
+
+          if (hasAnyDraftData && (isPhotoCashDiff || isPhotoCardDiff || isNotesDiff || isTransfersCountDiff || isRowsDiff)) {
+            shouldRestoreDraft = true
+          } else {
+            // Taslak veritabanı ile birebir aynı (kayıt sonrası hayalet taslak), sessizce temizle
+            localStorage.removeItem(draftKey)
+          }
+        } catch (e) {
+          localStorage.removeItem(draftKey)
+        }
+
+        if (shouldRestoreDraft && parsedDraft) {
+          const draft = parsedDraft
           let restoredRows: RetailRow[] = draft.rows || []
 
           // Silinmiş harici giderleri taslak satırlarından temizle
@@ -1228,24 +1323,8 @@ export default function RetailPOSPage() {
           setIsDataLoaded(true)
           setIsFetching(false)
           return 
-        } else {
-          localStorage.removeItem(draftKey)
         }
       }
-
-      if (summary) {
-        setPhotoCash(formatValue(summary.photo_cash))
-        setPhotoCard(formatValue(summary.photo_card))
-        setDailyNotes(summary.daily_notes || '')
-      } else {
-        setPhotoCash('')
-        setPhotoCard('')
-        setDailyNotes('')
-      }
-
-      const { data: dbRows } = await supabase.from('pos_transactions').select('*').eq('date', dateStr)
-      const { data: dbTransfers } = await supabase.from('pos_bank_transfers').select('*').eq('date', dateStr)
-      const { data: daySuppTxs } = await supabase.from('supplier_transactions').select('id, supplier_id, description, amount, invoice_lines').like('description', `Mağaza Hizmet Alımı (POS-${dateStr})%`)
 
       if (dbTransfers) {
         setTransfers(dbTransfers.map(t => ({
@@ -1759,8 +1838,10 @@ export default function RetailPOSPage() {
       return;
     }
 
+    isSavingRef.current = true
     setIsSaving(true)
     setSaveStatus('idle')
+    setHasUnsavedChanges(false)
 
     try {
       const { error: summaryError } = await supabase
@@ -1844,15 +1925,21 @@ export default function RetailPOSPage() {
       const draftKey = `ctc_pos_draft_${currentDate}`
       localStorage.removeItem(draftKey)
 
+      setHasUnsavedChanges(false)
+      setIsDraftRestored(false)
       setIsSaving(false)
       setIsSyncing(true)
       
       await syncForwardBalances()
       await fetchDayData(currentDate)
       
-      setSaveStatus('success')
+      // Kayıt tamamlandıktan sonra localStorage taslağının temiz olduğundan emin ol
+      localStorage.removeItem(draftKey)
       setHasUnsavedChanges(false)
       setIsDraftRestored(false)
+      isSavingRef.current = false
+      setIsSyncing(false)
+      setSaveStatus('success')
 
       toast.success('Gün başarıyla kaydedildi, Ciro, Stoklar ve Bakiyeler güncellendi.')
 
@@ -1882,6 +1969,7 @@ export default function RetailPOSPage() {
       console.error("Kaydetme hatası:", error)
       setSaveStatus('error')
     } finally {
+      isSavingRef.current = false
       setIsSaving(false)
       setIsSyncing(false)
     }
@@ -2206,6 +2294,19 @@ export default function RetailPOSPage() {
                          <X size={11} />
                        </button>
                      )}
+                     {!isExpenseCat && !row.isExternalExpense && (row.description?.trim() || parseValue(row.cash) > 0 || parseValue(row.card) > 0 || parseValue(row.cost) > 0) && (
+                       <button
+                         type="button"
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           handleDeleteRow(row.id, row.categoryId);
+                         }}
+                         className="pr-1.5 text-slate-500 hover:text-rose-400 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+                         title="Bu satırı sil"
+                       >
+                         <Trash2 size={11} />
+                       </button>
+                     )}
                   </div>
                   
                   {isDropdownOpen && (
@@ -2418,12 +2519,22 @@ export default function RetailPOSPage() {
       
       {/* ÇÖKME UYARISI */}
       {isDraftRestored && (
-        <div className="bg-amber-500/10 border-b border-amber-500/30 text-amber-400 px-4 py-2 text-[11px] font-bold flex items-center justify-between shrink-0 animate-in slide-in-from-top-2 duration-300">
+        <div className="bg-amber-500/10 border-b border-amber-500/30 text-amber-400 px-4 py-2 text-[11px] font-bold flex flex-wrap items-center justify-between gap-2 shrink-0 animate-in slide-in-from-top-2 duration-300">
           <div className="flex items-center gap-2">
-            <AlertTriangle size={14} className="text-amber-500 shrink-0" />
-            <span>Sistem kapanması algılandı! Ekrana girdiğiniz ama kaydetmediğiniz güncel veriler tarayıcı hafızasından kurtarıldı. Lütfen kontrol edip sağ üstten "Günü Kaydet" butonuna basın.</span>
+            <AlertTriangle size={15} className="text-amber-500 shrink-0" />
+            <span>Sistem kapanması algılandı! Ekrana girdiğiniz ama kaydetmediğiniz güncel veriler tarayıcı hafızasından kurtarıldı. Kontrol edip sağ üstten "Günü Kaydet"e basın veya:</span>
           </div>
-          <button onClick={() => setIsDraftRestored(false)} className="text-amber-500 hover:text-amber-400 p-1"><X size={14}/></button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button 
+              type="button"
+              onClick={handleDiscardDraft}
+              className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 rounded text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1"
+              title="Taslağı sil ve veritabanındaki kayıtlı verilere geri dön"
+            >
+              <RotateCcw size={11} /> Taslağı At (Veritabanından Yükle)
+            </button>
+            <button onClick={() => setIsDraftRestored(false)} className="text-amber-500 hover:text-amber-400 p-1" title="Uyarıyı Kapat"><X size={14}/></button>
+          </div>
         </div>
       )}
 
