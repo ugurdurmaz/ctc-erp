@@ -148,14 +148,18 @@ export default function CustomersPage() {
       if (c?.company_id) {
         setTxCompanyId(c.company_id)
         setInvCompanyId(c.company_id)
+      } else if (isRestricted && profile?.allowed_companies?.[0]) {
+        setTxCompanyId(profile.allowed_companies[0])
+        setInvCompanyId(profile.allowed_companies[0])
       } else {
-        setTxCompanyId('common')
-        setInvCompanyId('common')
+        const defaultComp = (selectedCompanyFilter !== 'all' && selectedCompanyFilter !== 'common') ? selectedCompanyFilter : 'common'
+        setTxCompanyId(defaultComp)
+        setInvCompanyId(defaultComp)
       }
     } else {
       setTransactions([])
     }
-  }, [selectedCustomerId, customers])
+  }, [selectedCustomerId, customers, selectedCompanyFilter, isRestricted, profile])
 
   useEffect(() => {
     if (editingTxId) return
@@ -1041,12 +1045,12 @@ export default function CustomersPage() {
         return false
       }
 
-      // 2. Seçili şirket filtresi
+      // 2. Seçili şirket filtresi (Ortak cariler tüm şirketlerde listelenir)
       if (selectedCompanyFilter !== 'all') {
         if (selectedCompanyFilter === 'common') {
           if (compId) return false
         } else {
-          if (compId !== selectedCompanyFilter) return false
+          if (compId && compId !== selectedCompanyFilter) return false
         }
       }
 

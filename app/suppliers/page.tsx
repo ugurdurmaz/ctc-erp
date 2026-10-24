@@ -139,13 +139,14 @@ export default function SuppliersPage() {
         setTxCompanyId(profile.allowed_companies[0])
         setInvCompanyId(profile.allowed_companies[0])
       } else {
-        setTxCompanyId('common')
-        setInvCompanyId('common')
+        const defaultComp = (selectedCompanyFilter !== 'all' && selectedCompanyFilter !== 'common') ? selectedCompanyFilter : 'common'
+        setTxCompanyId(defaultComp)
+        setInvCompanyId(defaultComp)
       }
     } else {
       setTransactions([])
     }
-  }, [selectedSupplierId, suppliers, isRestricted, profile])
+  }, [selectedSupplierId, suppliers, selectedCompanyFilter, isRestricted, profile])
 
 
   useEffect(() => {
@@ -1069,12 +1070,12 @@ export default function SuppliersPage() {
         return false
       }
 
-      // 2. Seçili şirket filtresi
+      // 2. Seçili şirket filtresi (Ortak tedarikçiler tüm şirketlerde listelenir)
       if (selectedCompanyFilter !== 'all') {
         if (selectedCompanyFilter === 'common') {
           if (suppCompId) return false
         } else {
-          if (suppCompId !== selectedCompanyFilter) return false
+          if (suppCompId && suppCompId !== selectedCompanyFilter) return false
         }
       }
 
