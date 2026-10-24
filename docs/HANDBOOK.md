@@ -449,7 +449,8 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
   - *Stoksuz / Serbest Kalem:* Ürün depoda kayıtlı değilse veya hizmet iadesi ise serbest açıklama ile kaydedilir (stok etkilenmez).
   - *Kesinti & Komisyon Hesabı:* Orijinal satış tutarı ve müşteriye iade edilecek tutar girildiğinde aradaki fark mağaza komisyon/kesinti kazancı (`+₺`) olarak canlı hesaplanır ve rozette gösterilir.
   - *Finansal Çıkış:* İade nakit yapıldıysa bugünün `Gider & Masraf` satırına nakit gider olarak eklenir (`stock_id = null`), gün içi hesaplanan kasayı anında düşürür ve gün sonu kapanışında `POS-Z-CASH-OUT` ile kasadan çıkar. Kredi kartı masrafı veya banka hesabı seçildiyse ilgili kanala yansıtılır.
-- Taslak: her değişiklik `ctc_pos_draft_<tarih>`'e yazılır; sayfa açılışında taslak varsa "Sistem kapanması algılandı" uyarısı ile geri yüklenir.
+- **Harici Gider Senkronizasyonu & Tekilleştirme**: Genel Giderler modülünden (veya Sabit Gider Şablonları / Hızlı Ödeme'den) girilen ödemeler mağaza kasasından yapılmışsa veya mağaza merkezine aitse otomatik olarak POS "Gider & Masraf" listesine `[Genel Gider]` rozetiyle yansıtılır. Kasadan çıkış (`cash_transactions`) ve gider kaydı (`expense_transactions`) arasındaki çift kayıt (mükerrerlik) `transfer_id`, `expenseTxId`, tutar ve açıklama eşleşmesiyle tekilleştirilir. Yerel (harici olmayan) gider satırları için çöp kutusu ikonu ile tek tıkla silme desteklenir.
+- Taslak: her değişiklik `ctc_pos_draft_<tarih>`'e yazılır; sayfa açılışında taslak varsa "Sistem kapanması algılandı" uyarısı ile geri yüklenir. Mükerrer veya silinmiş harici giderler taslaktan otomatik ayıklanır.
 - Yan etkiler: §6.6.
 
 ### 7.3 Nakit Kasalar `/cash-registers`

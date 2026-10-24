@@ -923,6 +923,7 @@ export default function RetailPOSPage() {
         amount: number;
         paymentType: 'cash' | 'card' | 'bank';
         source: 'cash_tx' | 'expense_tx';
+        expenseTxId?: string;
       }[] = [];
 
       let activeStoreCompanyId = parsedSettings?.companyId || posSettings.companyId || storeCompanyId;
@@ -945,13 +946,24 @@ export default function RetailPOSPage() {
           extTxs.forEach(t => {
             const trf = t.transfer_id || '';
             if (trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !t.is_transfer)) {
+              let expTxId: string | undefined = undefined;
+              if (trf.startsWith('EXP-')) {
+                const sub = trf.slice(4);
+                if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sub)) {
+                  expTxId = sub;
+                }
+              }
+              const rawDesc = t.description || 'Gider Ödemesi';
+              const cleanDesc = rawDesc.replace(/^Gider Ödemesi\s*(\[[^\]]*\])?\s*-\s*/, '').trim() || rawDesc;
+
               externalCashTxs.push({
                 id: `cash-${t.id}`,
                 transfer_id: trf || `EXP-CASH-${t.id}`,
-                description: t.description || 'Gider Ödemesi',
+                description: cleanDesc,
                 amount: Number(t.amount) || 0,
                 paymentType: 'cash',
-                source: 'cash_tx'
+                source: 'cash_tx',
+                expenseTxId: expTxId
               });
             }
           });
@@ -1006,12 +1018,36 @@ export default function RetailPOSPage() {
             const isCompMatch = !tx.company_id || (activeStoreCompanyId && tx.company_id === activeStoreCompanyId);
 
             if ((isRecTrf || isTmplMatch || isTitleMatch) && (isCompMatch || isTmplMatch)) {
-              const alreadyExists = externalCashTxs.some(e => 
-                (trfId && e.transfer_id === trfId) ||
-                (e.description === tx.description && Math.abs(e.amount - Number(tx.amount)) < 0.01)
-              );
+              // 1. Bu gider zaten Step 1'de bağlı kasadan nakit çekilmiş mi?
+              const isPaidFromActiveCash = tx.payment_source_type === 'cash' && activeCashId && tx.payment_source_id === activeCashId;
 
-              if (!alreadyExists) {
+              // 2. externalCashTxs içinde zaten bu gider mevcut mu?
+              const existingIdx = externalCashTxs.findIndex(e => {
+                if (e.expenseTxId && e.expenseTxId === tx.id) return true;
+                if (e.transfer_id && (e.transfer_id === `EXP-${tx.id}` || e.transfer_id === trfId)) return true;
+                if (trfId && e.transfer_id && (e.transfer_id.includes(trfId) || trfId.includes(e.transfer_id))) return true;
+
+                const sameAmount = Math.abs(e.amount - Number(tx.amount)) < 0.01;
+                if (sameAmount) {
+                  const eDesc = e.description.toLocaleLowerCase('tr-TR').trim();
+                  const txDesc = descLower.trim();
+                  if (eDesc === txDesc || eDesc.includes(txDesc) || txDesc.includes(eDesc)) {
+                    return true;
+                  }
+                  if (isPaidFromActiveCash) return true;
+                }
+                return false;
+              });
+
+              if (existingIdx !== -1) {
+                // Kayıt zaten var, açıklamayı temiz/net tut
+                if (tx.description && (!externalCashTxs[existingIdx].description || externalCashTxs[existingIdx].description === 'Gider Ödemesi')) {
+                  externalCashTxs[existingIdx].description = tx.description;
+                }
+                if (!externalCashTxs[existingIdx].expenseTxId) {
+                  externalCashTxs[existingIdx].expenseTxId = tx.id;
+                }
+              } else if (!isPaidFromActiveCash) {
                 let paymentType: 'cash' | 'card' | 'bank' = 'card';
                 if (tx.payment_source_type === 'cash') paymentType = 'cash';
                 else if (tx.payment_source_type === 'bank') paymentType = 'bank';
@@ -1023,7 +1059,8 @@ export default function RetailPOSPage() {
                   description: tx.description || 'Sabit Gider Ödemesi',
                   amount: Number(tx.amount) || 0,
                   paymentType,
-                  source: 'expense_tx'
+                  source: 'expense_tx',
+                  expenseTxId: tx.id
                 });
               }
             }
@@ -1182,25 +1219,58 @@ export default function RetailPOSPage() {
           const draft = parsedDraft
           let restoredRows: RetailRow[] = draft.rows || []
 
-          // Silinmiş harici giderleri taslak satırlarından temizle
+          // Silinmiş veya mükerrer harici giderleri taslak satırlarından temizle
           const beforeFilterCount = restoredRows.length
+          const matchedExternalIds = new Set<string>();
+
           restoredRows = restoredRows.filter(r => {
             if (r.categoryId !== EXPENSE_CATEGORY_ID) return true
             const isExt = r.isExternalExpense || r.transferId?.startsWith('EXP-') || r.description?.includes('[EXP-') || r.description?.startsWith('Gider Ödemesi')
             if (!isExt) return true // Elle girilmiş yerel mağaza gideri
-            return externalCashTxs.some(ext => 
-              (ext.transfer_id && r.transferId === ext.transfer_id) ||
-              (ext.transfer_id && r.description?.includes(ext.transfer_id)) ||
-              (r.description === ext.description && (parseValue(r.cash) === Number(ext.amount) || parseValue(r.card) === Number(ext.amount)))
-            )
+
+            // Bu satır externalCashTxs içindeki hangi harici gidere ait?
+            const matchedExt = externalCashTxs.find(ext => {
+              if (matchedExternalIds.has(ext.id)) return false; // Bu harici gider başka satırla zaten eşleşti, mükerrer olanı at!
+
+              const trfMatch = (ext.transfer_id && r.transferId === ext.transfer_id) ||
+                (ext.transfer_id && r.description?.includes(ext.transfer_id)) ||
+                (ext.expenseTxId && (r.transferId?.includes(ext.expenseTxId) || r.description?.includes(ext.expenseTxId)));
+
+              const sameAmount = parseValue(r.cash) === Number(ext.amount) || parseValue(r.card) === Number(ext.amount);
+              const rDesc = r.description?.toLocaleLowerCase('tr-TR').trim() || '';
+              const extDesc = ext.description?.toLocaleLowerCase('tr-TR').trim() || '';
+              const descMatch = sameAmount && (
+                rDesc === extDesc ||
+                rDesc.includes(extDesc) ||
+                extDesc.includes(rDesc) ||
+                rDesc.replace(/^gider ödemesi\s*(\[[^\]]*\])?\s*-\s*/, '').trim() === extDesc
+              );
+
+              return trfMatch || descMatch;
+            });
+
+            if (matchedExt) {
+              matchedExternalIds.add(matchedExt.id);
+              // Açıklamayı temiz isimle güncelle (örn: "Gider Ödemesi [Bilgisayar Hastanesi] - ..." yerine "...")
+              if (matchedExt.description && r.description !== matchedExt.description) {
+                r.description = matchedExt.description;
+              }
+              r.transferId = matchedExt.transfer_id;
+              r.isExternalExpense = true;
+              return true;
+            }
+
+            // Harici gider silinmişse veya mükerrer satırsa filtrele
+            return false;
           })
 
           if (externalCashTxs.length > 0) {
             const missingExtTxs = externalCashTxs.filter(ext => {
-              return !restoredRows.some(r => 
+              return !matchedExternalIds.has(ext.id) && !restoredRows.some(r => 
                 r.categoryId === EXPENSE_CATEGORY_ID && (
                   (r.transferId && r.transferId === ext.transfer_id) ||
                   (ext.transfer_id && r.description?.includes(ext.transfer_id)) ||
+                  (ext.expenseTxId && (r.transferId?.includes(ext.expenseTxId) || r.description?.includes(ext.expenseTxId))) ||
                   (r.description === ext.description && (parseValue(r.cash) === Number(ext.amount) || parseValue(r.card) === Number(ext.amount)))
                 )
               )
@@ -1348,12 +1418,23 @@ export default function RetailPOSPage() {
 
           for (const r of catDbRows) {
             const isExt = r.description?.includes('[EXP-') || r.description?.startsWith('Gider Ödemesi')
-            const matchedExt = externalCashTxs.find(ext => 
-              (ext.transfer_id && (r.description?.includes(ext.transfer_id) || r.transferId === ext.transfer_id)) ||
-              (r.description === ext.description && (parseValue(r.cash) === Number(ext.amount) || parseValue(r.card) === Number(ext.amount)))
-            );
+            const matchedExt = externalCashTxs.find(ext => {
+              if (processedExternalIds.has(ext.id)) return false;
+              const trfMatch = (ext.transfer_id && (r.description?.includes(ext.transfer_id) || r.transferId === ext.transfer_id)) ||
+                (ext.expenseTxId && (r.description?.includes(ext.expenseTxId) || r.transferId?.includes(ext.expenseTxId)));
+              const sameAmount = (parseValue(r.cash) === Number(ext.amount) || parseValue(r.card) === Number(ext.amount));
+              const rDesc = r.description?.toLocaleLowerCase('tr-TR').trim() || '';
+              const extDesc = ext.description?.toLocaleLowerCase('tr-TR').trim() || '';
+              const descMatch = sameAmount && (
+                rDesc === extDesc ||
+                rDesc.includes(extDesc) ||
+                extDesc.includes(rDesc) ||
+                rDesc.replace(/^gider ödemesi\s*(\[[^\]]*\])?\s*-\s*/, '').trim() === extDesc
+              );
+              return trfMatch || descMatch;
+            });
 
-            // Harici gider formatında olup kasada karşılığı kalmadıysa (Genel Giderler'den silinmişse),
+            // Harici gider formatında olup kasada karşılığı kalmadıysa (Genel Giderler'den silinmişse veya mükerrerse),
             // yetim pos_transactions kaydını arka planda temizle ve UI listesine ekleme
             if (isExt && !matchedExt) {
               supabase.from('pos_transactions').delete().eq('id', r.id).then()
@@ -1364,7 +1445,7 @@ export default function RetailPOSPage() {
               processedExternalIds.add(matchedExt.id);
             }
 
-            const cleanDesc = matchedExt?.description || r.description?.replace(/\s*\[EXP-[^\]]+\]/g, '').trim() || '';
+            const cleanDesc = matchedExt?.description || r.description?.replace(/\s*\[EXP-[^\]]+\]/g, '').replace(/^Gider Ödemesi\s*(\[[^\]]*\])?\s*-\s*/, '').trim() || '';
 
             newRows.push({
               id: r.id, 
@@ -2797,7 +2878,7 @@ export default function RetailPOSPage() {
                   )}
                   {expenseRows.map((row, index) => {
                     const hasMissingDesc = !row.description.trim() && (parseValue(row.cash) > 0 || parseValue(row.card) > 0);
-                    const isExt = row.isExternalExpense || row.transferId?.startsWith('EXP-') || row.description?.includes('[EXP-');
+                    const isExt = row.isExternalExpense || row.transferId?.startsWith('EXP-') || row.description?.includes('[EXP-') || row.description?.startsWith('Gider Ödemesi');
                     const expTooltip = hasMissingDesc 
                       ? 'Açıklama boş bırakılamaz! Lütfen açıklama yazın veya tutarı silin.' 
                       : (isExt ? `Genel Giderler modülünden gelen sabit gider: ${row.description}` : (row.description?.trim() || undefined));
@@ -2824,6 +2905,19 @@ export default function RetailPOSPage() {
                           onChange={(e) => handleInputChange(row.id, 'description', e.target.value)} 
                           className={`w-full bg-transparent px-2 py-1.5 text-slate-200 focus:outline-none focus:bg-amber-900/20 placeholder:text-slate-600 font-sans font-normal transition-colors truncate ${hasMissingDesc ? 'text-rose-200 placeholder:text-rose-400 font-bold' : ''}`} 
                         />
+                        {!isExt && (row.description?.trim() || parseValue(row.cash) > 0 || parseValue(row.card) > 0) && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteRow(row.id, row.categoryId);
+                            }}
+                            className="pr-1.5 text-slate-500 hover:text-rose-400 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Bu gider satırını sil"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        )}
                       </div>
                       <input 
                         type="text" 
