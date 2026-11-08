@@ -257,7 +257,7 @@ Bazı kayıtlar **açıklama string'i ile** tanınır. Bu metinler değiştirili
 **`cash_registers`** — `name`, `balance` (türev), `currency`, `company_id?`
 **`cash_transactions`** — `cash_register_id`, `company_id?`, `tx_date`, `description`, `tx_type (in|out)`, `amount`, `currency`, `exchange_rate`, `is_transfer (bool)`, `transfer_id?`
 
-**`bank_accounts`** — `bank_name`, `account_name`, `iban`, `balance` (türev), `currency`, `company_id?`
+**`bank_accounts`** — `bank_name`, `account_name`, `iban`, `balance` (türev), `kmh_limit` (KMH/Ek Hesap limiti), `currency`, `company_id?`
 **`bank_transactions`** — `cash_transactions` ile aynı + `bank_account_id`, `status (pending|completed)`
 
 **`credit_cards`** — `name`, `card_limit`, `cutoff_day (1-31)`, `current_debt` (türev), `card_color`, `company_id?`
@@ -461,8 +461,10 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Silme: `SUPP-/CUST-/EXP-/POS-` ön ekli hareketler kaynak modülden silinmelidir; ancak kaynak kayıt sistemde silinmişse (yetim kayıt), ekran kullanıcıya "Yetim Hareketi Sil" onayı sunarak kaydın silinmesine ve bakiyenin düzeltilmesine izin verir. `TRF-` silinirse karşı bacak da silinir.
 
 ### 7.4 Banka Hesapları `/bank-accounts`
-- **Açılış / Devir Bakiyesi (± Desteği)**:
+- **Açılış / Devir Bakiyesi (±) ve KMH / Ek Hesap Limiti (`kmh_limit`) Desteği**:
   - Yeni banka hesabı açarken veya mevcut hesabı düzenlerken pozitif (`+`) veya negatif (`-` / KMH / Ek Hesap) açılış bakiyesi girilebilir (`Açılış Bakiyesi / Devir` açıklamasıyla pozitifse `tx_type = 'in'`, negatifse `tx_type = 'out'` ve mutlak tutar olarak kaydedilir; `0` girilirse mevcut açılış kaydı silinir).
+  - Hesap ekleme/düzenleme modalında **Tanımlı Toplam KMH** ve **Kullanılabilir KMH** alanları çift yönlü senkronize çalışır: kullanıcı ister toplam KMH tavanını, ister banka uygulamasında gördüğü kalan kullanılabilir KMH limitini girdiğinde diğer alan mevcut eksi bakiyeye göre otomatik hesaplanır ve `bank_accounts.kmh_limit` kolonuna kaydedilir.
+  - KMH tanımlı hesaplarda sol listede, seçili hesap başlığında ve üst özet barında **Kullanılabilir KMH Limiti** ve **Toplam Kullanılabilir (Bakiye + KMH)** tutarları canlı gösterilir.
 - **Vadeli / Yatırım Hesabı Desteği**:
   - Hesap açarken veya düzenlerken **Vadesiz / Ticari** veya **Vadeli / Yatırım** hesabı türü seçilebilir.
   - Vadeli yatırım hesapları sol listede ve hesap başlığında özel `📈 Vadeli Yatırım Hesabı` rozetiyle gösterilir.

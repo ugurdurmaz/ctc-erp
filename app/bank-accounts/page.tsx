@@ -8,7 +8,7 @@ import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet,
 import BankStatementExportModal from '@/components/BankStatementExportModal'
 
 type Company = { id: string; name: string; is_personal: boolean }
-type BankAccount = { id: string; bank_name: string; account_name: string; iban: string; balance: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; account_color?: string; is_investment?: boolean; company?: { name: string; is_personal: boolean } }
+type BankAccount = { id: string; bank_name: string; account_name: string; iban: string; balance: number; kmh_limit?: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; account_color?: string; is_investment?: boolean; company?: { name: string; is_personal: boolean } }
 type BankTransaction = { id: string; bank_account_id: string; company_id?: string | null; tx_date: string; description: string; tx_type: 'in' | 'out'; amount: number; currency: string; exchange_rate: number; is_transfer: boolean; running_balance?: number; transfer_id?: string; status?: string; company?: { name: string; is_personal: boolean } }
 type CashRegister = { id: string; name: string; balance: number; currency: string }
 type CardDetail = { id: string; name: string; card_limit: number; current_debt: number; company_id?: string | null; company?: { name: string; is_personal: boolean } }
@@ -37,6 +37,9 @@ export default function BankAccountsPage() {
   const todayISO = getLocalTodayISO()
   const [openingBalance, setOpeningBalance] = useState('')
   const [openingDate, setOpeningDate] = useState(todayISO)
+  const [kmhLimit, setKmhLimit] = useState('')
+  const [availableKmhInput, setAvailableKmhInput] = useState('')
+  const [oldOpeningSigned, setOldOpeningSigned] = useState(0)
   const [isInvestment, setIsInvestment] = useState(false)
   const [accountColor, setAccountColor] = useState<string>(CARD_COLORS[0].value)
 
@@ -137,9 +140,54 @@ export default function BankAccountsPage() {
     setTransactions(sorted) 
   }
 
+  function getModalNonOpeningBalance() {
+    if (!editingId) return 0
+    const editingBankObj = banks.find(b => b.id === editingId)
+    return editingBankObj ? Number(editingBankObj.balance || 0) - oldOpeningSigned : 0
+  }
+
+  function getModalUsedKmh(openBalStr: string) {
+    const resultingBal = getModalNonOpeningBalance() + (parseFloat(openBalStr) || 0)
+    return resultingBal < 0 ? Math.abs(resultingBal) : 0
+  }
+
+  function handleOpeningBalanceChange(val: string) {
+    setOpeningBalance(val)
+    const lim = parseFloat(kmhLimit) || 0
+    if (lim > 0) {
+      const used = getModalUsedKmh(val)
+      const avail = Math.max(0, Math.round((lim - used) * 100) / 100)
+      setAvailableKmhInput(avail.toString())
+    }
+  }
+
+  function handleKmhLimitChange(val: string) {
+    setKmhLimit(val)
+    if (val === '') {
+      setAvailableKmhInput('')
+    } else {
+      const lim = Math.max(0, parseFloat(val) || 0)
+      const used = getModalUsedKmh(openingBalance)
+      const avail = Math.max(0, Math.round((lim - used) * 100) / 100)
+      setAvailableKmhInput(avail.toString())
+    }
+  }
+
+  function handleAvailableKmhChange(val: string) {
+    setAvailableKmhInput(val)
+    if (val === '') {
+      setKmhLimit('')
+    } else {
+      const avail = Math.max(0, parseFloat(val) || 0)
+      const used = getModalUsedKmh(openingBalance)
+      const totalLim = Math.round((avail + used) * 100) / 100
+      setKmhLimit(totalLim > 0 ? totalLim.toString() : '')
+    }
+  }
+
   function openAddModal() { 
     setEditingId(null); setBankName(''); setAccountName(''); setIban('TR'); setCurrency('TRY'); 
-    setBankCompanyId('common'); setOpeningBalance(''); setOpeningDate(todayISO); setIsInvestment(false); setIsModalOpen(true) 
+    setBankCompanyId('common'); setOpeningBalance(''); setOldOpeningSigned(0); setKmhLimit(''); setAvailableKmhInput(''); setOpeningDate(todayISO); setIsInvestment(false); setIsModalOpen(true) 
   }
 
   async function openEditModal(bank: BankAccount, e: React.MouseEvent) { 
@@ -153,7 +201,12 @@ export default function BankAccountsPage() {
     const parsed = parseAccountColor(bank.account_color);
     setAccountColor(parsed.color);
     setIsInvestment(Boolean(parsed.isInvestment || bank.is_investment));
+    const initKmh = Number(bank.kmh_limit || 0);
+    const initUsed = Number(bank.balance || 0) < 0 ? Math.abs(Number(bank.balance || 0)) : 0;
+    setKmhLimit(initKmh > 0 ? initKmh.toString() : '');
+    setAvailableKmhInput(initKmh > 0 ? Math.max(0, Math.round((initKmh - initUsed) * 100) / 100).toString() : '');
     setOpeningBalance(''); 
+    setOldOpeningSigned(0);
     setIsModalOpen(true);
 
     const { data: txs } = await supabase.from('bank_transactions')
@@ -162,9 +215,11 @@ export default function BankAccountsPage() {
     if (txs && txs.length > 0) {
       const signedAmount = txs[0].tx_type === 'out' ? -Math.abs(Number(txs[0].amount)) : Number(txs[0].amount);
       setOpeningBalance(signedAmount.toString());
+      setOldOpeningSigned(signedAmount);
       setOpeningDate(txs[0].tx_date || todayISO);
     } else {
       setOpeningBalance('0');
+      setOldOpeningSigned(0);
       setOpeningDate(todayISO);
     }
   }
@@ -276,6 +331,7 @@ export default function BankAccountsPage() {
     e.preventDefault(); if (!bankName || !accountName) return
     const finalCompId = bankCompanyId === 'common' ? null : bankCompanyId
     const initialBalance = parseFloat(openingBalance) || 0
+    const finalKmhLimit = Math.max(0, parseFloat(kmhLimit) || 0)
     
     try {
       if (editingId) { 
@@ -307,7 +363,7 @@ export default function BankAccountsPage() {
         }
 
         const formattedColor = formatAccountColor(accountColor, isInvestment)
-        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, account_color: formattedColor }
+        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, account_color: formattedColor, kmh_limit: finalKmhLimit }
         await supabase.from('bank_accounts').update(payload).eq('id', editingId); 
         await recalculateAbsoluteBankBalance(editingId); 
         
@@ -318,7 +374,7 @@ export default function BankAccountsPage() {
       } 
       else { 
         const formattedColor = formatAccountColor(accountColor, isInvestment)
-        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, balance: 0, account_color: formattedColor } 
+        const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, balance: 0, account_color: formattedColor, kmh_limit: finalKmhLimit } 
         const { data, error } = await supabase.from('bank_accounts').insert([payload]).select().single(); 
         if (error) throw error;
         await logActivity('bank', 'INSERT', `Yeni banka hesabı açıldı: ${bankName}`, data.id, 0, currency, null, data, finalCompId)
@@ -984,6 +1040,13 @@ export default function BankAccountsPage() {
   const totalTry = banks.filter(b => b.currency === 'TRY').reduce((acc, b) => acc + b.balance, 0)
   const totalUsd = banks.filter(b => b.currency === 'USD').reduce((acc, b) => acc + b.balance, 0)
   const totalEur = banks.filter(b => b.currency === 'EUR').reduce((acc, b) => acc + b.balance, 0)
+  const totalAvailKmhTry = banks
+    .filter(b => b.currency === 'TRY' && Number(b.kmh_limit || 0) > 0)
+    .reduce((acc, b) => {
+      const lim = Number(b.kmh_limit || 0)
+      const used = b.balance < 0 ? Math.abs(b.balance) : 0
+      return acc + Math.max(0, lim - used)
+    }, 0)
 
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] relative">
@@ -992,14 +1055,22 @@ export default function BankAccountsPage() {
       <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#0d1322] border border-slate-800/80 p-4 rounded-xl shadow-md shrink-0 mb-4 transition-colors">
         <div className="flex items-center gap-3 text-white">
           <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-lg"><Landmark size={24} /></div>
-          <div><h2 className="font-bold text-lg leading-none">Banka Hesapları</h2><p className="text-[10px] text-slate-400 mt-1">Banka bakiyeleriniz ve hesaplar arası virman işlemleri</p></div>
+          <div><h2 className="font-bold text-lg leading-none">Banka Hesapları</h2><p className="text-[10px] text-slate-400 mt-1">Banka bakiyeleriniz, KMH (Ek Hesap) limitleriniz ve hesaplar arası virman işlemleri</p></div>
         </div>
-        <div className="flex items-center gap-4 text-xs font-mono">
+        <div className="flex flex-wrap items-center gap-5 text-xs font-mono">
+          {totalAvailKmhTry > 0 && (
+            <div className="flex flex-col items-end pr-4 border-r border-slate-800">
+              <span className="text-[9px] text-amber-400/90 font-sans tracking-wide font-semibold">KULLANILABİLİR KMH LİMİTİ</span>
+              <div className="flex gap-3 mt-0.5 font-bold">
+                <span className="text-amber-300">{formatMoney(totalAvailKmhTry, 'TRY').formatted}</span>
+              </div>
+            </div>
+          )}
           <div className="flex flex-col items-end"><span className="text-[9px] text-slate-400 font-sans tracking-wide">BANKALARDAKİ TOPLAM VARLIK</span>
             <div className="flex gap-3 mt-0.5 font-bold">
-              {totalTry !== 0 && <span className="text-emerald-400">{formatMoney(totalTry, 'TRY').formatted}</span>}
-              {totalUsd !== 0 && <span className="text-indigo-400">{formatMoney(totalUsd, 'USD').formatted}</span>}
-              {totalEur !== 0 && <span className="text-blue-400">{formatMoney(totalEur, 'EUR').formatted}</span>}
+              {totalTry !== 0 && <span className={totalTry < 0 ? 'text-rose-400' : 'text-emerald-400'}>{formatMoney(totalTry, 'TRY').formatted}</span>}
+              {totalUsd !== 0 && <span className={totalUsd < 0 ? 'text-rose-400' : 'text-indigo-400'}>{formatMoney(totalUsd, 'USD').formatted}</span>}
+              {totalEur !== 0 && <span className={totalEur < 0 ? 'text-rose-400' : 'text-blue-400'}>{formatMoney(totalEur, 'EUR').formatted}</span>}
               {totalTry === 0 && totalUsd === 0 && totalEur === 0 && <span className="text-slate-500">0,00₺</span>}
             </div>
           </div>
@@ -1058,6 +1129,16 @@ export default function BankAccountsPage() {
                   <div className="text-right shrink-0">
                     <div className={`text-[11px] font-mono font-bold ${item.balance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{formatMoney(item.balance, item.currency).formatted}</div>
                     <div className="text-[8px] text-slate-400 uppercase tracking-wider mt-0.5 font-semibold">BAKİYE</div>
+                    {Number(item.kmh_limit || 0) > 0 && (() => {
+                      const kmhLim = Number(item.kmh_limit || 0)
+                      const usedKmh = item.balance < 0 ? Math.abs(item.balance) : 0
+                      const availKmh = Math.max(0, kmhLim - usedKmh)
+                      return (
+                        <div className="mt-1 px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/25 text-[8px] font-mono text-amber-300" title={`Tanımlı KMH Limiti: ${formatMoney(kmhLim, item.currency).formatted}`}>
+                          KMH: {formatMoney(availKmh, item.currency).formatted}
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
               )
@@ -1092,9 +1173,28 @@ export default function BankAccountsPage() {
                      <span className="bg-black/40 text-slate-200 text-[10px] px-2.5 py-1.5 rounded-lg border border-white/10 backdrop-blur-md flex items-center gap-1">Hesap Sahibi: {selectedBank.company ? selectedBank.company.name : 'Ortak Bağımsız Hesap'}</span>
                    </div>
                 </div>
-                <div className="flex flex-col justify-center items-end bg-black/40 px-5 py-3 rounded-xl border border-white/10 min-w-[160px] w-full md:w-auto relative overflow-hidden backdrop-blur-md shadow-inner group">
-                  <span className="text-[10px] font-bold text-slate-300 mb-1 tracking-widest">GÜNCEL BAKİYE</span>
-                  <span className={`text-2xl font-black font-mono ${selectedBank.balance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{formatMoney(selectedBank.balance, selectedBank.currency).formatted}</span>
+                <div className="flex flex-wrap items-stretch gap-2.5 w-full md:w-auto">
+                  {Number(selectedBank.kmh_limit || 0) > 0 && (() => {
+                    const kmhLim = Number(selectedBank.kmh_limit || 0)
+                    const usedKmh = selectedBank.balance < 0 ? Math.abs(selectedBank.balance) : 0
+                    const availKmh = Math.max(0, kmhLim - usedKmh)
+                    const totalAvail = Math.max(0, selectedBank.balance + kmhLim)
+                    return (
+                      <div className="flex flex-col justify-center items-end bg-black/40 px-4 py-2.5 rounded-xl border border-amber-500/30 min-w-[175px] flex-1 md:flex-initial relative overflow-hidden backdrop-blur-md shadow-inner">
+                        <span className="text-[9px] font-bold text-amber-300/90 mb-0.5 tracking-wider uppercase">KULLANILABİLİR KMH LİMİTİ</span>
+                        <span className="text-lg font-black font-mono text-amber-300">{formatMoney(availKmh, selectedBank.currency).formatted}</span>
+                        <div className="flex items-center gap-2 mt-1 text-[9px] font-mono text-slate-300/90">
+                          <span>Limit: {formatMoney(kmhLim, selectedBank.currency).formatted}</span>
+                          <span>•</span>
+                          <span className="text-cyan-300 font-bold" title="Bakiye + Kullanılabilir KMH">Top. Kullanılabilir: {formatMoney(totalAvail, selectedBank.currency).formatted}</span>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                  <div className="flex flex-col justify-center items-end bg-black/40 px-5 py-3 rounded-xl border border-white/10 min-w-[160px] flex-1 md:flex-initial relative overflow-hidden backdrop-blur-md shadow-inner group">
+                    <span className="text-[10px] font-bold text-slate-300 mb-1 tracking-widest">GÜNCEL BAKİYE</span>
+                    <span className={`text-2xl font-black font-mono ${selectedBank.balance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{formatMoney(selectedBank.balance, selectedBank.currency).formatted}</span>
+                  </div>
                 </div>
               </div>
 
@@ -1842,7 +1942,7 @@ export default function BankAccountsPage() {
                 </div>
                 <div className="w-1/2">
                   <label className="block text-slate-400 mb-1">Açılış Bakiyesi (±)</label>
-                  <input type="number" step="0.01" placeholder="0.00 (Eksi için - girin)" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} className={`w-full bg-[#070b14] border rounded px-3 py-2 font-mono focus:outline-none transition-colors ${parseFloat(openingBalance) < 0 ? 'border-rose-500/60 text-rose-400 focus:border-rose-500' : 'border-slate-700 text-white focus:border-indigo-500'}`} />
+                  <input type="number" step="0.01" placeholder="0.00 (Eksi için - girin)" value={openingBalance} onChange={(e) => handleOpeningBalanceChange(e.target.value)} className={`w-full bg-[#070b14] border rounded px-3 py-2 font-mono focus:outline-none transition-colors ${parseFloat(openingBalance) < 0 ? 'border-rose-500/60 text-rose-400 focus:border-rose-500' : 'border-slate-700 text-white focus:border-indigo-500'}`} />
                 </div>
               </div>
 
@@ -1870,6 +1970,71 @@ export default function BankAccountsPage() {
                   </div>
                 </div>
               )}
+
+              {/* KMH / EK HESAP LİMİTİ ALANI */}
+              <div className="p-2.5 rounded-lg border border-amber-500/25 bg-amber-950/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-amber-300 flex items-center gap-1.5">
+                    <Wallet size={12} className="text-amber-400" /> KMH / Ek Hesap Limiti (Opsiyonel)
+                  </span>
+                  <span className="text-[9px] text-slate-500">İkisinden birini girebilirsiniz</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Tanımlı Toplam KMH</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={kmhLimit}
+                      onChange={(e) => handleKmhLimitChange(e.target.value)}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-amber-300 font-mono text-xs focus:outline-none focus:border-amber-500 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-amber-300/90 font-semibold mb-1">Kullanılabilir KMH</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={availableKmhInput}
+                      onChange={(e) => handleAvailableKmhChange(e.target.value)}
+                      className="w-full bg-[#070b14] border border-amber-500/40 rounded px-2.5 py-1.5 text-emerald-300 font-mono text-xs focus:outline-none focus:border-amber-400 transition-colors"
+                    />
+                  </div>
+                </div>
+                {parseFloat(kmhLimit) > 0 && (() => {
+                  const totalKmh = Math.max(0, parseFloat(kmhLimit) || 0)
+                  const resultingBal = getModalNonOpeningBalance() + (parseFloat(openingBalance) || 0)
+                  const usedKmh = resultingBal < 0 ? Math.abs(resultingBal) : 0
+                  const availKmh = Math.max(0, totalKmh - usedKmh)
+                  const totalSpendable = Math.max(0, resultingBal + totalKmh)
+                  return (
+                    <div className="pt-1.5 border-t border-amber-500/20 text-[9px] font-mono flex flex-col gap-0.5 text-slate-300">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Tanımlı KMH Tavanı:</span>
+                        <span className="text-amber-300 font-bold">{formatMoney(totalKmh, currency).formatted}</span>
+                      </div>
+                      {usedKmh > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Kullanılan KMH Borcu:</span>
+                          <span className="text-rose-400 font-bold">-{formatMoney(usedKmh, currency).formatted}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Kalan Kullanılabilir KMH:</span>
+                        <span className="text-emerald-400 font-bold">{formatMoney(availKmh, currency).formatted}</span>
+                      </div>
+                      <div className="flex justify-between pt-0.5 border-t border-slate-800/80">
+                        <span className="text-cyan-300 font-sans font-semibold">Toplam Kullanılabilir (Bakiye + KMH):</span>
+                        <span className="text-cyan-300 font-bold">{formatMoney(totalSpendable, currency).formatted}</span>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
 
               <div><label className="block text-slate-400 mb-1">IBAN No</label><input type="text" value={iban} onChange={(e) => setIban(e.target.value.toUpperCase())} placeholder="TR..." className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none font-mono tracking-wider uppercase transition-colors" /></div>
 
