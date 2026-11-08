@@ -461,6 +461,8 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - Silme: `SUPP-/CUST-/EXP-/POS-` ön ekli hareketler kaynak modülden silinmelidir; ancak kaynak kayıt sistemde silinmişse (yetim kayıt), ekran kullanıcıya "Yetim Hareketi Sil" onayı sunarak kaydın silinmesine ve bakiyenin düzeltilmesine izin verir. `TRF-` silinirse karşı bacak da silinir.
 
 ### 7.4 Banka Hesapları `/bank-accounts`
+- **Açılış / Devir Bakiyesi (± Desteği)**:
+  - Yeni banka hesabı açarken veya mevcut hesabı düzenlerken pozitif (`+`) veya negatif (`-` / KMH / Ek Hesap) açılış bakiyesi girilebilir (`Açılış Bakiyesi / Devir` açıklamasıyla pozitifse `tx_type = 'in'`, negatifse `tx_type = 'out'` ve mutlak tutar olarak kaydedilir; `0` girilirse mevcut açılış kaydı silinir).
 - **Vadeli / Yatırım Hesabı Desteği**:
   - Hesap açarken veya düzenlerken **Vadesiz / Ticari** veya **Vadeli / Yatırım** hesabı türü seçilebilir.
   - Vadeli yatırım hesapları sol listede ve hesap başlığında özel `📈 Vadeli Yatırım Hesabı` rozetiyle gösterilir.

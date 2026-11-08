@@ -157,10 +157,11 @@ export default function BankAccountsPage() {
     setIsModalOpen(true);
 
     const { data: txs } = await supabase.from('bank_transactions')
-       .select('amount, tx_date').eq('bank_account_id', bank.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
+       .select('amount, tx_date, tx_type').eq('bank_account_id', bank.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
     
     if (txs && txs.length > 0) {
-      setOpeningBalance(txs[0].amount.toString());
+      const signedAmount = txs[0].tx_type === 'out' ? -Math.abs(Number(txs[0].amount)) : Number(txs[0].amount);
+      setOpeningBalance(signedAmount.toString());
       setOpeningDate(txs[0].tx_date || todayISO);
     } else {
       setOpeningBalance('0');
@@ -289,13 +290,19 @@ export default function BankAccountsPage() {
            if (initialBalance === 0) {
               await supabase.from('bank_transactions').delete().eq('id', oldTx.id);
            } else {
+              const targetTxType = initialBalance < 0 ? 'out' : 'in';
+              const targetAmount = Math.abs(initialBalance);
               await supabase.from('bank_transactions').update({ 
-                amount: initialBalance,
+                tx_type: targetTxType,
+                amount: targetAmount,
+                company_id: finalCompId,
                 tx_date: openingDate || oldTx.tx_date || todayISO 
               }).eq('id', oldTx.id);
            }
-        } else if (initialBalance > 0) {
-           const txPayload = { bank_account_id: editingId, company_id: finalCompId, tx_date: openingDate || todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'in', amount: initialBalance, currency: currency, exchange_rate: 1, is_transfer: false, status: 'completed' }
+        } else if (initialBalance !== 0) {
+           const targetTxType = initialBalance < 0 ? 'out' : 'in';
+           const targetAmount = Math.abs(initialBalance);
+           const txPayload = { bank_account_id: editingId, company_id: finalCompId, tx_date: openingDate || todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: targetTxType, amount: targetAmount, currency: currency, exchange_rate: 1, is_transfer: false, status: 'completed' }
            await supabase.from('bank_transactions').insert([txPayload]);
         }
 
@@ -316,11 +323,13 @@ export default function BankAccountsPage() {
         if (error) throw error;
         await logActivity('bank', 'INSERT', `Yeni banka hesabı açıldı: ${bankName}`, data.id, 0, currency, null, data, finalCompId)
         
-        if (initialBalance > 0) {
-           const txPayload = { bank_account_id: data.id, company_id: finalCompId, tx_date: openingDate || todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'in', amount: initialBalance, currency: currency, exchange_rate: 1, is_transfer: false, status: 'completed' }
+        if (initialBalance !== 0) {
+           const targetTxType = initialBalance < 0 ? 'out' : 'in'
+           const targetAmount = Math.abs(initialBalance)
+           const txPayload = { bank_account_id: data.id, company_id: finalCompId, tx_date: openingDate || todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: targetTxType, amount: targetAmount, currency: currency, exchange_rate: 1, is_transfer: false, status: 'completed' }
            const { data: txData, error: txErr } = await supabase.from('bank_transactions').insert([txPayload]).select().single()
            if (!txErr && txData) {
-             await logActivity('bank_tx', 'INSERT', `Açılış Bakiyesi: ${bankName}`, txData.id, initialBalance, currency, null, txData, finalCompId)
+             await logActivity('bank_tx', 'INSERT', `Açılış Bakiyesi: ${bankName} (${initialBalance < 0 ? 'Eksi / KMH Devir' : 'Artı Devir'})`, txData.id, targetAmount, currency, null, txData, finalCompId)
            }
         }
 
@@ -1832,15 +1841,33 @@ export default function BankAccountsPage() {
                   <select disabled={!!editingId} value={currency} onChange={(e) => setCurrency(e.target.value as any)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none disabled:opacity-50 transition-colors"><option value="TRY">TRY (₺)</option><option value="USD">USD ($)</option><option value="EUR">EUR (€)</option></select>
                 </div>
                 <div className="w-1/2">
-                  <label className="block text-slate-400 mb-1">Açılış Bakiyesi</label>
-                  <input type="number" step="0.01" placeholder="0.00" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500 transition-colors" />
+                  <label className="block text-slate-400 mb-1">Açılış Bakiyesi (±)</label>
+                  <input type="number" step="0.01" placeholder="0.00 (Eksi için - girin)" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} className={`w-full bg-[#070b14] border rounded px-3 py-2 font-mono focus:outline-none transition-colors ${parseFloat(openingBalance) < 0 ? 'border-rose-500/60 text-rose-400 focus:border-rose-500' : 'border-slate-700 text-white focus:border-indigo-500'}`} />
                 </div>
               </div>
 
-              {parseFloat(openingBalance) > 0 && (
-                <div className="mb-3 animate-in fade-in duration-200">
-                  <label className="block text-slate-400 mb-1">Açılış / Devir Tarihi</label>
-                  <input type="date" required value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500 transition-colors" />
+              {openingBalance !== '' && !isNaN(parseFloat(openingBalance)) && parseFloat(openingBalance) !== 0 && (
+                <div className="space-y-2 mb-3 animate-in fade-in duration-200">
+                  <div className={`p-2 rounded-lg border text-[10px] flex items-center justify-between ${
+                    parseFloat(openingBalance) < 0
+                      ? 'bg-rose-950/30 border-rose-500/30 text-rose-300'
+                      : 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+                  }`}>
+                    <span>
+                      {parseFloat(openingBalance) < 0
+                        ? `Eksi / KMH Devir Bakiyesi: ${formatMoney(Math.abs(parseFloat(openingBalance)), currency).formatted}`
+                        : `Pozitif Açılış Bakiyesi: ${formatMoney(parseFloat(openingBalance), currency).formatted}`}
+                    </span>
+                    <span className={`font-mono font-bold px-1.5 py-0.5 rounded text-[9px] ${
+                      parseFloat(openingBalance) < 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'
+                    }`}>
+                      {parseFloat(openingBalance) < 0 ? 'Çıkış / Eksi (-)' : 'Giriş / Artı (+)'}
+                    </span>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Açılış / Devir Tarihi</label>
+                    <input type="date" required value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500 transition-colors" style={{ colorScheme: 'dark' }} />
+                  </div>
                 </div>
               )}
 

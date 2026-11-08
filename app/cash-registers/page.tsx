@@ -73,10 +73,11 @@ export default function CashRegistersPage() {
     setIsModalOpen(true);
 
     const { data: txs } = await supabase.from('cash_transactions')
-       .select('amount').eq('cash_register_id', cash.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
+       .select('amount, tx_type').eq('cash_register_id', cash.id).eq('description', 'Açılış Bakiyesi / Devir').limit(1);
     
     if (txs && txs.length > 0) {
-      setOpeningBalance(txs[0].amount.toString());
+      const signedAmount = txs[0].tx_type === 'out' ? -Math.abs(Number(txs[0].amount)) : Number(txs[0].amount);
+      setOpeningBalance(signedAmount.toString());
     } else {
       setOpeningBalance('0');
     }
@@ -119,10 +120,18 @@ export default function CashRegistersPage() {
            if (initialBalance === 0) {
               await supabase.from('cash_transactions').delete().eq('id', oldTx.id);
            } else {
-              await supabase.from('cash_transactions').update({ amount: initialBalance }).eq('id', oldTx.id);
+              const targetTxType = initialBalance < 0 ? 'out' : 'in';
+              const targetAmount = Math.abs(initialBalance);
+              await supabase.from('cash_transactions').update({
+                tx_type: targetTxType,
+                amount: targetAmount,
+                company_id: finalCompId
+              }).eq('id', oldTx.id);
            }
-        } else if (initialBalance > 0) {
-           const txPayload = { cash_register_id: editingId, company_id: finalCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'in', amount: initialBalance, currency: currency, exchange_rate: 1, is_transfer: false }
+        } else if (initialBalance !== 0) {
+           const targetTxType = initialBalance < 0 ? 'out' : 'in';
+           const targetAmount = Math.abs(initialBalance);
+           const txPayload = { cash_register_id: editingId, company_id: finalCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: targetTxType, amount: targetAmount, currency: currency, exchange_rate: 1, is_transfer: false }
            await supabase.from('cash_transactions').insert([txPayload]);
         }
 
@@ -141,11 +150,13 @@ export default function CashRegistersPage() {
         if (error) throw error;
         await logActivity('cash', 'INSERT', `Yeni kasa açıldı: ${cashName}`, data.id, 0, currency, null, data, finalCompId)
 
-        if (initialBalance > 0) {
-           const txPayload = { cash_register_id: data.id, company_id: finalCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: 'in', amount: initialBalance, currency: currency, exchange_rate: 1, is_transfer: false }
+        if (initialBalance !== 0) {
+           const targetTxType = initialBalance < 0 ? 'out' : 'in'
+           const targetAmount = Math.abs(initialBalance)
+           const txPayload = { cash_register_id: data.id, company_id: finalCompId, tx_date: todayISO, description: 'Açılış Bakiyesi / Devir', tx_type: targetTxType, amount: targetAmount, currency: currency, exchange_rate: 1, is_transfer: false }
            const { data: txData, error: txErr } = await supabase.from('cash_transactions').insert([txPayload]).select().single()
            if (!txErr && txData) {
-             await logActivity('cash_tx', 'INSERT', `Açılış Bakiyesi: ${cashName}`, txData.id, initialBalance, currency, null, txData, finalCompId)
+             await logActivity('cash_tx', 'INSERT', `Açılış Bakiyesi: ${cashName}`, txData.id, targetAmount, currency, null, txData, finalCompId)
            }
         }
         
