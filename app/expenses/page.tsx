@@ -284,6 +284,19 @@ export default function ExpensesPage() {
   const [txExchangeRate, setTxExchangeRate] = useState('1')
   const [paymentSource, setPaymentSource] = useState('')
 
+  // Gider Düzenleme Modalı State
+  const [isEditExpModalOpen, setIsEditExpModalOpen] = useState(false)
+  const [editingExpense, setEditingExpense] = useState<ExpenseTransaction | null>(null)
+  const [editTxDate, setEditTxDate] = useState(todayISO)
+  const [editTxCategoryId, setEditTxCategoryId] = useState('')
+  const [editTxCompanyId, setEditTxCompanyId] = useState('')
+  const [editTxDesc, setEditTxDesc] = useState('')
+  const [editTxAmount, setEditTxAmount] = useState('')
+  const [editTxCurrency, setEditTxCurrency] = useState<'TRY' | 'USD' | 'EUR'>('TRY')
+  const [editTxExchangeRate, setEditTxExchangeRate] = useState('1')
+  const [editPaymentSource, setEditPaymentSource] = useState('')
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false)
+
   // Özel Onay Modalı State'i
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean; title: string; message: string; confirmText: string; cancelText: string; isDanger: boolean; onConfirm: () => void;
@@ -430,7 +443,13 @@ export default function ExpensesPage() {
     if (!targetCompId) {
       return { filteredCards: cards, filteredBanks: banks, filteredCashes: cashes }
     }
-    const filteredCards = cards.filter(c => !c.company_id || c.company_id === targetCompId)
+    const filteredCards = isRestricted
+      ? cards.filter(c => !c.company_id || c.company_id === targetCompId)
+      : [...cards].sort((a, b) => {
+          const aMatch = a.company_id === targetCompId ? 0 : 1
+          const bMatch = b.company_id === targetCompId ? 0 : 1
+          return aMatch - bMatch
+        })
     const filteredBanks = banks.filter(b => !b.company_id || b.company_id === targetCompId)
     const filteredCashes = cashes.filter(c => !c.company_id || c.company_id === targetCompId)
     return { filteredCards, filteredBanks, filteredCashes }
@@ -439,17 +458,22 @@ export default function ExpensesPage() {
   // Normal Form İçin Filtrelenmiş Kaynaklar
   const { filteredCards: formCards, filteredBanks: formBanks, filteredCashes: formCashes } = useMemo(() => {
     return getFilteredPaymentSources(txCompanyId)
-  }, [txCompanyId, cards, banks, cashes])
+  }, [txCompanyId, cards, banks, cashes, isRestricted])
+
+  // Gider Düzenleme Modalı İçin Filtrelenmiş Kaynaklar
+  const { filteredCards: editCards, filteredBanks: editBanks, filteredCashes: editCashes } = useMemo(() => {
+    return getFilteredPaymentSources(editTxCompanyId)
+  }, [editTxCompanyId, cards, banks, cashes, isRestricted])
 
   // Hızlı Öde İçin Filtrelenmiş Kaynaklar
   const { filteredCards: qpCards, filteredBanks: qpBanks, filteredCashes: qpCashes } = useMemo(() => {
     return getFilteredPaymentSources(quickPayCompanyId)
-  }, [quickPayCompanyId, cards, banks, cashes])
+  }, [quickPayCompanyId, cards, banks, cashes, isRestricted])
 
   // Şablon Modalı İçin Filtrelenmiş Kaynaklar
   const { filteredCards: tmplCards, filteredBanks: tmplBanks, filteredCashes: tmplCashes } = useMemo(() => {
     return getFilteredPaymentSources(tmplCompanyId)
-  }, [tmplCompanyId, cards, banks, cashes])
+  }, [tmplCompanyId, cards, banks, cashes, isRestricted])
 
   // =========================================================================================
   // --- MUTLAK HESAPLAMA MOTORLARI (ABSOLUTE LEDGER RECALCULATORS) ---
@@ -950,8 +974,125 @@ export default function ExpensesPage() {
       setTxAmount('')
       fetchExpenses()
       fetchPaymentSources()
+      fetchCardTransactions()
     } catch (err: any) { 
       toast.error('Kayıt Hatası: ' + err.message) 
+    }
+  }
+
+  function openEditExpenseModal(tx: ExpenseTransaction) {
+    setEditingExpense(tx)
+    setEditTxDate(tx.tx_date || todayISO)
+    setEditTxCompanyId(tx.company_id || '')
+    setEditTxCategoryId(tx.category_id || '')
+    setEditTxDesc(tx.description || '')
+    setEditTxAmount(tx.amount ? tx.amount.toString() : '')
+    setEditTxCurrency((tx.currency as 'TRY' | 'USD' | 'EUR') || 'TRY')
+    setEditTxExchangeRate((tx.exchange_rate || 1).toString())
+    setEditPaymentSource(tx.payment_source_type && tx.payment_source_id ? `${tx.payment_source_type}|${tx.payment_source_id}` : '')
+    setIsEditExpModalOpen(true)
+  }
+
+  async function handleUpdateExpense(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingExpense) return
+
+    const amountNum = parseFloat(editTxAmount)
+    const rateNum = editTxCurrency === 'TRY' ? 1 : (parseFloat(editTxExchangeRate) || 1)
+    if (!amountNum || !editTxCategoryId || !editTxCompanyId || !editPaymentSource) {
+      return toast.error('Lütfen Tutar, Merkez, Kategori ve Ödeme Kaynağını eksiksiz girin.')
+    }
+
+    setIsEditSubmitting(true)
+    try {
+      const parts = editPaymentSource.split('|')
+      const newType = parts[0]
+      const newId = parts[1]
+      const finalCompId = editTxCompanyId === 'common' ? null : editTxCompanyId
+      const newCompName = companies.find(c => c.id === editTxCompanyId)?.name || ''
+      const oldCompName = editingExpense.company?.name || companies.find(c => c.id === editingExpense.company_id)?.name || ''
+
+      // 1. Eski ödeme kaynağındaki hareketi geri al ve bakiyesini güncelle
+      if (editingExpense.payment_source_type && editingExpense.payment_source_id) {
+        await modifyPaymentSourceBalance(
+          editingExpense.payment_source_type,
+          editingExpense.payment_source_id,
+          editingExpense.amount,
+          editingExpense.currency || 'TRY',
+          editingExpense.exchange_rate || 1,
+          'reverse',
+          editingExpense.id,
+          editingExpense.tx_date,
+          editingExpense.description,
+          oldCompName,
+          editingExpense.company_id || null
+        )
+      }
+
+      // 2. Gider kaydını güncelle
+      const updatePayload = {
+        category_id: editTxCategoryId,
+        company_id: finalCompId,
+        tx_date: editTxDate,
+        description: editTxDesc.trim(),
+        amount: amountNum,
+        currency: editTxCurrency,
+        exchange_rate: rateNum,
+        payment_source_type: newType,
+        payment_source_id: newId
+      }
+
+      const { data: updatedTx, error: updErr } = await supabase
+        .from('expense_transactions')
+        .update(updatePayload)
+        .eq('id', editingExpense.id)
+        .select()
+        .single()
+
+      if (updErr) throw updErr
+
+      // 3. Yeni ödeme kaynağına hareketi işle ve bakiyesini güncelle
+      if (newType && newId) {
+        await modifyPaymentSourceBalance(
+          newType,
+          newId,
+          amountNum,
+          editTxCurrency,
+          rateNum,
+          'payment',
+          editingExpense.id,
+          editTxDate,
+          editTxDesc.trim(),
+          newCompName,
+          finalCompId
+        )
+      }
+
+      const oldSourceLabel = getPaymentSourceName(editingExpense.payment_source_type, editingExpense.payment_source_id)
+      const newSourceLabel = getPaymentSourceName(newType, newId)
+
+      await logActivity(
+        'expense',
+        'UPDATE',
+        `Gider Güncellendi: ${editTxDesc.trim()} (${oldSourceLabel} -> ${newSourceLabel})`,
+        editingExpense.id,
+        amountNum,
+        editTxCurrency,
+        editingExpense,
+        updatedTx,
+        finalCompId
+      )
+
+      toast.success(`Gider güncellendi! (${oldSourceLabel} ➔ ${newSourceLabel})`)
+      setIsEditExpModalOpen(false)
+      setEditingExpense(null)
+      fetchExpenses()
+      fetchPaymentSources()
+      fetchCardTransactions()
+    } catch (err: any) {
+      toast.error('Güncelleme Hatası: ' + err.message)
+    } finally {
+      setIsEditSubmitting(false)
     }
   }
 
@@ -2370,7 +2511,15 @@ export default function ExpensesPage() {
                     <option value="">{txCompanyId ? 'Seçiniz...' : 'Önce Merkez Seçiniz...'}</option>
                     {formCards.length > 0 && (
                       <optgroup label="💳 Kredi Kartları">
-                        {formCards.map(c => <option key={`card|${c.id}`} value={`card|${c.id}`}>{c.name} (Borç: {formatMoney(c.current_debt, 'TRY').formatted})</option>)}
+                        {formCards.map(c => {
+                          const isOtherComp = c.company_id && txCompanyId && c.company_id !== txCompanyId
+                          const compTag = isOtherComp ? ` [${getCompanyName(c.company_id)} - Mahsuplu]` : ''
+                          return (
+                            <option key={`card|${c.id}`} value={`card|${c.id}`}>
+                              {c.name}{compTag} (Borç: {formatMoney(c.current_debt, 'TRY').formatted})
+                            </option>
+                          )
+                        })}
                       </optgroup>
                     )}
                     {formBanks.length > 0 && (
@@ -2670,9 +2819,14 @@ export default function ExpensesPage() {
                           </div>
                         </td>
                         <td className="p-2.5 text-center align-top">
-                          <button onClick={() => handleDeleteExpense(t.id)} className="text-slate-600 hover:text-rose-400 transition-colors p-1" title="Gideri İptal Et ve Parayı Geri Al">
-                            <Trash2 size={12} />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            <button onClick={() => openEditExpenseModal(t)} className="text-slate-500 hover:text-amber-400 transition-colors p-1" title="Gideri Düzenle (Ödeme Kaynağı, Tarih, Tutar)">
+                              <Edit3 size={12} />
+                            </button>
+                            <button onClick={() => handleDeleteExpense(t.id)} className="text-slate-600 hover:text-rose-400 transition-colors p-1" title="Gideri İptal Et ve Parayı Geri Al">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                   )})}
@@ -3351,6 +3505,182 @@ export default function ExpensesPage() {
                 <button type="button" onClick={() => setIsCatModalOpen(false)} className="px-4 py-1.5 rounded-lg text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
                 <button type="submit" className="bg-rose-600 hover:bg-rose-700 text-white px-5 py-1.5 rounded-lg font-medium transition-all active:scale-95 shadow-lg shadow-rose-900/20">
                   {editingCatId ? 'Güncelle' : 'Oluştur'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- GİDER DÜZENLEME MODALI --- */}
+      {isEditExpModalOpen && editingExpense && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
+          <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Edit3 size={16} className="text-amber-400" />
+                Gider Kaydını Düzenle
+              </h3>
+              <button onClick={() => setIsEditExpModalOpen(false)} className="text-slate-500 hover:text-white p-1">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateExpense} className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-1">Tarih *</label>
+                  <input
+                    type="date"
+                    required
+                    value={editTxDate}
+                    onChange={(e) => setEditTxDate(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-1">İlgili Merkez *</label>
+                  <select
+                    required
+                    value={editTxCompanyId}
+                    onChange={(e) => setEditTxCompanyId(e.target.value)}
+                    disabled={isRestricted && companies.length === 1}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">Merkez Seç...</option>
+                    <optgroup label="Ticari Şirketler">
+                      {companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </optgroup>
+                    {!isRestricted && (
+                      <optgroup label="Şahsi / Ev Merkezleri">
+                        {companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </optgroup>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-slate-400 mb-1">Kategori *</label>
+                <select
+                  required
+                  value={editTxCategoryId}
+                  onChange={(e) => setEditTxCategoryId(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500"
+                >
+                  <option value="">Kategori Seç...</option>
+                  <optgroup label="🔄 Sabit Giderler">
+                    {categories.filter(c => c.type === 'fixed' && (!isRestricted || !c.company_id || profile?.allowed_companies?.includes(c.company_id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </optgroup>
+                  <optgroup label="⚡ Değişken Giderler">
+                    {categories.filter(c => c.type === 'variable' && (!isRestricted || !c.company_id || profile?.allowed_companies?.includes(c.company_id))).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </optgroup>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-amber-400 font-bold mb-1">Ödeme Kaynağı (Kredi Kartı / Banka / Kasa) *</label>
+                <select
+                  required
+                  value={editPaymentSource}
+                  onChange={(e) => setEditPaymentSource(e.target.value)}
+                  className="w-full bg-[#070b14] border border-amber-500/50 rounded-lg px-3 py-2 text-white font-medium focus:outline-none focus:border-amber-400"
+                >
+                  <option value="">Ödeme Kaynağı Seçiniz...</option>
+                  {editCards.length > 0 && (
+                    <optgroup label="💳 Kredi Kartları">
+                      {editCards.map(c => {
+                        const isOtherComp = c.company_id && editTxCompanyId && c.company_id !== editTxCompanyId
+                        const compTag = isOtherComp ? ` [${getCompanyName(c.company_id)} - Mahsuplu]` : ''
+                        return (
+                          <option key={`card|${c.id}`} value={`card|${c.id}`}>
+                            {c.name}{compTag} (Borç: {formatMoney(c.current_debt, 'TRY').formatted})
+                          </option>
+                        )
+                      })}
+                    </optgroup>
+                  )}
+                  {editBanks.length > 0 && (
+                    <optgroup label="🏦 Bankalar">
+                      {editBanks.map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name} - {b.account_name} (Bakiye: {formatMoney(b.balance, b.currency).formatted})</option>)}
+                    </optgroup>
+                  )}
+                  {editCashes.length > 0 && (
+                    <optgroup label="💵 Nakit Kasalar">
+                      {editCashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name} (Bakiye: {formatMoney(c.balance, c.currency).formatted})</option>)}
+                    </optgroup>
+                  )}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  💡 Ödeme kaynağı değiştirildiğinde eski hesaptan düşülen tutar otomatik iade edilir ve yeni seçilen hesaba/karta işlenir.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-slate-400 mb-1">Açıklama *</label>
+                <input
+                  type="text"
+                  required
+                  value={editTxDesc}
+                  onChange={(e) => setEditTxDesc(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className={editTxCurrency !== 'TRY' ? 'col-span-1' : 'col-span-2'}>
+                  <label className="block text-[10px] text-slate-400 mb-1">Tutar *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={editTxAmount}
+                    onChange={(e) => setEditTxAmount(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-rose-400 font-bold font-mono focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-1">Döviz</label>
+                  <select
+                    value={editTxCurrency}
+                    onChange={(e) => setEditTxCurrency(e.target.value as any)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="TRY">TRY (₺)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                  </select>
+                </div>
+                {editTxCurrency !== 'TRY' && (
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Kur</label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      required
+                      value={editTxExchangeRate}
+                      onChange={(e) => setEditTxExchangeRate(e.target.value)}
+                      className="w-full bg-[#070b14] border border-rose-500/40 rounded-lg px-3 py-2 text-rose-300 font-mono focus:outline-none"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsEditExpModalOpen(false)}
+                  disabled={isEditSubmitting}
+                  className="px-4 py-2 rounded-xl text-slate-400 hover:bg-slate-800 transition-colors"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEditSubmitting}
+                  className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold px-5 py-2 rounded-xl transition-all active:scale-95 shadow-lg shadow-amber-900/30"
+                >
+                  {isEditSubmitting ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
                 </button>
               </div>
             </form>
