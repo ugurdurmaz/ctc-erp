@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { logActivity } from '@/lib/audit'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Key, Plus, Trash2, X, Edit3, Search, Building, Globe, CheckCircle2, AlertCircle, RefreshCw, Wallet, Download, Landmark, Check, ChevronDown, ChevronUp, Clock, CreditCard, Inbox, AlertTriangle, Home, ArrowUpDown, ArrowDownNarrowWide, ArrowUpNarrowWide } from 'lucide-react'
+import { Key, Plus, Trash2, X, Edit3, Search, Building, Globe, CheckCircle2, AlertCircle, RefreshCw, Wallet, Download, Landmark, Check, ChevronDown, ChevronUp, Clock, CreditCard, Inbox, AlertTriangle, Home, ArrowUpDown, ArrowDownNarrowWide, ArrowUpNarrowWide, Calendar } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Supplier = { id: string; company_name: string; balance: number; currency: string }
@@ -19,6 +19,7 @@ type Subscription = {
   start_date: string; end_date: string;
   cost_price: number; sale_price: number; currency: 'TRY' | 'USD' | 'EUR';
   is_active: boolean; is_paid: boolean; payment_source_type: string | null; payment_source_id: string | null;
+  paid_date?: string | null;
   company?: { name: string; is_personal: boolean }; wallet?: { name: string };
   created_at?: string;
 }
@@ -98,12 +99,50 @@ export default function SubscriptionsPage() {
     setWallets(data || []) 
   }
   async function fetchSubscriptions() {
-    const { data } = await supabase
-      .from('credit_subscriptions')
-      .select('*, company:companies(name, is_personal), wallet:credit_wallets(name)')
-      .order('start_date', { ascending: false })
-      .order('created_at', { ascending: false })
-    setSubscriptions(data || [])
+    const [subRes, bankTxRes, cashTxRes] = await Promise.all([
+      supabase
+        .from('credit_subscriptions')
+        .select('*, company:companies(name, is_personal), wallet:credit_wallets(name)')
+        .order('start_date', { ascending: false })
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('bank_transactions')
+        .select('id, bank_account_id, tx_date, description, transfer_id, created_at')
+        .or('transfer_id.ilike.SUB-%,description.ilike.Abonelik Tahsilatı:%')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('cash_transactions')
+        .select('id, cash_register_id, tx_date, description, transfer_id, created_at')
+        .or('transfer_id.ilike.SUB-%,description.ilike.Abonelik Tahsilatı:%')
+        .order('created_at', { ascending: false })
+    ])
+
+    const bankTxs = bankTxRes.data || []
+    const cashTxs = cashTxRes.data || []
+
+    const enriched: Subscription[] = (subRes.data || []).map((s: Subscription) => {
+      if (!s.is_paid) return { ...s, paid_date: null }
+      const expectedDesc = `Abonelik Tahsilatı: ${s.username} (${s.full_name})`
+      const subTrfId = `SUB-${s.id}`
+      let matchedTx: any = null
+      if (s.payment_source_type === 'cash') {
+        matchedTx =
+          cashTxs.find(t => t.transfer_id === subTrfId) ||
+          cashTxs.find(t => (!s.payment_source_id || t.cash_register_id === s.payment_source_id) && t.description === expectedDesc) ||
+          cashTxs.find(t => t.description && t.description.includes(s.username))
+      } else {
+        matchedTx =
+          bankTxs.find(t => t.transfer_id === subTrfId) ||
+          bankTxs.find(t => (!s.payment_source_id || t.bank_account_id === s.payment_source_id) && t.description === expectedDesc) ||
+          bankTxs.find(t => t.description && t.description.includes(s.username))
+      }
+      return {
+        ...s,
+        paid_date: matchedTx?.tx_date || s.start_date || null
+      }
+    })
+
+    setSubscriptions(enriched)
   }
   async function fetchPaymentSources() {
     const { data: bData } = await supabase.from('bank_accounts').select('id, bank_name, account_name, balance, currency').order('bank_name')
@@ -525,7 +564,11 @@ export default function SubscriptionsPage() {
       const fkField = sub.payment_source_type === 'cash' ? 'cash_register_id' : 'bank_account_id'
 
       try {
-        const { data: txList } = await supabase.from(txTable).select('id, amount').eq(fkField, sub.payment_source_id).eq('description', `Abonelik Tahsilatı: ${sub.username} (${sub.full_name})`).order('created_at', { ascending: false }).limit(1)
+        let { data: txList } = await supabase.from(txTable).select('id, amount').eq('transfer_id', `SUB-${sub.id}`).limit(1)
+        if (!txList || txList.length === 0) {
+          const fallback = await supabase.from(txTable).select('id, amount').eq(fkField, sub.payment_source_id).eq('description', `Abonelik Tahsilatı: ${sub.username} (${sub.full_name})`).order('created_at', { ascending: false }).limit(1)
+          txList = fallback.data
+        }
         if (txList && txList.length > 0) {
           await supabase.from(txTable).delete().eq('id', txList[0].id)
           relatedPaymentTx = txList[0]
@@ -645,7 +688,29 @@ export default function SubscriptionsPage() {
     } catch(err:any) { toast.error('Yenileme başarısız: ' + err.message) }
   }
 
-  function openPaymentModal(subId: string) { setPaymentSubId(subId); setPaymentSource(''); setPaymentDate(getLocalTodayISO()); setIsPaymentModalOpen(true) }
+  function getPaymentSourceName(sub: Subscription): string | null {
+    if (!sub.is_paid || !sub.payment_source_type || !sub.payment_source_id) return null
+    if (sub.payment_source_type === 'cash') {
+      const c = cashes.find(x => x.id === sub.payment_source_id)
+      return c ? c.name : 'Nakit Kasa'
+    }
+    const b = banks.find(x => x.id === sub.payment_source_id)
+    if (!b) return 'Banka Hesabı'
+    return `${b.bank_name}${b.account_name ? ` - ${b.account_name}` : ''}`
+  }
+
+  function openPaymentModal(subId: string) {
+    const existingSub = subscriptions.find(s => s.id === subId)
+    setPaymentSubId(subId)
+    if (existingSub && existingSub.is_paid && existingSub.payment_source_type && existingSub.payment_source_id) {
+      setPaymentSource(`${existingSub.payment_source_type}|${existingSub.payment_source_id}`)
+      setPaymentDate(existingSub.paid_date || existingSub.start_date || getLocalTodayISO())
+    } else {
+      setPaymentSource('')
+      setPaymentDate(getLocalTodayISO())
+    }
+    setIsPaymentModalOpen(true)
+  }
 
   async function handleReceivePayment(e: React.FormEvent) {
     e.preventDefault()
@@ -666,11 +731,44 @@ export default function SubscriptionsPage() {
     }
 
     try {
+      const affectedBanks = new Set<string>()
+      const affectedCashes = new Set<string>()
+
+      // Eğer daha önce ödenmiş bir aboneliğin tahsilat yeri veya tarihi güncelleniyorsa, eski hareketi temizle
+      if (sub.is_paid && sub.payment_source_type && sub.payment_source_id) {
+        const oldTable = sub.payment_source_type === 'cash' ? 'cash_transactions' : 'bank_transactions'
+        const oldFk = sub.payment_source_type === 'cash' ? 'cash_register_id' : 'bank_account_id'
+        let { data: oldTxList } = await supabase.from(oldTable).select('id').eq('transfer_id', `SUB-${sub.id}`).limit(1)
+        if (!oldTxList || oldTxList.length === 0) {
+          const fallback = await supabase
+            .from(oldTable)
+            .select('id')
+            .eq(oldFk, sub.payment_source_id)
+            .eq('description', `Abonelik Tahsilatı: ${sub.username} (${sub.full_name})`)
+            .order('created_at', { ascending: false })
+            .limit(1)
+          oldTxList = fallback.data
+        }
+        if (oldTxList && oldTxList.length > 0) {
+          await supabase.from(oldTable).delete().eq('id', oldTxList[0].id)
+          if (sub.payment_source_type === 'cash') affectedCashes.add(sub.payment_source_id)
+          if (sub.payment_source_type === 'bank') affectedBanks.add(sub.payment_source_id)
+        }
+      }
+
       const txTable = sourceType === 'cash' ? 'cash_transactions' : 'bank_transactions'
       const txIdField = sourceType === 'cash' ? 'cash_register_id' : 'bank_account_id'
       
       const payload: any = { 
-        [txIdField]: sourceId, company_id: sub.company_id, tx_date: paymentDate || getLocalTodayISO(), description: `Abonelik Tahsilatı: ${sub.username} (${sub.full_name})`, tx_type: 'in', amount: amountToAdd, currency: account.currency, exchange_rate: 1 
+        [txIdField]: sourceId,
+        company_id: sub.company_id,
+        tx_date: paymentDate || getLocalTodayISO(),
+        description: `Abonelik Tahsilatı: ${sub.username} (${sub.full_name})`,
+        tx_type: 'in',
+        amount: amountToAdd,
+        currency: account.currency,
+        exchange_rate: 1,
+        transfer_id: `SUB-${sub.id}`
       }
       if (sourceType === 'bank') payload.status = 'completed'
 
@@ -678,12 +776,15 @@ export default function SubscriptionsPage() {
       
       await supabase.from('credit_subscriptions').update({ is_paid: true, payment_source_type: sourceType, payment_source_id: sourceId }).eq('id', sub.id)
       
-      if (sourceType === 'cash') await recalculateAbsoluteCashBalance(sourceId)
-      if (sourceType === 'bank') await recalculateAbsoluteBankBalance(sourceId)
-      
-      await logActivity('subscription_payment', 'UPDATE', `Abonelik tahsil edildi: ${sub.username}`, sub.id, sub.sale_price, sub.currency, { previous_state: 'Unpaid' }, { new_state: 'Paid', payment_tx: txData }, sub.company_id)
+      if (sourceType === 'cash') affectedCashes.add(sourceId)
+      if (sourceType === 'bank') affectedBanks.add(sourceId)
 
-      toast.success('Tahsilat başarıyla alındı ve kasaya/bankaya işlendi.')
+      for (const cId of Array.from(affectedCashes)) await recalculateAbsoluteCashBalance(cId)
+      for (const bId of Array.from(affectedBanks)) await recalculateAbsoluteBankBalance(bId)
+      
+      await logActivity('subscription_payment', 'UPDATE', `Abonelik tahsil edildi: ${sub.username}`, sub.id, sub.sale_price, sub.currency, { previous_state: sub.is_paid ? 'Paid' : 'Unpaid' }, { new_state: 'Paid', payment_tx: txData }, sub.company_id)
+
+      toast.success(sub.is_paid ? 'Tahsilat yeri ve tarihi güncellendi.' : 'Tahsilat başarıyla alındı ve kasaya/bankaya işlendi.')
       setIsPaymentModalOpen(false); fetchSubscriptions(); fetchPaymentSources()
     } catch (err: any) { toast.error("Tahsilat başarısız: " + err.message) }
   }
@@ -692,10 +793,14 @@ export default function SubscriptionsPage() {
     .filter(s => {
       const matchCompany = selectedCompanyFilter === 'all' || (selectedCompanyFilter === 'common' ? !s.company_id : s.company_id === selectedCompanyFilter)
       const q = searchTerm.toLocaleLowerCase('tr-TR').trim()
+      const paymentPlace = getPaymentSourceName(s) || ''
+      const paidDateFormatted = s.paid_date ? formatDateTR(s.paid_date) : ''
       const matchSearch = !q ||
         s.username.toLocaleLowerCase('tr-TR').includes(q) ||
         s.full_name.toLocaleLowerCase('tr-TR').includes(q) ||
-        (s.reference_note && s.reference_note.toLocaleLowerCase('tr-TR').includes(q))
+        (s.reference_note && s.reference_note.toLocaleLowerCase('tr-TR').includes(q)) ||
+        paymentPlace.toLocaleLowerCase('tr-TR').includes(q) ||
+        paidDateFormatted.includes(q)
       return matchCompany && matchSearch
     })
     .sort((a, b) => {
@@ -980,11 +1085,37 @@ export default function SubscriptionsPage() {
                     <td className="p-3 align-top text-right text-blue-400 font-bold font-mono">{formatMoney(sub.sale_price, sub.currency).formatted}</td>
                     
                     <td className="p-3 align-top text-center">
-                      {sub.is_paid ? (
-                        <div className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded border border-emerald-500/30 text-[10px] font-bold">
-                          <Check size={12} /> Ödendi
-                        </div>
-                      ) : (
+                      {sub.is_paid ? (() => {
+                        const sourceLabel = getPaymentSourceName(sub)
+                        return (
+                          <div className="flex flex-col items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => openPaymentModal(sub.id)}
+                              title="Tahsilat yeri veya tarihini düzenlemek için tıklayın"
+                              className="inline-flex items-center gap-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 px-2.5 py-0.5 rounded border border-emerald-500/30 text-[10px] font-bold transition-colors cursor-pointer"
+                            >
+                              <Check size={11} /> Ödendi
+                            </button>
+                            {sourceLabel && (
+                              <div className="inline-flex items-center gap-1 text-[9px] text-slate-300 bg-slate-900/70 border border-slate-800 px-1.5 py-0.5 rounded max-w-[160px] truncate" title={`Ödenen Yer: ${sourceLabel}`}>
+                                {sub.payment_source_type === 'cash' ? (
+                                  <Wallet size={9} className="text-emerald-400 shrink-0" />
+                                ) : (
+                                  <Landmark size={9} className="text-indigo-400 shrink-0" />
+                                )}
+                                <span className="truncate font-medium">{sourceLabel}</span>
+                              </div>
+                            )}
+                            {sub.paid_date && (
+                              <div className="inline-flex items-center gap-1 text-[9px] font-mono text-slate-400" title="Tahsilat Tarihi">
+                                <Calendar size={9} className="text-pink-400/80 shrink-0" />
+                                <span>{formatDateTR(sub.paid_date)}</span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })() : (
                         <button onClick={() => openPaymentModal(sub.id)} className="inline-flex items-center gap-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 px-2.5 py-1 rounded border border-rose-500/30 text-[10px] font-bold transition-all active:scale-95">
                           Tahsil Et
                         </button>
@@ -1068,7 +1199,7 @@ export default function SubscriptionsPage() {
             <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-sm p-5 shadow-2xl animate-in zoom-in-95 duration-200">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <CreditCard size={16} className="text-emerald-400" /> Tahsilat Al
+                  <CreditCard size={16} className="text-emerald-400" /> {targetSub?.is_paid ? 'Tahsilat Bilgilerini Güncelle' : 'Tahsilat Al'}
                 </h3>
                 <button type="button" onClick={() => setIsPaymentModalOpen(false)} className="text-slate-500 hover:text-slate-300">
                   <X size={16} />
@@ -1109,7 +1240,7 @@ export default function SubscriptionsPage() {
                 </div>
                 <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
                   <button type="button" onClick={() => setIsPaymentModalOpen(false)} className="px-3 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
-                  <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded font-bold transition-all active:scale-95 shadow-lg shadow-emerald-900/20">Tahsil Et</button>
+                  <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded font-bold transition-all active:scale-95 shadow-lg shadow-emerald-900/20">{targetSub?.is_paid ? 'Güncelle' : 'Tahsil Et'}</button>
                 </div>
               </form>
             </div>
