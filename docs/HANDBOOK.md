@@ -478,7 +478,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
   - **Virman / Transfer Düzenleme**: Düzenlenen hareket bir transfer ise, karşı hesaptaki (diğer banka, kasa veya kredi kartı) eşleşen hareketin tarihi, ilgili merkezi ve tutarı da otomatik güncellenir. Çapraz dövizli transferlerde her iki bacağın tutarı oransal/manuel düzenlenebilir.
   - **Mutlak Bakiye Güncellemesi**: Düzenlenen işlem kaydedildiğinde etkilenen tüm hesapların (`recalculateAbsoluteBankBalance` / `recalculateAbsoluteCashBalance` / `recalculateAbsoluteCardDebt`) bakiyeleri anında yeniden hesaplanır.
   - **Harici Modül Uyumluluğu**: Mağaza (POS), Cari veya Gider kaynaklı banka ekstre hareketleri için bilgilendirme şeridiyle birlikte tarih, açıklama ve tutar düzenleme imkanı sunulur. Silme anında kaynak kayıt yoksa yetim kayıt temizliği sunulur. Transfer silindiğinde karşı hesaptaki bacak da silinir (kredi kartı borcu veya kasa/banka bakiyesi geri alınır).
-- Provizyon onayı: valör tarihi (varsayılan işlem tarihi + 1 gün), komisyon (0 ≤ k < tutar). Komisyon `POS-Z-CARD-COMM-<tarih>` id'siyle `out` yazılır; böylece o POS günü yeniden kaydedilince komisyon da temizlenir.
+- Provizyon onayı: valör tarihi (varsayılan işlem tarihi + 1 gün), komisyon (0 ≤ k < tutar). Komisyon `POS-Z-CARD-COMM-<tarih>` id'siyle `out` yazılır; idempotent koruma sayesinde aynı provizyon için komisyon eklenmeden önce varsa mevcut `POS-Z-CARD-COMM-<tarih>` kaydı silinir (veya provizyon tekrar `pending` durumuna çekilirse bağlı komisyonu otomatik temizlenir), böylece çift tıklama ya da yeniden onaylama durumlarında mükerrer komisyon kesintisi oluşmaz.
 
 ### 7.5 Kredi Kartları `/credit-cards`
 - Üst: kart görselleri (1.586 oran, 14 renk teması), Güncel Borç / Limit / Mevcut.

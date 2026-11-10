@@ -88,7 +88,8 @@ export default function BankAccountsPage() {
   const [isCollectModalOpen, setIsCollectModalOpen] = useState(false)
   const [collectingTx, setCollectingTx] = useState<BankTransaction | null>(null)
   const [commissionAmount, setCommissionAmount] = useState('')
-  const [collectDate, setCollectDate] = useState(todayISO) 
+  const [collectDate, setCollectDate] = useState(todayISO)
+  const [isCollecting, setIsCollecting] = useState(false)
   const [txSearchTerm, setTxSearchTerm] = useState('')
   const [txPeriodFilter, setTxPeriodFilter] = useState<'all' | 'this_month' | 'last_month'>('all')
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
@@ -756,6 +757,17 @@ export default function BankAccountsPage() {
           .eq('id', editingTx.id)
         if (updErr) throw updErr
 
+        // Eğer bir POS kart provizyon hareketi tekrar 'pending' (Bekleyen Provizyon) durumuna çekildiyse,
+        // varsa daha önce kesilmiş komisyon satırını (POS-Z-CARD-COMM-...) temizle ki yeniden tahsil edildiğinde mükerrer oluşmasın.
+        if (editTxStatus === 'pending' && editingTx.transfer_id && editingTx.transfer_id.includes('-IN-')) {
+          const linkedCommId = editingTx.transfer_id.replace('-IN-', '-COMM-')
+          await supabase
+            .from('bank_transactions')
+            .delete()
+            .eq('bank_account_id', editTxBankAccountId || editingTx.bank_account_id)
+            .eq('transfer_id', linkedCommId)
+        }
+
         await logActivity(
           'bank_tx',
           'UPDATE',
@@ -822,7 +834,7 @@ export default function BankAccountsPage() {
         } else {
           isOrphan = true;
         }
-      } else if (transferId.startsWith('POS-')) {
+      } else if (transferId.startsWith('POS-') && !transferId.includes('-COMM-')) {
         toast.error('Bu işlem Mağaza (POS) modülünden otomatik yansımıştır. Lütfen işlemi ait olduğu modülden iptal edin.');
         return;
       } else if (transferId.startsWith('LOAN-')) {
@@ -949,7 +961,7 @@ export default function BankAccountsPage() {
 
   async function handleCollectSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!collectingTx || !selectedBankId) return
+    if (!collectingTx || !selectedBankId || isCollecting) return
 
     const commission = parseFloat(commissionAmount) || 0
     if (commission < 0 || commission >= collectingTx.amount) {
@@ -957,6 +969,7 @@ export default function BankAccountsPage() {
       return
     }
 
+    setIsCollecting(true)
     try {
       const { error: updErr } = await supabase.from('bank_transactions')
         .update({ status: 'completed', tx_date: collectDate }) 
@@ -964,12 +977,20 @@ export default function BankAccountsPage() {
       
       if (updErr) throw updErr
 
-      if (commission > 0) {
-        // --- SİHİRLİ BAĞLANTI (TRANSFER ID) BURADA ---
-        // Eğer POS'tan gelen ID "POS-Z-CARD-IN-2026-09-14" ise komisyon "POS-Z-CARD-COMM-2026-09-14" olur.
-        // Böylece POS modülü eski günleri temizlerken bu komisyonu da kendi çöplüğünden bilir ve siler!
-        const commTransferId = collectingTx.transfer_id ? collectingTx.transfer_id.replace('-IN-', '-COMM-') : `POS-COMM-${Date.now()}`
+      // --- SİHİRLİ BAĞLANTI (TRANSFER ID) VE MÜKERRER KOMİSYON KORUMASI ---
+      // Eğer POS'tan gelen ID "POS-Z-CARD-IN-2026-09-14" ise komisyon "POS-Z-CARD-COMM-2026-09-14" olur.
+      // İdempotent koruma: Aynı provizyona ait eski/mükerrer bir komisyon kaydı varsa önce temizle, sonra tek kayıt ekle.
+      const commTransferId = collectingTx.transfer_id
+        ? collectingTx.transfer_id.replace('-IN-', '-COMM-')
+        : `POS-COMM-${collectingTx.id}`
 
+      await supabase
+        .from('bank_transactions')
+        .delete()
+        .eq('bank_account_id', selectedBankId)
+        .eq('transfer_id', commTransferId)
+
+      if (commission > 0) {
         const commPayload = {
           bank_account_id: selectedBankId,
           company_id: collectingTx.company_id,
@@ -993,10 +1014,13 @@ export default function BankAccountsPage() {
 
       toast.success('Tahsilat işlemi banka ekstrenizle aynı güne işlendi!')
       setIsCollectModalOpen(false)
+      setCollectingTx(null)
       fetchTransactions(selectedBankId); fetchBanks()
 
     } catch (err: any) {
       toast.error("Tahsilat sırasında bir hata oluştu: " + err.message)
+    } finally {
+      setIsCollecting(false)
     }
   }
 
@@ -1549,8 +1573,12 @@ export default function BankAccountsPage() {
                   </span>
                 </div>
                 
-                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-lg transition-all active:scale-95 shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2">
-                  <CheckCircle size={16} /> Tahsilatı Onayla ve İşle
+                <button
+                  type="submit"
+                  disabled={isCollecting}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-lg transition-all active:scale-95 shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2"
+                >
+                  <CheckCircle size={16} /> {isCollecting ? 'İşleniyor...' : 'Tahsilatı Onayla ve İşle'}
                 </button>
               </div>
             </form>
