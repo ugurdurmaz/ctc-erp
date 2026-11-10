@@ -385,12 +385,12 @@ Gün kaydedilirken sırasıyla:
    - Tedarikçi: Tedarikçi seçilen satırlar için `supplier_transactions`'a `debt` (TRY, exchange_rate 1, `invoice_lines` JSON metadata) yazılır.
    - Kredi kartı: kartlı gider toplamı `credit_card_transactions`'a `out`.
    - Etkilenen tüm kasa/banka/stok/tedarikçi/kart bakiyeleri yeniden hesaplanır (`recalculateAbsoluteSupplierBalance`).
-5. `syncForwardBalances`: **tüm** `pos_daily_summaries` günleri kronolojik gezilir; ilk günün `opening_cash`'i bağlı kasanın `Açılış Bakiyesi / Devir` hareketinden alınır, sonraki her günün `opening_cash`'i önceki günün kapanışından yazılır.
+5. `syncForwardBalances`: **tüm** `pos_daily_summaries` günleri kronolojik gezilir; ilk günün `opening_cash`'i bağlı kasanın `Açılış Bakiyesi / Devir` hareketinden alınır, sonraki her günün `opening_cash`'i önceki günün kapanışından (harici nakit giderler ve müşteri cari nakit tahsilatları dahil) yazılır. Ayrıca gün yüklenirken (`fetchDayData`) bir önceki günün kapanış bakiyesi otomatik doğrulanır ve harici kasa hareketi eklendiyse devir bakiyesi senkronize edilir.
 6. `localStorage` taslağı silinir.
 
 Kayıt öncesi doğrulamalar: kartlı gider varsa ayarlarda kredi kartı seçili olmalı; `servis` ve `gider` dışındaki kategorilerde satış girilen satırın **maliyeti boş olamaz**.
 
-Günlük kasa formülü (ekranda): `Dünden Devir + Nakit Satış (ciro+fotokopi) + Teslim Edilen Servis Fişleri Nakit Tahsilatı − Nakit Gider − Bankaya Yatan + Bankadan Çekilen`.
+Günlük kasa formülü (ekranda): `Dünden Devir + Nakit Satış (ciro+fotokopi) + Teslim Edilen Servis Fişleri Nakit Tahsilatı + Harici/Cari Nakit Tahsilatlar (CUST-) − Nakit Gider − Bankaya Yatan + Bankadan Çekilen`.
 
 ### 6.7 Dashboard P&L Hesabı (son 6 ay)
 
@@ -449,7 +449,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
   - *Stoksuz / Serbest Kalem:* Ürün depoda kayıtlı değilse veya hizmet iadesi ise serbest açıklama ile kaydedilir (stok etkilenmez).
   - *Kesinti & Komisyon Hesabı:* Orijinal satış tutarı ve müşteriye iade edilecek tutar girildiğinde aradaki fark mağaza komisyon/kesinti kazancı (`+₺`) olarak canlı hesaplanır ve rozette gösterilir.
   - *Finansal Çıkış:* İade nakit yapıldıysa bugünün `Gider & Masraf` satırına nakit gider olarak eklenir (`stock_id = null`), gün içi hesaplanan kasayı anında düşürür ve gün sonu kapanışında `POS-Z-CASH-OUT` ile kasadan çıkar. Kredi kartı masrafı veya banka hesabı seçildiyse ilgili kanala yansıtılır.
-- **Harici Gider Senkronizasyonu & Tekilleştirme**: Genel Giderler modülünden (veya Sabit Gider Şablonları / Hızlı Ödeme'den) girilen ödemeler mağaza kasasından yapılmışsa veya mağaza merkezine aitse otomatik olarak POS "Gider & Masraf" listesine `[Genel Gider]` rozetiyle yansıtılır. Kasadan çıkış (`cash_transactions`) ve gider kaydı (`expense_transactions`) arasındaki çift kayıt (mükerrerlik) `transfer_id`, `expenseTxId`, tutar ve açıklama eşleşmesiyle tekilleştirilir. Yerel (harici olmayan) gider satırları için çöp kutusu ikonu ile tek tıkla silme desteklenir.
+- **Harici Gider & Cari Nakit Tahsilat Senkronizasyonu**: Genel Giderler modülünden (veya Sabit Gider Şablonları / Hızlı Ödeme'den) girilen ödemeler mağaza kasasından yapılmışsa veya mağaza merkezine aitse otomatik olarak POS "Gider & Masraf" listesine `[Genel Gider]` rozetiyle yansıtılır. Kasadan çıkış (`cash_transactions`) ve gider kaydı (`expense_transactions`) arasındaki çift kayıt (mükerrerlik) `transfer_id`, `expenseTxId`, tutar ve açıklama eşleşmesiyle tekilleştirilir. Yerel (harici olmayan) gider satırları için çöp kutusu ikonu ile tek tıkla silme desteklenir. Müşteri Carileri (`/customers`) üzerinden mağaza nakit kasasına yapılan cari borç tahsilatları (`CUST-`) da günün kasa hesabına (`calculatedKasa`), üst şerit nakit özetine (`Cari:`), Servis kutusu altındaki *Günün Cari / Harici Nakit Tahsilatları* listesine ve ertesi günün `Dünden Devir` (`opening_cash`) bakiyesine otomatik dahil edilir.
 - Taslak: her değişiklik `ctc_pos_draft_<tarih>`'e yazılır; sayfa açılışında taslak varsa "Sistem kapanması algılandı" uyarısı ile geri yüklenir. Mükerrer veya silinmiş harici giderler taslaktan otomatik ayıklanır.
 - Yan etkiler: §6.6.
 

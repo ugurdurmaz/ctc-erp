@@ -68,6 +68,24 @@ type DeliveredTicketSummary = {
   delivered_at: string | null;
 }
 
+type ExternalCashInflow = {
+  id: string;
+  description: string;
+  amount: number;
+  transfer_id: string | null;
+  tx_date: string;
+}
+
+const isExternalCashInflowTx = (tx: { transfer_id?: string | null; is_transfer?: boolean | null; description?: string | null }) => {
+  const trf = tx.transfer_id || '';
+  const desc = tx.description || '';
+  if (trf.startsWith('POS-')) return false;
+  if (tx.is_transfer) return false;
+  if (desc === 'Açılış Bakiyesi / Devir') return false;
+  if (desc.startsWith('Teknik Servis Tahsilatı:')) return false;
+  return true;
+}
+
 type PosSettings = {
   targetCashId: string;
   targetBankId: string;
@@ -217,6 +235,7 @@ export default function RetailPOSPage() {
 
   const [transfers, setTransfers] = useState<BankTransfer[]>([])
   const [deliveredTickets, setDeliveredTickets] = useState<DeliveredTicketSummary[]>([])
+  const [externalCashInflows, setExternalCashInflows] = useState<ExternalCashInflow[]>([])
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false)
   const [transferForm, setTransferForm] = useState({ type: 'to_bank' as 'to_bank' | 'from_bank', bankId: '', amountStr: '', description: '' })
 
@@ -762,23 +781,26 @@ export default function RetailPOSPage() {
           .from('cash_transactions')
           .select('*')
           .eq('cash_register_id', targetCashId)
-          .eq('tx_date', dateStr)
-          .eq('tx_type', 'out');
+          .eq('tx_date', dateStr);
 
         if (extTxs) {
           extTxs.forEach(ext => {
-            const trf = ext.transfer_id || '';
-            const isEligible = trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !ext.is_transfer);
-            if (isEligible) {
-              const alreadyInPos = txs?.some(t => 
-                t.category_id === EXPENSE_CATEGORY_ID && 
-                ((ext.transfer_id && t.description?.includes(ext.transfer_id)) ||
-                 (ext.description && t.description?.includes(ext.description)) ||
-                 Number(t.cash) === Number(ext.amount))
-              );
-              if (!alreadyInPos) {
-                cashOut += Number(ext.amount || 0);
+            if (ext.tx_type === 'out') {
+              const trf = ext.transfer_id || '';
+              const isEligible = trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !ext.is_transfer);
+              if (isEligible) {
+                const alreadyInPos = txs?.some(t => 
+                  t.category_id === EXPENSE_CATEGORY_ID && 
+                  ((ext.transfer_id && t.description?.includes(ext.transfer_id)) ||
+                   (ext.description && t.description?.includes(ext.description)) ||
+                   Number(t.cash) === Number(ext.amount))
+                );
+                if (!alreadyInPos) {
+                  cashOut += Number(ext.amount || 0);
+                }
               }
+            } else if (ext.tx_type === 'in' && isExternalCashInflowTx(ext)) {
+              cashIn += Number(ext.amount || 0);
             }
           });
         }
@@ -850,35 +872,38 @@ export default function RetailPOSPage() {
         else if (validCategoryIds.includes(tx.category_id)) cashIn += Number(tx.cash || 0)
       })
 
-      // Harici kasa çıkışları kontrolü
+      // Harici kasa çıkışları ve girişleri (Müşteri cari tahsilatları vb.) kontrolü
       if (activeCashId) {
         try {
           const { data: extTxs } = await supabase
             .from('cash_transactions')
             .select('*')
             .eq('cash_register_id', activeCashId)
-            .eq('tx_date', targetDate)
-            .eq('tx_type', 'out');
+            .eq('tx_date', targetDate);
 
           if (extTxs) {
             extTxs.forEach(ext => {
-              const trf = ext.transfer_id || '';
-              const isEligible = trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !ext.is_transfer);
-              if (isEligible) {
-                const alreadyInPos = txs?.some(t => 
-                  t.category_id === EXPENSE_CATEGORY_ID && 
-                  ((ext.transfer_id && t.description?.includes(ext.transfer_id)) ||
-                   (ext.description && t.description?.includes(ext.description)) ||
-                   Number(t.cash) === Number(ext.amount))
-                );
-                if (!alreadyInPos) {
-                  cashOut += Number(ext.amount || 0);
+              if (ext.tx_type === 'out') {
+                const trf = ext.transfer_id || '';
+                const isEligible = trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !ext.is_transfer);
+                if (isEligible) {
+                  const alreadyInPos = txs?.some(t => 
+                    t.category_id === EXPENSE_CATEGORY_ID && 
+                    ((ext.transfer_id && t.description?.includes(ext.transfer_id)) ||
+                     (ext.description && t.description?.includes(ext.description)) ||
+                     Number(t.cash) === Number(ext.amount))
+                  );
+                  if (!alreadyInPos) {
+                    cashOut += Number(ext.amount || 0);
+                  }
                 }
+              } else if (ext.tx_type === 'in' && isExternalCashInflowTx(ext)) {
+                cashIn += Number(ext.amount || 0);
               }
             });
           }
         } catch (e) {
-          console.error('syncForwardBalances harici gider hatası:', e);
+          console.error('syncForwardBalances harici kasa hareketi hatası:', e);
         }
       }
 
@@ -933,42 +958,53 @@ export default function RetailPOSPage() {
         if (comm) activeStoreCompanyId = comm.id;
       }
 
-      // 1. Bağlı kasadan yapılan nakit çıkışlarını ekle
+      // 1. Bağlı kasadan yapılan nakit çıkışlarını ve harici nakit tahsilatlarını (Müşteri cari tahsilatı vb.) ekle
+      const dayExternalInflows: ExternalCashInflow[] = [];
       if (activeCashId) {
         const { data: extTxs } = await supabase
           .from('cash_transactions')
           .select('*')
           .eq('cash_register_id', activeCashId)
-          .eq('tx_date', dateStr)
-          .eq('tx_type', 'out');
+          .eq('tx_date', dateStr);
 
         if (extTxs) {
           extTxs.forEach(t => {
-            const trf = t.transfer_id || '';
-            if (trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !t.is_transfer)) {
-              let expTxId: string | undefined = undefined;
-              if (trf.startsWith('EXP-')) {
-                const sub = trf.slice(4);
-                if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sub)) {
-                  expTxId = sub;
+            if (t.tx_type === 'out') {
+              const trf = t.transfer_id || '';
+              if (trf.startsWith('EXP-') || (!trf.startsWith('POS-') && !t.is_transfer)) {
+                let expTxId: string | undefined = undefined;
+                if (trf.startsWith('EXP-')) {
+                  const sub = trf.slice(4);
+                  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sub)) {
+                    expTxId = sub;
+                  }
                 }
-              }
-              const rawDesc = t.description || 'Gider Ödemesi';
-              const cleanDesc = rawDesc.replace(/^Gider Ödemesi\s*(\[[^\]]*\])?\s*-\s*/, '').trim() || rawDesc;
+                const rawDesc = t.description || 'Gider Ödemesi';
+                const cleanDesc = rawDesc.replace(/^Gider Ödemesi\s*(\[[^\]]*\])?\s*-\s*/, '').trim() || rawDesc;
 
-              externalCashTxs.push({
-                id: `cash-${t.id}`,
-                transfer_id: trf || `EXP-CASH-${t.id}`,
-                description: cleanDesc,
+                externalCashTxs.push({
+                  id: `cash-${t.id}`,
+                  transfer_id: trf || `EXP-CASH-${t.id}`,
+                  description: cleanDesc,
+                  amount: Number(t.amount) || 0,
+                  paymentType: 'cash',
+                  source: 'cash_tx',
+                  expenseTxId: expTxId
+                });
+              }
+            } else if (t.tx_type === 'in' && isExternalCashInflowTx(t)) {
+              dayExternalInflows.push({
+                id: t.id,
+                description: t.description || 'Müşteri / Harici Tahsilat',
                 amount: Number(t.amount) || 0,
-                paymentType: 'cash',
-                source: 'cash_tx',
-                expenseTxId: expTxId
+                transfer_id: t.transfer_id || null,
+                tx_date: t.tx_date || dateStr
               });
             }
           });
         }
       }
+      setExternalCashInflows(dayExternalInflows);
 
       // 2. Genel Giderler modülünden ödenen sabit / tekrarlayan ödemeleri çek (Kredi Kartı, Banka ve Kasa)
       try {
@@ -1095,25 +1131,26 @@ export default function RetailPOSPage() {
         }
       }
 
-      if (summary && Number(summary.opening_cash) > 0) {
+      const { data: lastSummary } = await supabase
+        .from('pos_daily_summaries')
+        .select('date')
+        .lt('date', dateStr)
+        .order('date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastSummary) {
+        expectedOpening = await getClosingCashForDate(lastSummary.date);
+        if (summary && Math.abs(Number(summary.opening_cash) - expectedOpening) > 0.01) {
+          await supabase.from('pos_daily_summaries').update({ opening_cash: expectedOpening }).eq('date', dateStr);
+        }
+      } else if (summary && Number(summary.opening_cash) > 0) {
         expectedOpening = Number(summary.opening_cash);
       } else if (cashInitDate && dateStr === cashInitDate && cashInitAmount > 0) {
         expectedOpening = cashInitAmount;
       } else {
-        const { data: lastSummary } = await supabase
-          .from('pos_daily_summaries')
-          .select('date')
-          .lt('date', dateStr)
-          .order('date', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (lastSummary) {
-          expectedOpening = await getClosingCashForDate(lastSummary.date);
-        } else {
-          expectedOpening = cashInitAmount;
-          setIsFirstDayOfSystem(true);
-        }
+        expectedOpening = cashInitAmount;
+        setIsFirstDayOfSystem(true);
       }
       
       setOpeningCash(formatValue(expectedOpening));
@@ -1844,6 +1881,8 @@ export default function RetailPOSPage() {
     .filter(t => t.payment_method === 'card')
     .reduce((acc, t) => acc + (Number(t.total_cost) || 0), 0)
 
+  const externalCashInflowsTotal = externalCashInflows.reduce((acc, item) => acc + (Number(item.amount) || 0), 0)
+
   const expenseRows = rows.filter(r => r.categoryId === EXPENSE_CATEGORY_ID)
   const expenseCash = expenseRows.reduce((acc, row) => acc + parseValue(row.cash), 0)
   const expenseCard = expenseRows.reduce((acc, row) => acc + parseValue(row.card), 0)
@@ -1859,7 +1898,7 @@ export default function RetailPOSPage() {
   const grandTotalCash = retailCash + fotoCashAmount
   const grandTotalCard = retailCard + fotoCardAmount
 
-  const calculatedKasa = parseValue(openingCash) + grandTotalCash + deliveredTicketsCash - expenseCash - totalToBank + totalFromBank
+  const calculatedKasa = parseValue(openingCash) + grandTotalCash + deliveredTicketsCash + externalCashInflowsTotal - expenseCash - totalToBank + totalFromBank
 
   const saveDayData = async () => {
     const externalExpenseCardCheck = rows
@@ -2588,6 +2627,39 @@ export default function RetailPOSPage() {
                 Bugün teknik servisten teslim edilen fişli cihaz bulunmuyor.
               </div>
             )}
+
+            {externalCashInflows.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-emerald-500/20 flex flex-col">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-800">
+                  <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[10px]">
+                    <Wallet size={11} className="text-emerald-400" />
+                    <span>Günün Cari / Harici Nakit Tahsilatları ({externalCashInflows.length})</span>
+                  </div>
+                  <span className="text-[9px] text-emerald-300/80 italic">* Mağaza Kasasına Eklendi</span>
+                </div>
+                <div className="divide-y divide-slate-800/60 max-h-32 overflow-y-auto custom-scrollbar my-1">
+                  {externalCashInflows.map(inflow => (
+                    <div key={inflow.id} className="py-1.5 flex items-center justify-between text-[10px] hover:bg-slate-800/40 px-1 rounded transition-colors">
+                      <span className="text-slate-300 truncate pr-2 font-sans" title={inflow.description}>
+                        {inflow.description}
+                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0 font-mono">
+                        <span className="text-[8px] px-1.5 py-0.5 rounded font-sans font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                          Cari Tahsilat
+                        </span>
+                        <span className="text-emerald-400 font-bold text-[10px]">
+                          +{formatMoney(inflow.amount, 'TRY').formatted}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="pt-1 border-t border-slate-800/80 flex items-center justify-between text-[9px] font-mono">
+                  <span className="text-slate-400">Toplam Cari / Harici Tahsilat:</span>
+                  <span className="text-emerald-400 font-bold">+{formatMoney(externalCashInflowsTotal, 'TRY').formatted}</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -2627,7 +2699,7 @@ export default function RetailPOSPage() {
           {/* KASA */}
           <div 
             className="flex items-center gap-1.5 bg-indigo-950/30 border border-indigo-500/30 px-2 py-1 rounded-lg" 
-            title={`Dünden Devir: ${openingCash || '0,00'} ₺\nNakit Giriş: ${formatMoney(grandTotalCash + deliveredTicketsCash, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCash, 'TRY').formatted} + Servis: ${formatMoney(deliveredTicketsCash, 'TRY').formatted})\nNakit Gider: ${formatMoney(expenseCash, 'TRY').formatted}\nKasa Sonu: ${formatMoney(calculatedKasa, 'TRY').formatted}`}
+            title={`Dünden Devir: ${openingCash || '0,00'} ₺\nNakit Giriş: ${formatMoney(grandTotalCash + deliveredTicketsCash + externalCashInflowsTotal, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCash, 'TRY').formatted} + Servis: ${formatMoney(deliveredTicketsCash, 'TRY').formatted}${externalCashInflowsTotal > 0 ? ` + Cari Tahsilat: ${formatMoney(externalCashInflowsTotal, 'TRY').formatted}` : ''})\nNakit Gider: ${formatMoney(expenseCash, 'TRY').formatted}\nKasa Sonu: ${formatMoney(calculatedKasa, 'TRY').formatted}`}
           >
             <span className="text-slate-400 font-sans font-bold text-[9px] uppercase">Kasa:</span>
             <span className="text-indigo-400 font-black text-xs font-mono">{formatMoney(calculatedKasa, 'TRY').formatted}</span>
@@ -2637,12 +2709,12 @@ export default function RetailPOSPage() {
           </div>
           
           {/* NAKİT SATIŞ & TAHSİLAT */}
-          <div className="flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-500/30 px-2 py-1 rounded-lg" title={`Toplam Nakit: ${formatMoney(grandTotalCash + deliveredTicketsCash, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCash, 'TRY').formatted}, Servis: ${formatMoney(deliveredTicketsCash, 'TRY').formatted})`}>
+          <div className="flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-500/30 px-2 py-1 rounded-lg" title={`Toplam Nakit: ${formatMoney(grandTotalCash + deliveredTicketsCash + externalCashInflowsTotal, 'TRY').formatted} (Mağaza: ${formatMoney(grandTotalCash, 'TRY').formatted}, Servis: ${formatMoney(deliveredTicketsCash, 'TRY').formatted}${externalCashInflowsTotal > 0 ? `, Cari Tahsilat: ${formatMoney(externalCashInflowsTotal, 'TRY').formatted}` : ''})`}>
             <Wallet size={13} className="text-emerald-500 shrink-0"/>
             <div className="flex flex-col">
               <div className="flex items-center gap-1">
                 <span className="text-slate-400 font-sans font-bold text-[9px] uppercase">Nakit:</span>
-                <span className="text-emerald-400 font-bold text-xs font-mono">{formatMoney(grandTotalCash + deliveredTicketsCash, 'TRY').formatted}</span>
+                <span className="text-emerald-400 font-bold text-xs font-mono">{formatMoney(grandTotalCash + deliveredTicketsCash + externalCashInflowsTotal, 'TRY').formatted}</span>
               </div>
               <div className="flex items-center gap-1 text-[8px] font-sans text-slate-400 leading-none mt-0.5">
                 <span>Mğz: <b className="text-emerald-300 font-normal font-mono">{formatMoney(grandTotalCash, 'TRY').formatted}</b></span>
@@ -2650,6 +2722,12 @@ export default function RetailPOSPage() {
                   <>
                     <span>•</span>
                     <span>Srv: <b className="text-teal-300 font-normal font-mono">{formatMoney(deliveredTicketsCash, 'TRY').formatted}</b></span>
+                  </>
+                )}
+                {externalCashInflowsTotal > 0 && (
+                  <>
+                    <span>•</span>
+                    <span>Cari: <b className="text-emerald-400 font-normal font-mono">{formatMoney(externalCashInflowsTotal, 'TRY').formatted}</b></span>
                   </>
                 )}
               </div>
