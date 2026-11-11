@@ -3363,6 +3363,11 @@ export default function TechnicalServicePage() {
                   {printTicket.company?.name || 'BİLGİSAYAR HASTANESİ'}
                 </h2>
                 <p className="text-[10px] text-slate-600">Teknik Servis & Bilişim Hizmetleri</p>
+                <div className="mt-1 flex items-center justify-center gap-2 text-[10px] text-slate-700">
+                  <span>Tel: <strong className="font-mono text-slate-900">0212 616 77 00</strong></span>
+                  <span className="text-slate-400">•</span>
+                  <span>WhatsApp: <strong className="font-mono text-slate-900">0554 879 11 55</strong></span>
+                </div>
                 <div className="mt-2 inline-block bg-slate-100 px-3 py-1 rounded border border-slate-300 font-mono font-black text-sm">
                   {printTicket.ticket_no}
                 </div>
