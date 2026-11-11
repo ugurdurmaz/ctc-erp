@@ -1561,7 +1561,8 @@ export default function TechnicalServicePage() {
   }
 
   return (
-    <div className="space-y-4 pb-12 max-w-[1650px] mx-auto">
+    <div className="space-y-4 pb-12 max-w-[1650px] mx-auto print:p-0 print:m-0 print:space-y-0">
+      <div className="space-y-4 print:hidden no-print-area">
       <Toaster 
         position="bottom-right" 
         containerStyle={{ zIndex: 99999999 }} 
@@ -3320,16 +3321,18 @@ export default function TechnicalServicePage() {
           </div>
         </div>
       )}
+      </div>
 
       {/* ===================================================================== */}
       {/* 8. YAZDIRMA PENCERESİ (TERMAL VE A5/A4 CİHAZ KABUL FİŞİ)             */}
       {/* ===================================================================== */}
       {printTicket && (
         <div 
-          className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-150"
+          id="service-slip-modal"
+          className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-150 print:static print:inset-auto print:bg-transparent print:backdrop-blur-none print:p-0 print:m-0 print:overflow-visible print:block"
           style={{ zIndex: 999999 }}
         >
-          <div className="bg-white text-slate-900 rounded-3xl w-full max-w-md p-6 shadow-2xl flex flex-col max-h-[88vh] my-auto overflow-y-auto print:p-0 print:m-0 print:max-w-none print:shadow-none print:rounded-none">
+          <div className="bg-white text-slate-900 rounded-3xl w-full max-w-md p-6 shadow-2xl flex flex-col max-h-[88vh] my-auto overflow-y-auto print:p-0 print:m-0 print:max-w-none print:max-h-none print:overflow-visible print:shadow-none print:rounded-none print:block">
             
             {/* Ekranda Görünür Kontrol Çubuğu */}
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-4 print:hidden">
@@ -3451,7 +3454,7 @@ export default function TechnicalServicePage() {
 
       {/* ONAY / SİLME DİYALOĞU (CONFIRM MODAL) */}
       {confirmDialog.isOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150" style={{ zIndex: 9999999 }}>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150 print:hidden no-print-area" style={{ zIndex: 9999999 }}>
           <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl text-center animate-in zoom-in-95 duration-200">
             <div className={`mx-auto flex items-center justify-center h-14 w-14 rounded-full mb-5 ${confirmDialog.isDanger ? 'bg-rose-500/10 text-rose-400' : 'bg-blue-500/10 text-blue-400'}`}>
               {confirmDialog.isDanger ? <AlertTriangle size={28} /> : <RefreshCw size={28} />}
@@ -3478,22 +3481,44 @@ export default function TechnicalServicePage() {
         </div>
       )}
 
-      {/* Baskı CSS Stili */}
+      {/* Baskı CSS Stili (Tek Sayfa / 1 Adet Garantili) */}
       <style jsx global>{`
         @media print {
-          body * {
-            visibility: hidden;
+          @page {
+            margin: 6mm;
           }
-          #service-slip, #service-slip * {
-            visibility: visible;
+          html, body {
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+          }
+          .no-print-area,
+          aside,
+          header,
+          nav {
+            display: none !important;
+          }
+          #service-slip-modal {
+            position: static !important;
+            display: block !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            background: transparent !important;
+            overflow: visible !important;
           }
           #service-slip {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            margin: 0;
-            padding: 10px;
+            position: static !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 6px !important;
+            page-break-after: avoid !important;
+            page-break-inside: avoid !important;
+            break-after: avoid !important;
+            break-inside: avoid !important;
           }
         }
       `}</style>
