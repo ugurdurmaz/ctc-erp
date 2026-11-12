@@ -6,10 +6,11 @@ import { useAuth } from '@/lib/auth-context'
 import { formatMoney, formatPhoneNumber, convertTxToEntityCurrency } from '@/lib/utils'
 import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
 import toast, { Toaster } from 'react-hot-toast'
-import { Building2, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, Store, Check, ChevronDown } from 'lucide-react'
+import { Building2, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, Store, Check, ChevronDown, Package, Tag } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type Warehouse = { id: string; name: string; company_id?: string | null }
+type StockCategoryRow = { id: string; name: string; warehouse_id: string | null }
 
 type Supplier = {
   id: string; company_name: string; contact_name: string; phone: string;
@@ -21,7 +22,8 @@ type Supplier = {
 }
 
 type InvoiceLine = {
-  id: string; name: string; sku?: string; quantity: string; unitPrice: string;
+  id: string; name: string; sku?: string; category?: string; subCategory?: string; unit?: string;
+  quantity: string; unitPrice: string;
   vatRate: string; addToStock: boolean; warehouseId: string;
   targetStockId?: string; stockTxId?: string;
   selectedStockId?: string; 
@@ -38,7 +40,7 @@ type SupplierTransaction = {
 type BankAccount = { id: string; bank_name: string; account_name?: string | null; balance: number; currency: string; company_id?: string | null }
 type CashRegister = { id: string; name: string; balance: number; currency: string; company_id?: string | null }
 type CreditCardItem = { id: string; name: string; current_debt: number; company_id?: string | null }
-type StockItem = { id: string; name: string; sku?: string | null; unit_price: number; vat_rate: number; warehouse_id: string; currency: string; quantity: number }
+type StockItem = { id: string; name: string; sku?: string | null; category?: string | null; sub_category?: string | null; unit?: string | null; unit_price: number; vat_rate: number; warehouse_id: string; currency: string; quantity: number }
 
 function getLocalTodayISO() {
   const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
@@ -60,6 +62,7 @@ export default function SuppliersPage() {
   const [transactions, setTransactions] = useState<SupplierTransaction[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [stocks, setStocks] = useState<StockItem[]>([])
+  const [stockCategories, setStockCategories] = useState<StockCategoryRow[]>([])
   const [searchTerm, setSearchTerm] = useState('')
 
   const [banks, setBanks] = useState<BankAccount[]>([])
@@ -100,6 +103,24 @@ export default function SuppliersPage() {
   const [activeStockDropdown, setActiveStockDropdown] = useState<string | null>(null) 
   const [invRoundingAdjustment, setInvRoundingAdjustment] = useState('') 
   const [invTargetTry, setInvTargetTry] = useState('')
+  const [customCatLines, setCustomCatLines] = useState<Record<string, boolean>>({})
+  const [customSubCatLines, setCustomSubCatLines] = useState<Record<string, boolean>>({})
+
+  // Hızlı Yeni Stok Kartı Oluşturma Modalı State'leri
+  const [isNewStockModalOpen, setIsNewStockModalOpen] = useState(false)
+  const [newStockTargetLineId, setNewStockTargetLineId] = useState<string | null>(null)
+  const [nsWarehouseId, setNsWarehouseId] = useState('')
+  const [nsName, setNsName] = useState('')
+  const [nsSku, setNsSku] = useState('')
+  const [nsCategory, setNsCategory] = useState('')
+  const [nsIsCustomCat, setNsIsCustomCat] = useState(false)
+  const [nsSubCategory, setNsSubCategory] = useState('')
+  const [nsIsCustomSubCat, setNsIsCustomSubCat] = useState(false)
+  const [nsUnit, setNsUnit] = useState('Adet')
+  const [nsQty, setNsQty] = useState('1')
+  const [nsUnitPrice, setNsUnitPrice] = useState('')
+  const [nsVatRate, setNsVatRate] = useState('20')
+  const [isSavingNewStock, setIsSavingNewStock] = useState(false)
 
   const invoiceWarehouses = useMemo(() => {
     if (invCompanyId === 'common') {
@@ -115,7 +136,7 @@ export default function SuppliersPage() {
   }>({ isOpen: false, title: '', message: '', confirmText: '', cancelText: '', isDanger: false, onConfirm: () => {} })
 
   useEffect(() => {
-    fetchExchangeRates(); fetchCompanies(); fetchWarehouses(); fetchPaymentSources(); fetchStocks()
+    fetchExchangeRates(); fetchCompanies(); fetchWarehouses(); fetchPaymentSources(); fetchStocks(); fetchStockCategories()
   }, [])
 
   useEffect(() => {
@@ -233,7 +254,70 @@ export default function SuppliersPage() {
   }
 
   async function fetchStocks() {
-    const { data } = await supabase.from('stocks').select('id, name, sku, unit_price, vat_rate, warehouse_id, currency, quantity').order('name', { ascending: true }); setStocks(data || [])
+    const { data } = await supabase.from('stocks').select('id, name, sku, category, sub_category, unit, unit_price, vat_rate, warehouse_id, currency, quantity').order('name', { ascending: true }); setStocks(data || [])
+  }
+
+  async function fetchStockCategories() {
+    const { data } = await supabase.from('stock_categories').select('id, name, warehouse_id').order('name', { ascending: true })
+    setStockCategories(data || [])
+  }
+
+  function getWarehouseCategories(whId: string): string[] {
+    if (!whId) return []
+    const set = new Set<string>()
+    stockCategories.forEach(item => {
+      if (!item.name || item.name.startsWith('SUB::')) return
+      if (item.warehouse_id === whId || !item.warehouse_id) {
+        set.add(item.name.trim())
+      }
+    })
+    stocks.forEach(st => {
+      if (st.warehouse_id === whId && st.category?.trim()) {
+        set.add(st.category.trim())
+      }
+    })
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'tr-TR'))
+  }
+
+  function getWarehouseSubCategories(whId: string, catName?: string): string[] {
+    if (!whId || !catName?.trim()) return []
+    const targetCat = catName.trim().toLocaleLowerCase('tr-TR')
+    const set = new Set<string>()
+    stockCategories.forEach(item => {
+      if (!item.name || !item.name.startsWith('SUB::')) return
+      if (item.warehouse_id !== whId) return
+      const parts = item.name.split('::')
+      if (parts.length >= 3 && parts[1].trim().toLocaleLowerCase('tr-TR') === targetCat) {
+        const sub = parts.slice(2).join('::').trim()
+        if (sub) set.add(sub)
+      }
+    })
+    stocks.forEach(st => {
+      if (
+        st.warehouse_id === whId &&
+        (st.category || '').trim().toLocaleLowerCase('tr-TR') === targetCat &&
+        st.sub_category?.trim()
+      ) {
+        set.add(st.sub_category.trim())
+      }
+    })
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'tr-TR'))
+  }
+
+  async function ensureCategoryExists(whId: string, catName?: string, subCatName?: string) {
+    if (!whId || !catName?.trim()) return
+    const cleanCat = catName.trim()
+    const existingCats = getWarehouseCategories(whId)
+    if (!existingCats.some(c => c.toLocaleLowerCase('tr-TR') === cleanCat.toLocaleLowerCase('tr-TR'))) {
+      await supabase.from('stock_categories').insert([{ name: cleanCat, warehouse_id: whId }])
+    }
+    if (subCatName?.trim()) {
+      const cleanSub = subCatName.trim()
+      const existingSubs = getWarehouseSubCategories(whId, cleanCat)
+      if (!existingSubs.some(s => s.toLocaleLowerCase('tr-TR') === cleanSub.toLocaleLowerCase('tr-TR'))) {
+        await supabase.from('stock_categories').insert([{ name: `SUB::${cleanCat}::${cleanSub}`, warehouse_id: whId }])
+      }
+    }
   }
 
   async function fetchTransactions(suppId: string) {
@@ -598,6 +682,7 @@ export default function SuppliersPage() {
     if (t.is_detailed) {
       fetchStocks()
       fetchWarehouses()
+      fetchStockCategories()
       const rawLines = Array.isArray(t.invoice_lines) ? t.invoice_lines : []
       const linesSum = rawLines.reduce((acc: number, l: any) => {
         const q = parseFloat(l.quantity) || 0
@@ -609,8 +694,10 @@ export default function SuppliersPage() {
       if (Math.abs(diff) >= 0.01) setInvRoundingAdjustment(diff.toString())
       else setInvRoundingAdjustment('')
       setInvTargetTry('')
+      setCustomCatLines({})
+      setCustomSubCatLines({})
 
-      setInvDate(t.tx_date); setInvDesc(t.description); setInvLines(rawLines.map((l: any) => ({ ...l, sku: l.sku || '' }))); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
+      setInvDate(t.tx_date); setInvDesc(t.description); setInvLines(rawLines.map((l: any) => ({ ...l, sku: l.sku || '', category: l.category || '', subCategory: l.subCategory || '', unit: l.unit || 'Adet' }))); setInvCurrency(t.currency as any || 'TRY'); setInvExchangeRate(t.exchange_rate?.toString() || '1'); setInvCompanyId(t.company_id || 'common'); setIsInvoiceModalOpen(true)
     } else {
       setTxDate(t.tx_date); setTxType(t.tx_type); setTxDesc(t.description); setTxAmount(t.amount.toString()); setTxCurrency(t.currency as any || 'TRY'); setTxExchangeRate(t.exchange_rate?.toString() || '1'); setTxCompanyId(t.company_id || 'common')
       if (t.payment_source_type && t.payment_source_id) setPaymentSource(`${t.payment_source_type}|${t.payment_source_id}`)
@@ -849,9 +936,12 @@ export default function SuppliersPage() {
   function openInvoiceModal() { 
     fetchStocks()
     fetchWarehouses()
+    fetchStockCategories()
     setEditingTxId(null); setInvDate(getLocalTodayISO()); setInvDesc(''); setInvCurrency('TRY'); setInvExchangeRate('1')
     setInvRoundingAdjustment('')
     setInvTargetTry('')
+    setCustomCatLines({})
+    setCustomSubCatLines({})
     
     const currSupp = suppliers.find(s => s.id === selectedSupplierId)
     const targetCompId = currSupp?.company_id || 'common'
@@ -863,13 +953,13 @@ export default function SuppliersPage() {
     const validWhs = targetWhs.length > 0 ? targetWhs : warehouses.filter(w => !w.company_id)
     const initialWhId = validWhs[0]?.id || warehouses[0]?.id || ''
 
-    setInvLines([{ id: Date.now().toString(), name: '', sku: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: initialWhId, selectedStockId: undefined }])
+    setInvLines([{ id: Date.now().toString(), name: '', sku: '', category: '', subCategory: '', unit: 'Adet', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: initialWhId, selectedStockId: undefined }])
     setActiveStockDropdown(null); setIsInvoiceModalOpen(true) 
   }
-  function closeInvoiceModal() { setIsInvoiceModalOpen(false); setActiveStockDropdown(null); if (editingTxId && transactions.find(t => t.id === editingTxId)?.is_detailed) cancelEditTx() }
+  function closeInvoiceModal() { setIsInvoiceModalOpen(false); setActiveStockDropdown(null); setIsNewStockModalOpen(false); if (editingTxId && transactions.find(t => t.id === editingTxId)?.is_detailed) cancelEditTx() }
   function addInvoiceLine() { 
     const defaultWhId = invoiceWarehouses[0]?.id || ''
-    setInvLines(prev => [...prev, { id: Date.now().toString(), name: '', sku: '', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: defaultWhId, selectedStockId: undefined }]) 
+    setInvLines(prev => [...prev, { id: Date.now().toString(), name: '', sku: '', category: '', subCategory: '', unit: 'Adet', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: defaultWhId, selectedStockId: undefined }]) 
   }
   function removeInvoiceLine(id: string) { setInvLines(invLines.filter(l => l.id !== id)) }
   function updateInvoiceLine(id: string, field: keyof InvoiceLine, value: any) { setInvLines(prev => prev.map(l => l.id === id ? { ...l, [field]: value } : l)) }
@@ -882,6 +972,9 @@ export default function SuppliersPage() {
           ...l, 
           name: stock.name, 
           sku: stock.sku || '', 
+          category: stock.category || '',
+          subCategory: stock.sub_category || '',
+          unit: stock.unit || 'Adet',
           unitPrice: convertedPrice > 0 ? convertedPrice.toFixed(2) : l.unitPrice, 
           vatRate: (stock.vat_rate !== undefined && stock.vat_rate !== null) ? stock.vat_rate.toString() : (l.vatRate || '20'), 
           warehouseId: stock.warehouse_id || l.warehouseId, 
@@ -892,6 +985,150 @@ export default function SuppliersPage() {
       return l
     }))
     setActiveStockDropdown(null) 
+  }
+
+  function openNewStockModal(line?: InvoiceLine) {
+    setActiveStockDropdown(null)
+    const defaultWhId = invoiceWarehouses[0]?.id || warehouses[0]?.id || ''
+    if (line) {
+      setNewStockTargetLineId(line.id)
+      setNsWarehouseId(line.warehouseId || defaultWhId)
+      setNsName(line.name || '')
+      setNsSku(line.sku || '')
+      setNsCategory(line.category || '')
+      setNsIsCustomCat(false)
+      setNsSubCategory(line.subCategory || '')
+      setNsIsCustomSubCat(false)
+      setNsUnit(line.unit || 'Adet')
+      setNsQty(line.quantity || '1')
+      setNsUnitPrice(line.unitPrice || '')
+      setNsVatRate(line.vatRate || '20')
+    } else {
+      // Boş bir satır varsa onu hedefle, yoksa yeni satır açıp onu hedefle
+      const emptyLine = invLines.find(l => !l.name.trim() && !l.selectedStockId)
+      if (emptyLine) {
+        setNewStockTargetLineId(emptyLine.id)
+        setNsWarehouseId(emptyLine.warehouseId || defaultWhId)
+        setNsName('')
+        setNsSku(emptyLine.sku || '')
+        setNsCategory(emptyLine.category || '')
+        setNsIsCustomCat(false)
+        setNsSubCategory(emptyLine.subCategory || '')
+        setNsIsCustomSubCat(false)
+        setNsUnit(emptyLine.unit || 'Adet')
+        setNsQty(emptyLine.quantity || '1')
+        setNsUnitPrice(emptyLine.unitPrice || '')
+        setNsVatRate(emptyLine.vatRate || '20')
+      } else {
+        const newId = Date.now().toString()
+        setInvLines(prev => [...prev, { id: newId, name: '', sku: '', category: '', subCategory: '', unit: 'Adet', quantity: '1', unitPrice: '', vatRate: '20', addToStock: true, warehouseId: defaultWhId, selectedStockId: undefined }])
+        setNewStockTargetLineId(newId)
+        setNsWarehouseId(defaultWhId)
+        setNsName('')
+        setNsSku('')
+        setNsCategory('')
+        setNsIsCustomCat(false)
+        setNsSubCategory('')
+        setNsIsCustomSubCat(false)
+        setNsUnit('Adet')
+        setNsQty('1')
+        setNsUnitPrice('')
+        setNsVatRate('20')
+      }
+    }
+    setIsNewStockModalOpen(true)
+  }
+
+  async function handleCreateNewStockFromModal(e: React.FormEvent) {
+    e.preventDefault()
+    if (!nsName.trim()) return toast.error('Lütfen ürün adını girin.')
+    if (!nsWarehouseId) return toast.error('Lütfen ürünün ekleneceği depoyu seçin.')
+
+    setIsSavingNewStock(true)
+    try {
+      const cleanName = nsName.trim()
+      const cleanSku = nsSku.trim() || null
+      const cleanCat = nsCategory.trim() || null
+      const cleanSubCat = cleanCat && nsSubCategory.trim() ? nsSubCategory.trim() : null
+      const priceNum = parseFloat(nsUnitPrice) || 0
+      const vatNum = parseFloat(nsVatRate) || 0
+      const qtyStr = nsQty || '1'
+
+      // Aynı depoda aynı isimle kayıtlı stok var mı kontrol et
+      const { data: existing } = await supabase
+        .from('stocks')
+        .select('*')
+        .eq('warehouse_id', nsWarehouseId)
+        .ilike('name', cleanName)
+        .limit(1)
+
+      if (existing && existing.length > 0) {
+        toast.error(`"${cleanName}" bu depoda zaten kayıtlı! Mevcut stok kartı satıra bağlandı.`)
+        const exStock = existing[0] as StockItem
+        if (newStockTargetLineId) {
+          selectStockForLine(newStockTargetLineId, exStock)
+        }
+        setIsNewStockModalOpen(false)
+        return
+      }
+
+      if (cleanCat) {
+        await ensureCategoryExists(nsWarehouseId, cleanCat, cleanSubCat || undefined)
+      }
+
+      const payload = {
+        warehouse_id: nsWarehouseId,
+        name: cleanName,
+        sku: cleanSku,
+        category: cleanCat,
+        sub_category: cleanSubCat,
+        currency: invCurrency,
+        unit: nsUnit || 'Adet',
+        quantity: 0,
+        unit_price: priceNum,
+        vat_rate: vatNum,
+        stock_color: 'from-[#1b253b] to-[#121a2a]'
+      }
+
+      const { data: created, error } = await supabase.from('stocks').insert([payload]).select().single()
+      if (error) throw error
+
+      const finalCompId = invCompanyId === 'common' ? null : invCompanyId
+      await logActivity('stock', 'INSERT', `Yeni stok kartı oluşturuldu (Alım Faturası): ${cleanName}`, created.id, priceNum, invCurrency, null, created, finalCompId)
+
+      await fetchStocks()
+      await fetchStockCategories()
+
+      if (newStockTargetLineId) {
+        setInvLines(prev => prev.map(l => {
+          if (l.id === newStockTargetLineId) {
+            return {
+              ...l,
+              name: created.name,
+              sku: created.sku || '',
+              category: created.category || '',
+              subCategory: created.sub_category || '',
+              unit: created.unit || 'Adet',
+              quantity: qtyStr,
+              unitPrice: nsUnitPrice !== '' ? nsUnitPrice : l.unitPrice,
+              vatRate: nsVatRate || l.vatRate || '20',
+              warehouseId: created.warehouse_id,
+              addToStock: true,
+              selectedStockId: created.id
+            }
+          }
+          return l
+        }))
+      }
+
+      toast.success(`"${cleanName}" stok kartı oluşturuldu ve fatura satırına bağlandı.`)
+      setIsNewStockModalOpen(false)
+    } catch (err: any) {
+      console.error('Yeni stok kartı oluşturma hatası:', err)
+      toast.error('Yeni stok kartı oluşturulamadı: ' + err.message)
+    } finally {
+      setIsSavingNewStock(false)
+    }
   }
 
   const calculateInvoiceLinesTotal = () => { 
@@ -997,15 +1234,22 @@ export default function SuppliersPage() {
                 }
               }
             } else {
+              const cleanCat = line.category?.trim() || null
+              const cleanSubCat = cleanCat && line.subCategory?.trim() ? line.subCategory.trim() : null
+              if (cleanCat) {
+                await ensureCategoryExists(line.warehouseId, cleanCat, cleanSubCat || undefined)
+              }
               const { data: newStock, error: newStockErr } = await supabase.from('stocks').insert([{ 
                 warehouse_id: line.warehouseId, 
                 name: line.name.trim(), 
                 sku: line.sku?.trim() || null, 
+                category: cleanCat,
+                sub_category: cleanSubCat,
                 currency: invCurrency, 
                 quantity: 0, 
                 unit_price: p, 
                 vat_rate: v, 
-                unit: 'Adet', 
+                unit: line.unit || 'Adet', 
                 stock_color: 'from-[#1b253b] to-[#121a2a]' 
               }]).select()
               if (newStockErr) {
@@ -1014,7 +1258,10 @@ export default function SuppliersPage() {
               }
               if (newStock && newStock.length > 0) {
                  targetStockId = newStock[0].id
-                 if (targetStockId) affectedStocks.add(targetStockId)
+                 if (targetStockId) {
+                   affectedStocks.add(targetStockId)
+                   await logActivity('stock', 'INSERT', `Yeni stok kartı oluşturuldu (Alım Faturası): ${line.name.trim()}`, targetStockId, p, invCurrency, null, newStock[0], finalCompId)
+                 }
               }
             }
           }
@@ -1626,10 +1873,18 @@ export default function SuppliersPage() {
                           </button>
                         </div>
 
-                        {/* Bilgi Rozeti */}
+                        {/* Bilgi Rozeti ve Yeni Ürün Kategori/Birim Seçimi */}
                         {selectedStock ? (
-                          <div className="flex items-center gap-1.5 mt-1 px-1 text-[10px]">
-                            <span className="text-emerald-400 font-mono font-semibold">✓ Stokta: {selectedStock.quantity} adet</span>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1 px-1 text-[10px]">
+                            <span className="text-emerald-400 font-mono font-semibold">✓ Stokta: {selectedStock.quantity} {selectedStock.unit || 'Adet'}</span>
+                            {selectedStock.category && (
+                              <>
+                                <span className="text-slate-500">•</span>
+                                <span className="text-indigo-300 bg-indigo-950/60 px-1.5 py-0.2 rounded border border-indigo-500/30">
+                                  {selectedStock.category}{selectedStock.sub_category ? ` › ${selectedStock.sub_category}` : ''}
+                                </span>
+                              </>
+                            )}
                             {selectedStock.sku && (
                               <>
                                 <span className="text-slate-500">•</span>
@@ -1640,44 +1895,191 @@ export default function SuppliersPage() {
                             <span className="text-slate-400">{warehouses.find(w => w.id === selectedStock.warehouse_id)?.name || 'Depo'}</span>
                           </div>
                         ) : line.name.trim() ? (
-                          <div className="flex items-center gap-1.5 mt-1 px-1 text-[10px]">
-                            <span className="text-amber-400 font-medium">✨ Yeni Ürün</span>
-                            <span className="text-slate-500">•</span>
-                            <span className="text-slate-400">{line.addToStock ? 'Fatura kaydedildiğinde depoya yeni stok olarak eklenecek' : 'Sadece faturaya yazılacak'}</span>
-                          </div>
+                          line.addToStock ? (
+                            <div className="mt-1.5 p-1.5 rounded-md bg-emerald-950/20 border border-emerald-500/30 flex flex-wrap items-center gap-1.5 text-[10px]">
+                              <span className="text-emerald-400 font-bold flex items-center gap-1 shrink-0">
+                                <Package size={11} /> Yeni Stok:
+                              </span>
+
+                              {/* Kategori Seçimi / Girişi */}
+                              {customCatLines[line.id] ? (
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    placeholder="Yeni kategori adı..."
+                                    value={line.category || ''}
+                                    onChange={(e) => updateInvoiceLine(line.id, 'category', e.target.value)}
+                                    className="bg-[#070b14] border border-emerald-500/50 rounded px-1.5 py-0.5 text-[10px] text-white w-28 focus:outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setCustomCatLines(prev => ({ ...prev, [line.id]: false }))}
+                                    className="text-slate-400 hover:text-white px-1"
+                                    title="Listeden seç"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ) : (
+                                <select
+                                  value={line.category || ''}
+                                  onChange={(e) => {
+                                    if (e.target.value === '__NEW__') {
+                                      setCustomCatLines(prev => ({ ...prev, [line.id]: true }))
+                                      updateInvoiceLine(line.id, 'category', '')
+                                    } else {
+                                      updateInvoiceLine(line.id, 'category', e.target.value)
+                                      updateInvoiceLine(line.id, 'subCategory', '')
+                                    }
+                                  }}
+                                  className="bg-[#070b14] border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-slate-200 focus:outline-none focus:border-emerald-500/50 max-w-[140px]"
+                                  title="Yeni ürün kategorisi"
+                                >
+                                  <option value="">Kategori Seç...</option>
+                                  {getWarehouseCategories(line.warehouseId).map(cat => (
+                                    <option key={cat} value={cat}>{cat}</option>
+                                  ))}
+                                  {line.category && !getWarehouseCategories(line.warehouseId).includes(line.category) && (
+                                    <option value={line.category}>{line.category}</option>
+                                  )}
+                                  <option value="__NEW__">+ Yeni Kategori Yaz...</option>
+                                </select>
+                              )}
+
+                              {/* Alt Kategori Seçimi / Girişi */}
+                              {line.category && (
+                                customSubCatLines[line.id] ? (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="text"
+                                      placeholder="Alt kategori..."
+                                      value={line.subCategory || ''}
+                                      onChange={(e) => updateInvoiceLine(line.id, 'subCategory', e.target.value)}
+                                      className="bg-[#070b14] border border-teal-500/50 rounded px-1.5 py-0.5 text-[10px] text-white w-24 focus:outline-none"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => setCustomSubCatLines(prev => ({ ...prev, [line.id]: false }))}
+                                      className="text-slate-400 hover:text-white px-1"
+                                      title="Listeden seç"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <select
+                                    value={line.subCategory || ''}
+                                    onChange={(e) => {
+                                      if (e.target.value === '__NEW__') {
+                                        setCustomSubCatLines(prev => ({ ...prev, [line.id]: true }))
+                                        updateInvoiceLine(line.id, 'subCategory', '')
+                                      } else {
+                                        updateInvoiceLine(line.id, 'subCategory', e.target.value)
+                                      }
+                                    }}
+                                    className="bg-[#070b14] border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-slate-200 focus:outline-none focus:border-teal-500/50 max-w-[125px]"
+                                    title="Yeni ürün alt kategorisi (opsiyonel)"
+                                  >
+                                    <option value="">Alt Kategori (Ops.)</option>
+                                    {getWarehouseSubCategories(line.warehouseId, line.category).map(sub => (
+                                      <option key={sub} value={sub}>{sub}</option>
+                                    ))}
+                                    {line.subCategory && !getWarehouseSubCategories(line.warehouseId, line.category).includes(line.subCategory) && (
+                                      <option value={line.subCategory}>{line.subCategory}</option>
+                                    )}
+                                    <option value="__NEW__">+ Yeni Alt Kategori...</option>
+                                  </select>
+                                )
+                              )}
+
+                              {/* Birim Seçimi */}
+                              <select
+                                value={line.unit || 'Adet'}
+                                onChange={(e) => updateInvoiceLine(line.id, 'unit', e.target.value)}
+                                className="bg-[#070b14] border border-slate-700 rounded px-1 py-0.5 text-[10px] text-slate-300 focus:outline-none"
+                                title="Stok birimi"
+                              >
+                                <option value="Adet">Adet</option>
+                                <option value="Kg">Kg</option>
+                                <option value="Metre">Metre</option>
+                                <option value="Lt">Lt</option>
+                                <option value="Paket">Paket</option>
+                                <option value="Kutu">Kutu</option>
+                              </select>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openNewStockModal(line)
+                                }}
+                                className="ml-auto text-[10px] bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 px-2 py-0.5 rounded font-semibold transition-colors shrink-0"
+                                title="Detaylı Yeni Stok Kartı penceresinde aç ve hemen kaydet"
+                              >
+                                + Stok Kartı Oluştur
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 mt-1 px-1 text-[10px]">
+                              <span className="text-amber-400 font-medium">✨ Fatura Kalemi</span>
+                              <span className="text-slate-500">•</span>
+                              <span className="text-slate-400">Stoğa eklenmeden yalnızca faturaya yazılacak</span>
+                            </div>
+                          )
                         ) : null}
 
                         {/* DROPDOWN LİSTE */}
                         {activeStockDropdown === line.id && (
                           <div 
                             onClick={(e) => e.stopPropagation()} 
-                            className="absolute top-full left-0 right-0 mt-1 bg-[#1b253b] border border-indigo-500/50 rounded-lg shadow-2xl z-50 max-h-64 overflow-y-auto custom-scrollbar animate-in fade-in duration-200"
+                            className="absolute top-full left-0 right-0 mt-1 bg-[#1b253b] border border-indigo-500/50 rounded-lg shadow-2xl z-50 max-h-72 overflow-y-auto custom-scrollbar animate-in fade-in duration-200"
                           >
                             <div className="px-3 py-1.5 bg-[#141c2e] border-b border-slate-700/60 flex justify-between items-center text-[10px] text-slate-400 font-medium sticky top-0 z-10 backdrop-blur-sm">
                               <span>{query ? `Arama Sonuçları (${filteredStocks.length})` : `Kayıtlı Stok Ürünleri (${filteredStocks.length})`}</span>
-                              <span className="text-indigo-400 font-mono text-[9px]">Ürün Adı veya SKU</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openNewStockModal(line)
+                                }}
+                                className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 rounded font-bold flex items-center gap-1 transition-colors shadow-sm"
+                              >
+                                <Plus size={11} /> Stokta Olmayan Yeni Ürün Kartı Aç
+                              </button>
                             </div>
 
                             {/* Yeni Stok Ekleme Hızlı Seçeneği */}
                             {query && !exactMatch && (
-                              <div 
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  updateInvoiceLine(line.id, 'addToStock', true)
-                                  if (!line.warehouseId || !invoiceWarehouses.some(w => w.id === line.warehouseId)) {
-                                    updateInvoiceLine(line.id, 'warehouseId', invoiceWarehouses[0]?.id || '')
-                                  }
-                                  setActiveStockDropdown(null)
-                                }} 
-                                className="px-3 py-2 text-xs bg-indigo-950/50 hover:bg-indigo-900/80 border-b border-indigo-500/40 text-indigo-200 cursor-pointer flex items-center justify-between transition-colors group/new"
-                              >
-                                <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                                  <Plus size={13} className="text-emerald-400 shrink-0 group-hover/new:scale-110 transition-transform" />
-                                  <span className="truncate">Yeni Stok Olarak Ekle: <strong className="text-white font-semibold">"{line.name.trim()}"</strong></span>
+                              <div className="border-b border-indigo-500/40 bg-indigo-950/50">
+                                <div 
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openNewStockModal(line)
+                                  }} 
+                                  className="px-3 py-2 text-xs hover:bg-emerald-900/50 text-emerald-200 cursor-pointer flex items-center justify-between transition-colors group/new border-b border-slate-700/40"
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                                    <Plus size={13} className="text-emerald-400 shrink-0 group-hover/new:scale-110 transition-transform" />
+                                    <span className="truncate">Yeni Stok Kartı Oluştur (Kategori & Detay Seç): <strong className="text-white font-semibold">"{line.name.trim()}"</strong></span>
+                                  </div>
+                                  <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded shrink-0 font-bold shadow-sm">
+                                    + Yeni Ürün Kartı
+                                  </span>
                                 </div>
-                                <span className="text-[10px] bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 px-1.5 py-0.5 rounded shrink-0 font-medium">
-                                  + Yeni Stok
-                                </span>
+                                <div 
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    updateInvoiceLine(line.id, 'addToStock', true)
+                                    if (!line.warehouseId || !invoiceWarehouses.some(w => w.id === line.warehouseId)) {
+                                      updateInvoiceLine(line.id, 'warehouseId', invoiceWarehouses[0]?.id || '')
+                                    }
+                                    setActiveStockDropdown(null)
+                                  }} 
+                                  className="px-3 py-1.5 text-[11px] hover:bg-indigo-900/60 text-indigo-200 cursor-pointer flex items-center justify-between transition-colors"
+                                >
+                                  <span className="truncate text-slate-300">⚡ Hızlı Satıra Bağla (Fatura kaydedilince otomatik stok açılır)</span>
+                                  <span className="text-[9px] text-indigo-300 font-mono">Satır İçi Seçim</span>
+                                </div>
                               </div>
                             )}
 
@@ -1698,6 +2100,11 @@ export default function SuppliersPage() {
                                     <div className="flex items-center gap-2 min-w-0 pr-2 flex-1">
                                       {isSelected && <Check size={12} className="text-indigo-400 group-hover:text-white shrink-0" />}
                                       <span className="font-medium truncate text-slate-200 group-hover:text-white">{s.name}</span>
+                                      {s.category && (
+                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-500/30 shrink-0 group-hover:bg-indigo-700 group-hover:text-white">
+                                          {s.category}{s.sub_category ? ` › ${s.sub_category}` : ''}
+                                        </span>
+                                      )}
                                       {s.sku ? (
                                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-400 font-mono shrink-0 border border-slate-700/80 group-hover:bg-indigo-700 group-hover:text-indigo-100 group-hover:border-indigo-400/50">
                                           {s.sku}
@@ -1723,21 +2130,33 @@ export default function SuppliersPage() {
                               })
                             ) : (
                               <div className="p-4 text-center text-xs text-slate-400">
-                                <div className="mb-2">"{line.name}" için kayıtlı ürün bulunamadı.</div>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    updateInvoiceLine(line.id, 'addToStock', true)
-                                    if (!line.warehouseId || !invoiceWarehouses.some(w => w.id === line.warehouseId)) {
-                                      updateInvoiceLine(line.id, 'warehouseId', invoiceWarehouses[0]?.id || '')
-                                    }
-                                    setActiveStockDropdown(null)
-                                  }}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-900/30 transition-all active:scale-95"
-                                >
-                                  <Plus size={14} /> Bu Ürünü Yeni Stok Olarak Ekle
-                                </button>
+                                <div className="mb-2.5">"{line.name}" için kayıtlı ürün bulunamadı.</div>
+                                <div className="flex items-center justify-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      openNewStockModal(line)
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-900/30 transition-all active:scale-95"
+                                  >
+                                    <Plus size={14} /> Yeni Stok Kartı Oluştur (Kategori Seç)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      updateInvoiceLine(line.id, 'addToStock', true)
+                                      if (!line.warehouseId || !invoiceWarehouses.some(w => w.id === line.warehouseId)) {
+                                        updateInvoiceLine(line.id, 'warehouseId', invoiceWarehouses[0]?.id || '')
+                                      }
+                                      setActiveStockDropdown(null)
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-semibold text-xs transition-all active:scale-95"
+                                  >
+                                    Hızlı Satıra Yaz
+                                  </button>
+                                </div>
                               </div>
                             )}
                           </div>
@@ -1789,7 +2208,18 @@ export default function SuppliersPage() {
                   )
                 })}
               </div>
-              <button type="button" onClick={addInvoiceLine} className="mt-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[11px] font-bold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all active:scale-95"><Plus size={14} /> Yeni Satır Ekle</button>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button type="button" onClick={addInvoiceLine} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[11px] font-bold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all active:scale-95">
+                  <Plus size={14} /> Yeni Satır Ekle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openNewStockModal()}
+                  className="bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-300 hover:text-white text-[11px] font-bold px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                >
+                  <Package size={14} /> + Stokta Olmayan Yeni Ürün Kartı Oluştur
+                </button>
+              </div>
             </div>
             {(() => {
               const linesSum = calculateInvoiceLinesTotal()
@@ -1899,6 +2329,252 @@ export default function SuppliersPage() {
                 </div>
               )
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* --- HIZLI YENİ STOK KARTI OLUŞTURMA MODALI (FATURA EKRANI İÇİNDEN) --- */}
+      {isNewStockModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 10005 }}>
+          <div className="bg-[#0f172a] border border-emerald-500/40 rounded-xl w-full max-w-md p-5 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Package size={16} className="text-emerald-400" />
+                  Yeni Stok Kartı Oluştur & Faturaya Ekle
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  Stokta olmayan ürünü depoya tanımlayıp aktif fatura satırına bağlar
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewStockModalOpen(false)}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewStockFromModal} className="grid grid-cols-2 gap-3 text-[11px]">
+              <div className="col-span-2">
+                <label className="block text-slate-400 mb-1">Eklenecek Depo *</label>
+                <select
+                  value={nsWarehouseId}
+                  onChange={(e) => {
+                    setNsWarehouseId(e.target.value)
+                    setNsCategory('')
+                    setNsSubCategory('')
+                  }}
+                  required
+                  className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors text-xs"
+                >
+                  <option value="" disabled>Depo Seçiniz...</option>
+                  {(invoiceWarehouses.length > 0 ? invoiceWarehouses : warehouses).map(w => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-slate-400 mb-1">Ürün Adı *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Örn: Canon EOS R5 Mark II"
+                  value={nsName}
+                  onChange={(e) => setNsName(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors text-xs"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-400">Kategori</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNsIsCustomCat(!nsIsCustomCat)
+                      if (!nsIsCustomCat) setNsCategory('')
+                    }}
+                    className="text-[9px] text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
+                  >
+                    {nsIsCustomCat ? 'Listeden Seç' : '+ Yeni Yaz'}
+                  </button>
+                </div>
+                {nsIsCustomCat ? (
+                  <input
+                    type="text"
+                    placeholder="Yeni kategori adı..."
+                    value={nsCategory}
+                    onChange={(e) => setNsCategory(e.target.value)}
+                    className="w-full bg-[#070b14] border border-emerald-500/60 rounded px-2.5 py-2 text-white focus:outline-none text-xs"
+                  />
+                ) : (
+                  <select
+                    value={nsCategory}
+                    onChange={(e) => {
+                      if (e.target.value === '__NEW__') {
+                        setNsIsCustomCat(true)
+                        setNsCategory('')
+                      } else {
+                        setNsCategory(e.target.value)
+                        setNsSubCategory('')
+                        setNsIsCustomSubCat(false)
+                      }
+                    }}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors text-xs"
+                  >
+                    <option value="">Seçiniz (Opsiyonel)</option>
+                    {getWarehouseCategories(nsWarehouseId).map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                    <option value="__NEW__">✍️ + Yeni Kategori Yaz...</option>
+                  </select>
+                )}
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-400">Alt Kategori</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNsIsCustomSubCat(!nsIsCustomSubCat)
+                      if (!nsIsCustomSubCat) setNsSubCategory('')
+                    }}
+                    disabled={!nsCategory}
+                    className="text-[9px] text-teal-400 hover:text-teal-300 underline cursor-pointer disabled:opacity-40"
+                  >
+                    {nsIsCustomSubCat ? 'Listeden Seç' : '+ Yeni Yaz'}
+                  </button>
+                </div>
+                {nsIsCustomSubCat ? (
+                  <input
+                    type="text"
+                    placeholder="Yeni alt kategori..."
+                    value={nsSubCategory}
+                    onChange={(e) => setNsSubCategory(e.target.value)}
+                    className="w-full bg-[#070b14] border border-teal-500/60 rounded px-2.5 py-2 text-white focus:outline-none text-xs"
+                  />
+                ) : (
+                  <select
+                    value={nsSubCategory}
+                    onChange={(e) => {
+                      if (e.target.value === '__NEW__') {
+                        setNsIsCustomSubCat(true)
+                        setNsSubCategory('')
+                      } else {
+                        setNsSubCategory(e.target.value)
+                      }
+                    }}
+                    disabled={!nsCategory}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors text-xs disabled:opacity-50"
+                  >
+                    <option value="">{nsCategory ? 'Seçiniz (Opsiyonel)' : 'Önce Kategori Seçin'}</option>
+                    {nsCategory && getWarehouseSubCategories(nsWarehouseId, nsCategory).map(sub => (
+                      <option key={sub} value={sub}>{sub}</option>
+                    ))}
+                    {nsCategory && (
+                      <option value="__NEW__">✍️ + Yeni Alt Kategori Yaz...</option>
+                    )}
+                  </select>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">SKU / Barkod (Opsiyonel)</label>
+                <input
+                  type="text"
+                  placeholder="Örn: R5M2-001"
+                  value={nsSku}
+                  onChange={(e) => setNsSku(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white font-mono focus:outline-none focus:border-emerald-500 transition-colors text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Birim</label>
+                <select
+                  value={nsUnit}
+                  onChange={(e) => setNsUnit(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-emerald-500 transition-colors text-xs"
+                >
+                  <option value="Adet">Adet</option>
+                  <option value="Kg">Kg</option>
+                  <option value="Metre">Metre</option>
+                  <option value="Lt">Lt</option>
+                  <option value="Paket">Paket</option>
+                  <option value="Kutu">Kutu</option>
+                </select>
+              </div>
+
+              <div className="col-span-2 mt-1 pt-3 border-t border-slate-800">
+                <label className="block text-slate-300 font-bold mb-2">Fatura Alım Bilgileri ({invCurrency})</label>
+                <div className="grid grid-cols-3 gap-2 bg-[#0a0f1d] p-3 rounded-lg border border-slate-800/80">
+                  <div>
+                    <label className="block text-slate-400 mb-1 text-[10px]">Alım Miktarı</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={nsQty}
+                      onChange={(e) => setNsQty(e.target.value)}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-white font-mono text-right focus:outline-none focus:border-emerald-500 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1 text-[10px]">Net B.Fiyat ({invCurrency})</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={nsUnitPrice}
+                      onChange={(e) => setNsUnitPrice(e.target.value)}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-white font-mono text-right focus:outline-none focus:border-emerald-500 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1 text-[10px]">KDV (%)</label>
+                    <select
+                      value={nsVatRate}
+                      onChange={(e) => setNsVatRate(e.target.value)}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-2 py-1.5 text-white focus:outline-none focus:border-emerald-500 text-xs"
+                    >
+                      <option value="20">%20</option>
+                      <option value="10">%10</option>
+                      <option value="1">%1</option>
+                      <option value="0">%0</option>
+                    </select>
+                  </div>
+                  {nsUnitPrice && parseFloat(nsUnitPrice) > 0 && (
+                    <div className="col-span-3 flex justify-between items-center bg-emerald-950/30 border border-emerald-500/30 rounded px-2.5 py-1.5 mt-1">
+                      <span className="text-emerald-200 text-[10px]">KDV Dahil Satır Toplamı:</span>
+                      <span className="text-emerald-400 font-bold font-mono text-xs">
+                        {formatMoney((parseFloat(nsQty) || 1) * (parseFloat(nsUnitPrice) || 0) * (1 + (parseFloat(nsVatRate) || 0) / 100), invCurrency).formatted}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="col-span-2 flex justify-end gap-2 mt-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsNewStockModalOpen(false)}
+                  className="px-4 py-1.5 rounded-lg text-slate-400 hover:bg-slate-800 transition-colors font-medium"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingNewStock}
+                  className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-1.5 rounded-lg font-bold transition-all active:scale-95 shadow-lg shadow-emerald-900/20 flex items-center gap-1.5"
+                >
+                  <Plus size={14} />
+                  {isSavingNewStock ? 'Oluşturuluyor...' : 'Stok Kartını Oluştur & Bağla'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
