@@ -201,7 +201,7 @@ export default function AdvancedReportsPage() {
 
       // Teknik Servis Fişleri (Mağaza ve Servis P&L dengesi için)
       const { data: techData } = await supabase.from('technical_service_tickets')
-        .select('id, ticket_no, customer_name, brand_model, total_cost, status, delivered_at, created_at, company_id')
+        .select('id, ticket_no, customer_name, brand_model, total_cost, parts_cost, payment_method, status, delivered_at, created_at, company_id')
       setTechTickets(techData || [])
 
     } catch (err) {
@@ -444,7 +444,9 @@ export default function AdvancedReportsPage() {
       if (t.status !== 'delivered') return
       const d = (t.delivered_at || t.created_at)?.substring(0, 10)
       if (d && d >= start && d <= end) {
-        techServiceRev += Number(t.total_cost || 0)
+        if (t.payment_method !== 'free') {
+          techServiceRev += Number(t.total_cost || 0)
+        }
         techServiceCount += 1
       }
     })

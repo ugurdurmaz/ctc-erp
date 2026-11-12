@@ -711,7 +711,7 @@ export default function TechnicalServicePage() {
     const thisMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     const monthlyRevenue = visible
       .filter(t => t.status === 'delivered' && t.delivered_at?.startsWith(thisMonthPrefix))
-      .reduce((acc, t) => acc + Number(t.total_cost || 0), 0)
+      .reduce((acc, t) => acc + (t.payment_method === 'free' ? 0 : Number(t.total_cost || 0)), 0)
 
     return {
       total: visible.length,
@@ -1112,10 +1112,12 @@ export default function TechnicalServicePage() {
     setPerformedServices(prev => prev.filter((_, i) => i !== index))
   }
 
-  // Toplam Tutar Hesaplama
+  // Toplam Tutar Hesaplama (Ücretsiz / Garanti teslimatında müşteri tahsilatı 0 ₺, parça maliyeti parts_cost olarak korunur)
+  const isFreeDelivery = detailStatus === 'delivered' && paymentMethod === 'free'
   const calcPartsCost = usedParts.reduce((acc, p) => acc + (Number(p.total) || 0), 0)
   const calcLaborCost = performedServices.reduce((acc, s) => acc + (Number(s.price) || 0), 0)
-  const calcTotalCost = calcPartsCost + calcLaborCost
+  const calcRawTotalCost = calcPartsCost + calcLaborCost
+  const calcTotalCost = isFreeDelivery ? 0 : calcRawTotalCost
 
   // Bilet Detaylarını & Durumunu Kaydet
   const handleSaveTicketDetails = async () => {
@@ -1889,7 +1891,14 @@ export default function TechnicalServicePage() {
                           {/* Alt Satır: Tutar & Hızlı Butonlar */}
                           <div className="pt-1.5 border-t border-slate-800/70 flex items-center justify-between text-[10px]">
                             <div className="font-mono font-bold text-emerald-400">
-                              {ticket.total_cost > 0 ? (
+                              {ticket.status === 'delivered' && ticket.payment_method === 'free' ? (
+                                <div className="flex flex-col leading-tight">
+                                  <span className="text-slate-300 text-[10px]">Ücretsiz (0,00₺)</span>
+                                  {ticket.parts_cost > 0 && (
+                                    <span className="text-rose-400/90 text-[8.5px] font-normal">Parça Mly: {formatMoney(ticket.parts_cost, 'TRY').formatted}</span>
+                                  )}
+                                </div>
+                              ) : ticket.total_cost > 0 ? (
                                 formatMoney(ticket.total_cost, 'TRY').formatted
                               ) : ticket.estimated_cost > 0 ? (
                                 <span className="text-slate-500 text-[9px]">Tah: {formatMoney(ticket.estimated_cost, 'TRY').formatted}</span>
@@ -1999,7 +2008,16 @@ export default function TechnicalServicePage() {
                           </span>
                         </td>
                         <td className="py-3 px-4 font-mono font-bold text-emerald-400 whitespace-nowrap">
-                          {formatMoney(t.total_cost || t.estimated_cost, 'TRY').formatted}
+                          {t.status === 'delivered' && t.payment_method === 'free' ? (
+                            <div className="flex flex-col leading-tight">
+                              <span className="text-slate-300">Ücretsiz (0,00₺)</span>
+                              {t.parts_cost > 0 && (
+                                <span className="text-[9px] text-rose-400/90 font-normal">Parça Mly: {formatMoney(t.parts_cost, 'TRY').formatted}</span>
+                              )}
+                            </div>
+                          ) : (
+                            formatMoney(t.total_cost || t.estimated_cost, 'TRY').formatted
+                          )}
                         </td>
                         <td className="py-3 px-4 text-slate-400 text-[10px] whitespace-nowrap">
                           {formatDateTR(t.received_at)}
@@ -3135,9 +3153,16 @@ export default function TechnicalServicePage() {
                     <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-2">
                       <ShieldCheck size={16} /> Teslimat & Tahsilat Bilgileri
                     </span>
-                    <span className="text-xs font-mono font-bold text-white">
-                      Toplam: {formatMoney(calcTotalCost, 'TRY').formatted}
-                    </span>
+                    <div className="text-right font-mono">
+                      <span className="text-xs font-bold text-white">
+                        Tahsilat: {formatMoney(calcTotalCost, 'TRY').formatted}
+                      </span>
+                      {isFreeDelivery && calcPartsCost > 0 && (
+                        <span className="block text-[10px] text-rose-300">
+                          Kullanılan Parça Maliyeti: {formatMoney(calcPartsCost, 'TRY').formatted} (Müşteriden ücret alınmaz, stoktan düşülür)
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
@@ -3276,13 +3301,24 @@ export default function TechnicalServicePage() {
               {/* GENEL TOPLAM BARI */}
               <div className="bg-[#070b14] border border-slate-800 p-4 rounded-2xl flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">GENEL TOPLAM</span>
-                  <span className="text-xs text-slate-500">İşçilik ({calcLaborCost} ₺) + Yedek Parça ({calcPartsCost} ₺)</span>
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">
+                    {isFreeDelivery ? 'MÜŞTERİDEN TAHSİL EDİLECEK TUTAR (ÜCRETSİZ / GARANTİ)' : 'GENEL TOPLAM'}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {isFreeDelivery
+                      ? `Müşteri Tahsilatı: 0,00 ₺ • İç Yedek Parça Maliyeti: ${formatMoney(calcPartsCost, 'TRY').formatted} (Depodan düşülür)`
+                      : `İşçilik (${calcLaborCost} ₺) + Yedek Parça (${calcPartsCost} ₺)`}
+                  </span>
                 </div>
                 <div className="text-right font-mono">
                   <span className="text-xl font-black text-emerald-400">
                     {formatMoney(calcTotalCost, 'TRY').formatted}
                   </span>
+                  {isFreeDelivery && calcPartsCost > 0 && (
+                    <span className="block text-[10px] text-rose-400 font-semibold">
+                      Parça Mly: {formatMoney(calcPartsCost, 'TRY').formatted}
+                    </span>
+                  )}
                 </div>
               </div>
 

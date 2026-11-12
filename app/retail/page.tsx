@@ -63,6 +63,7 @@ type DeliveredTicketSummary = {
   customer_name: string;
   brand_model: string;
   total_cost: number;
+  parts_cost?: number;
   payment_method: string | null;
   payment_status: string;
   delivered_at: string | null;
@@ -1164,7 +1165,7 @@ export default function RetailPOSPage() {
 
         const { data: ticketsData } = await supabase
           .from('technical_service_tickets')
-          .select('id, ticket_no, customer_name, brand_model, total_cost, payment_method, payment_status, delivered_at')
+          .select('id, ticket_no, customer_name, brand_model, total_cost, parts_cost, payment_method, payment_status, delivered_at')
           .eq('status', 'delivered')
           .gte('delivered_at', `${prevDate}T00:00:00Z`)
           .lte('delivered_at', `${nextDate}T23:59:59Z`)
@@ -1873,7 +1874,7 @@ export default function RetailPOSPage() {
   const retailCash = retailRows.reduce((acc, row) => acc + parseValue(row.cash), 0)
   const retailCard = retailRows.reduce((acc, row) => acc + parseValue(row.card), 0)
 
-  const deliveredTicketsTotal = deliveredTickets.reduce((acc, t) => acc + (Number(t.total_cost) || 0), 0)
+  const deliveredTicketsTotal = deliveredTickets.reduce((acc, t) => acc + (t.payment_method === 'free' ? 0 : (Number(t.total_cost) || 0)), 0)
   const deliveredTicketsCash = deliveredTickets
     .filter(t => t.payment_method === 'cash')
     .reduce((acc, t) => acc + (Number(t.total_cost) || 0), 0)
@@ -2595,18 +2596,23 @@ export default function RetailPOSPage() {
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0 font-mono">
+                        {t.payment_method === 'free' && Number(t.parts_cost) > 0 && (
+                          <span className="text-[8px] px-1.5 py-0.5 rounded font-sans font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20" title="Stoktan kullanılan yedek parça maliyeti (SMM)">
+                            Parça Mly: {formatMoney(Number(t.parts_cost), 'TRY').formatted}
+                          </span>
+                        )}
                         <span className={`text-[8px] px-1.5 py-0.5 rounded font-sans font-medium border ${
                           t.payment_method === 'cash' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
                           t.payment_method === 'card' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' :
-                          t.payment_method === 'customer_account' ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
+                          (t.payment_method === 'customer_debt' || t.payment_method === 'customer_account') ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
                           'bg-slate-800 text-slate-400 border-slate-700'
                         }`}>
                           {t.payment_method === 'cash' ? 'Nakit' :
                            t.payment_method === 'card' ? 'K.Kartı' :
-                           t.payment_method === 'customer_account' ? 'Veresiye' : 'Ücretsiz'}
+                           (t.payment_method === 'customer_debt' || t.payment_method === 'customer_account') ? 'Veresiye' : 'Ücretsiz'}
                         </span>
                         <span className="text-slate-100 font-bold text-[10px]">
-                          {formatMoney(t.total_cost, 'TRY').formatted}
+                          {formatMoney(t.payment_method === 'free' ? 0 : t.total_cost, 'TRY').formatted}
                         </span>
                       </div>
                     </div>

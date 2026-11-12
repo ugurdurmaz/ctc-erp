@@ -33,7 +33,7 @@ type SuppTx = { id: string; tx_date: string; description: string; supplier_id: s
 type StockTx = { id?: string; stock_id?: string | null; tx_date: string; tx_type: string; quantity: number; unit_price: number; currency: string; vat_rate?: number; company_id: string | null }
 type SubTx = { start_date: string; cost_price: number; sale_price: number; currency: string; company_id: string | null }
 type PosTx = { id: string; date: string; category_id: string; cash: number; card: number; cost: number; stock_id: string | null; company_id: string | null; description?: string | null }
-type TechTicket = { id: string; ticket_no: string; brand_model: string; customer_name: string; status: string; total_cost: number; parts_cost: number; labor_cost: number; delivered_at: string | null; company_id: string | null; created_at: string }
+type TechTicket = { id: string; ticket_no: string; brand_model: string; customer_name: string; status: string; total_cost: number; parts_cost: number; labor_cost: number; payment_method?: string | null; delivered_at: string | null; company_id: string | null; created_at: string }
 
 type TimelineItem = {
   id: string
@@ -247,7 +247,7 @@ export default function Home() {
       const { data: posData } = await supabase.from('pos_transactions').select('id, date, category_id, cash, card, cost, stock_id, company_id, description')
       setPosTxs(posData || [])
 
-      const { data: srvData } = await supabase.from('technical_service_tickets').select('id, ticket_no, brand_model, customer_name, status, total_cost, parts_cost, labor_cost, delivered_at, company_id, created_at')
+      const { data: srvData } = await supabase.from('technical_service_tickets').select('id, ticket_no, brand_model, customer_name, status, total_cost, parts_cost, labor_cost, payment_method, delivered_at, company_id, created_at')
       setTechTickets(srvData || [])
 
       // Sabit Gider Şablonlarını expense_categories'den çekme
@@ -877,7 +877,7 @@ export default function Home() {
     })
 
     // 5. Teknik Servis Teslimat Gelirleri
-    techTickets.filter(t => isMatch(t.company_id) && t.status === 'delivered').forEach(ticket => {
+    techTickets.filter(t => isMatch(t.company_id) && t.status === 'delivered' && t.payment_method !== 'free').forEach(ticket => {
       const dStr = ticket.delivered_at || ticket.created_at
       const pt = findPoint(dStr)
       if (pt) pt.revenue += Number(ticket.total_cost || 0)
@@ -1203,8 +1203,8 @@ export default function Home() {
       const dStr = t.delivered_at || t.created_at
       allTimelineItems.push({
           id: `srv_${t.id}`, date: dStr?.substring(0, 10), sortDate: new Date(dStr),
-          module: 'technical-service', description: `Teknik Servis: ${t.ticket_no} - ${t.brand_model} (${t.customer_name})`,
-          amountTry: Number(t.total_cost || 0),
+          module: 'technical-service', description: `Teknik Servis: ${t.ticket_no} - ${t.brand_model} (${t.customer_name})${t.payment_method === 'free' ? ' [Ücretsiz]' : ''}`,
+          amountTry: t.payment_method === 'free' ? 0 : Number(t.total_cost || 0),
           type: 'in', companyId: t.company_id
       })
   })
