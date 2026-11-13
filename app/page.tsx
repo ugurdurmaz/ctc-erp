@@ -823,8 +823,8 @@ export default function Home() {
       }
     }
 
-    // 1. Cari ve Abonelik Gelirleri (Açılış bakiyesi / devir işlemleri ciro ve kâr sayılmaz)
-    customerTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'debt' && !t.description?.toLowerCase().includes('açılış') && !t.description?.toLowerCase().includes('devir')).forEach(tx => {
+    // 1. Cari ve Abonelik Gelirleri (Açılış bakiyesi / devir işlemleri ve şahsi merkez borçlandırmaları ticari ciro ve kâr sayılmaz)
+    customerTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'debt' && (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal) && !t.description?.toLowerCase().includes('açılış') && !t.description?.toLowerCase().includes('devir')).forEach(tx => {
       const dStr = tx.tx_date || tx.created_at
       const pt = findPoint(dStr)
       if (pt) pt.revenue += tx.amount * (tx.exchange_rate || 1)
@@ -931,7 +931,7 @@ export default function Home() {
       profitTrend,
       posProfitTrend
     }
-  }, [pnlPeriod, customerTxs, subscriptions, stockTxs, commercialExpensesList, posTxs, techTickets, bankInterestTxs, banks, isMatch, rates])
+  }, [pnlPeriod, customerTxs, subscriptions, stockTxs, commercialExpensesList, posTxs, techTickets, bankInterestTxs, banks, companies, isMatch, rates])
 
   const stockValuationData = useMemo(() => {
     const now = new Date()

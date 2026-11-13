@@ -451,10 +451,11 @@ export default function AdvancedReportsPage() {
       }
     })
 
-    // 5. İlgili Dönemin Ticari Genel Giderleri
+    // 5. İlgili Dönemin Ticari Genel Giderleri (Şahsi merkez giderleri ticari P&L'e dahil edilmez)
     let commercialExpTotal = 0
     expenseTxs.forEach(e => {
       if (!isMatchCompany(e.company_id)) return
+      if (!e.company_id || companies.find(c => c.id === e.company_id)?.is_personal) return
       const d = (e.tx_date || e.created_at)?.substring(0, 10)
       if (d && d >= start && d <= end) {
         commercialExpTotal += Number(e.amount || 0) * Number(e.exchange_rate || 1)
@@ -515,7 +516,7 @@ export default function AdvancedReportsPage() {
       totalOperatingExpenses,
       netCommercialProfit
     }
-  }, [posTxs, start, end, isMatchCompany, techTickets, expenseTxs, bankTxs, banks])
+  }, [posTxs, start, end, isMatchCompany, techTickets, expenseTxs, bankTxs, banks, companies])
 
   const filteredRetailItems = useMemo(() => {
     return retailProfitAnalysis.salesTxs.filter(t => {
