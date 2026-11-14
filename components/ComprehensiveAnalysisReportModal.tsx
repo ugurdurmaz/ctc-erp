@@ -1073,120 +1073,147 @@ ${printEl.innerHTML}
   const maxBalanceSide = Math.max(1, reportData.grossAssets, reportData.totalLiabilities)
 
   return (
-    <div className="fixed inset-0 z-[99998] bg-black/85 backdrop-blur-md flex flex-col animate-in fade-in duration-200">
-      {/* ÜST KONTROL VE FİLTRE ÇUBUĞU */}
-      <div className="bg-[#0b1120] border-b border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-gradient-to-br from-indigo-500/20 to-emerald-500/20 border border-indigo-500/30 text-indigo-400">
-            <Sparkles size={20} />
+    <div className="fixed inset-0 w-screen h-screen overflow-hidden z-[99998] bg-[#070b14] flex flex-col animate-in fade-in duration-200">
+      {/* ÜST KONTROL VE FİLTRE ÇUBUĞU (İKİ SATIRLI, HİÇBİR EKRANDA TAŞMAYAN KOMPAKT DÜZEN) */}
+      <div className="bg-[#0b1120] border-b border-slate-800 px-4 py-2.5 flex flex-col gap-2 shrink-0 shadow-xl w-full max-w-full">
+        {/* 1. SATIR: BAŞLIK + BÖLÜM SEKMELERİ + PDF OLUŞTUR + KAPAT */}
+        <div className="flex flex-wrap items-center justify-between gap-2 w-full">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-1.5 rounded-lg bg-gradient-to-br from-indigo-500/20 to-emerald-500/20 border border-indigo-500/30 text-indigo-400 shrink-0">
+              <Sparkles size={18} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-xs sm:text-sm md:text-base font-black text-white flex items-center gap-2 truncate">
+                <span className="truncate">Merkez Bazlı Kapsamlı Kâr, Değer & Bilanço Analiz Raporu</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold shrink-0">
+                  {periodTitle}
+                </span>
+              </h2>
+            </div>
           </div>
-          <div>
-            <h2 className="text-sm md:text-base font-black text-white flex items-center gap-2">
-              <span>Merkez Bazlı Kapsamlı Kâr, Değer & Bilanço Analiz Raporu</span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
-                {periodTitle}
-              </span>
-            </h2>
-            <p className="text-[11px] text-slate-400">
-              İstediğiniz ay veya tarih aralığını seçerek raporu ekranda inceleyebilir ve tek tuşla A4 PDF / Yazıcı çıktısı alabilirsiniz.
-            </p>
+
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
+            {/* Bölüm Filtresi */}
+            <div className="hidden md:flex items-center bg-[#070b14] border border-slate-700 p-0.5 rounded-lg text-[11px]">
+              {[
+                { id: 'all', label: 'Tüm Rapor' },
+                { id: 'pnl', label: 'Kâr & Zarar' },
+                { id: 'balance', label: 'Varlık, Alacak & Borç' },
+                { id: 'centers', label: 'Merkez Detayları' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setSectionFilter(tab.id as any)}
+                  className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
+                    sectionFilter === tab.id ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* PDF OLUŞTUR / YAZDIR BUTONU */}
+            <button
+              onClick={handlePrintOrPdf}
+              className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 shadow-lg shadow-emerald-900/40 border border-emerald-400/30 transition-all active:scale-95 cursor-pointer shrink-0"
+            >
+              <Printer size={14} />
+              <span>PDF Oluştur / Yazdır</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              className="bg-slate-800 hover:bg-rose-600 text-slate-200 hover:text-white px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 border border-slate-700 transition-colors cursor-pointer shrink-0"
+              title="Raporu Kapat"
+            >
+              <X size={15} />
+              <span>Kapat</span>
+            </button>
           </div>
         </div>
 
-        {/* AY SEÇİCİ VE ÖZEL TARİH ARALIĞI KONTROLLERİ */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Hızlı Ay Seçimi */}
-          <div className="flex items-center gap-1.5 bg-[#070b14] border border-slate-700 px-2.5 py-1.5 rounded-lg">
-            <Calendar size={13} className="text-indigo-400" />
-            <span className="text-[11px] text-slate-400 font-bold">Ay Seç:</span>
-            <select
-              value={selectedMonth}
-              onChange={(e) => handleMonthSelect(selectedYear, e.target.value)}
-              className="bg-slate-900 text-white text-xs font-bold px-2 py-0.5 rounded border border-slate-700 focus:outline-none cursor-pointer"
-            >
-              {MONTH_NAMES.map(m => (
-                <option key={m.num} value={m.num}>{m.name}</option>
-              ))}
-            </select>
-            <select
-              value={selectedYear}
-              onChange={(e) => handleMonthSelect(e.target.value, selectedMonth)}
-              className="bg-slate-900 text-white text-xs font-bold px-2 py-0.5 rounded border border-slate-700 focus:outline-none cursor-pointer"
-            >
-              {['2025', '2026', '2027'].map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Özel Tarih Aralığı Seçimi */}
-          <div className="flex items-center gap-1.5 bg-[#070b14] border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs">
-            <span className="text-[11px] text-slate-400 font-bold">Tarih Aralığı:</span>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => { setPeriodMode('custom'); setStartDate(e.target.value) }}
-              className="bg-slate-900 text-white px-2 py-0.5 rounded border border-slate-700 text-[11px] focus:outline-none"
-              style={{ colorScheme: 'dark' }}
-            />
-            <span className="text-slate-500">–</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => { setPeriodMode('custom'); setEndDate(e.target.value) }}
-              className="bg-slate-900 text-white px-2 py-0.5 rounded border border-slate-700 text-[11px] focus:outline-none"
-              style={{ colorScheme: 'dark' }}
-            />
-          </div>
-
-          {/* Bölüm Filtresi */}
-          <div className="hidden xl:flex items-center bg-[#070b14] border border-slate-700 p-0.5 rounded-lg text-[11px]">
-            {[
-              { id: 'all', label: 'Tüm Rapor' },
-              { id: 'pnl', label: 'Kâr & Zarar' },
-              { id: 'balance', label: 'Varlık, Alacak & Borç' },
-              { id: 'centers', label: 'Merkez Detayları' }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setSectionFilter(tab.id as any)}
-                className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
-                  sectionFilter === tab.id ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
+        {/* 2. SATIR: AY SEÇİCİ + TARİH ARALIĞI + HIZLI ÖZET BİLGİ */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-800/80 w-full">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Hızlı Ay Seçimi */}
+            <div className="flex items-center gap-1.5 bg-[#070b14] border border-slate-700 px-2.5 py-1 rounded-lg">
+              <Calendar size={13} className="text-indigo-400" />
+              <span className="text-[11px] text-slate-400 font-bold">Ay Seç:</span>
+              <select
+                value={selectedMonth}
+                onChange={(e) => handleMonthSelect(selectedYear, e.target.value)}
+                className="bg-slate-900 text-white text-xs font-bold px-2 py-0.5 rounded border border-slate-700 focus:outline-none cursor-pointer"
               >
-                {tab.label}
-              </button>
-            ))}
+                {MONTH_NAMES.map(m => (
+                  <option key={m.num} value={m.num}>{m.name}</option>
+                ))}
+              </select>
+              <select
+                value={selectedYear}
+                onChange={(e) => handleMonthSelect(e.target.value, selectedMonth)}
+                className="bg-slate-900 text-white text-xs font-bold px-2 py-0.5 rounded border border-slate-700 focus:outline-none cursor-pointer"
+              >
+                {['2025', '2026', '2027'].map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Özel Tarih Aralığı Seçimi */}
+            <div className="flex items-center gap-1.5 bg-[#070b14] border border-slate-700 px-2.5 py-1 rounded-lg text-xs">
+              <span className="text-[11px] text-slate-400 font-bold">Tarih Aralığı:</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => { setPeriodMode('custom'); setStartDate(e.target.value) }}
+                className="bg-slate-900 text-white px-2 py-0.5 rounded border border-slate-700 text-[11px] focus:outline-none"
+                style={{ colorScheme: 'dark' }}
+              />
+              <span className="text-slate-500">–</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => { setPeriodMode('custom'); setEndDate(e.target.value) }}
+                className="bg-slate-900 text-white px-2 py-0.5 rounded border border-slate-700 text-[11px] focus:outline-none"
+                style={{ colorScheme: 'dark' }}
+              />
+            </div>
           </div>
 
-          {/* PDF OLUŞTUR / YAZDIR BUTONU */}
-          <button
-            onClick={handlePrintOrPdf}
-            className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-4 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 shadow-lg shadow-emerald-900/40 border border-emerald-400/30 transition-all active:scale-95 cursor-pointer"
-          >
-            <Printer size={14} />
-            <span>PDF Oluştur / Yazdır</span>
-          </button>
-
-          <button
-            onClick={onClose}
-            className="bg-slate-800 hover:bg-rose-600/80 text-slate-300 hover:text-white p-1.5 rounded-lg transition-colors cursor-pointer"
-            title="Kapat"
-          >
-            <X size={18} />
-          </button>
+          <div className="hidden lg:flex items-center gap-3 text-[11px] font-mono">
+            <span className="text-slate-400">
+              Ciro: <strong className="text-white">{fmt(reportData.grandRevenue)}</strong>
+            </span>
+            <span className="text-slate-600">|</span>
+            <span className="text-slate-400">
+              Gerçek Net Kâr: <strong className="text-emerald-400">+{fmt(reportData.grandTrueNetProfit)}</strong>
+            </span>
+            <span className="text-slate-600">|</span>
+            <span className="text-slate-400">
+              Net Özvarlık: <strong className={reportData.netWorth >= 0 ? 'text-blue-400' : 'text-rose-400'}>{fmt(reportData.netWorth)}</strong>
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* EKRAN ÖNİZLEME GÖVDESİ (A4 KAĞIT GÖRÜNÜMÜ — HEM EKRANDA OKUNAKLI HEM BASKIYA HAZIR) */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 bg-[#070b14] flex justify-center">
+      {/* EKRAN ÖNİZLEME GÖVDESİ (A4 KAĞIT GÖRÜNÜMÜ — TAM BOY BEYAZ ZEMİN & BASKIYA HAZIR) */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 bg-[#070b14]">
         <div
           id="comprehensive-report-document"
-          className="doc-sheet w-full max-w-[1020px] bg-white text-slate-900 rounded-xl shadow-2xl p-6 md:p-10 space-y-6"
-          style={{ fontFamily: "'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif" }}
+          className="doc-sheet mx-auto h-fit w-full max-w-[1040px] bg-white text-slate-900 rounded-xl shadow-2xl p-6 md:p-10 space-y-6"
+          style={{
+            fontFamily: "'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif",
+            backgroundColor: '#ffffff',
+            color: '#0f172a'
+          }}
         >
           {/* YAZDIRILACAK İÇERİK STİLLERİ (EKRAN VE PDF ORTAK) */}
           <style dangerouslySetInnerHTML={{ __html: `
+            #comprehensive-report-document {
+              background-color: #ffffff !important;
+              color: #0f172a !important;
+            }
             #comprehensive-report-document .report-header {
               border-bottom: 2.5px solid #0f172a;
               padding-bottom: 8px;
@@ -1256,8 +1283,8 @@ ${printEl.innerHTML}
               margin-bottom: 14px;
             }
             #comprehensive-report-document .section-header {
-              background: #0f172a;
-              color: #ffffff;
+              background: #0f172a !important;
+              color: #ffffff !important;
               padding: 5px 10px;
               font-size: 9.5pt;
               font-weight: 700;
@@ -1267,7 +1294,8 @@ ${printEl.innerHTML}
               align-items: center;
             }
             #comprehensive-report-document .section-header.sub {
-              background: #1e293b;
+              background: #1e293b !important;
+              color: #ffffff !important;
               font-size: 8.8pt;
               padding: 4px 10px;
               margin-top: 8px;
@@ -1276,6 +1304,7 @@ ${printEl.innerHTML}
               font-size: 7.8pt;
               font-weight: 600;
               background: rgba(255,255,255,0.18);
+              color: #ffffff !important;
               padding: 1px 7px;
               border-radius: 3px;
             }
@@ -1284,10 +1313,11 @@ ${printEl.innerHTML}
               border-collapse: collapse;
               font-size: 8.2pt;
               border: 1px solid #cbd5e1;
+              background-color: #ffffff !important;
             }
             #comprehensive-report-document th {
-              background: #e2e8f0;
-              color: #0f172a;
+              background: #e2e8f0 !important;
+              color: #0f172a !important;
               font-weight: 700;
               text-align: left;
               padding: 4.5px 6px;
@@ -1300,19 +1330,22 @@ ${printEl.innerHTML}
               padding: 4px 6px;
               border: 1px solid #cbd5e1;
               vertical-align: top;
-              color: #0f172a;
+              background-color: #ffffff !important;
+              color: #0f172a !important;
             }
             #comprehensive-report-document tr:nth-child(even) td {
-              background: #f8fafc;
+              background-color: #f8fafc !important;
             }
             #comprehensive-report-document tr.subtotal-row td {
-              background: #f1f5f9 !important;
+              background-color: #f1f5f9 !important;
+              color: #0f172a !important;
               font-weight: 700;
               border-top: 1.5px solid #94a3b8;
               border-bottom: 1.5px solid #94a3b8;
             }
             #comprehensive-report-document tr.total-row td {
-              background: #e2e8f0 !important;
+              background-color: #e2e8f0 !important;
+              color: #0f172a !important;
               font-weight: 800;
               font-size: 8.5pt;
               border-top: 2px solid #0f172a;
