@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { formatMoney } from '@/lib/utils'
+import { formatMoney, sortBankAccounts } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { Wallet, Plus, Trash2, X, Edit3, Search, ArrowRightLeft, Landmark, Building, Home, Globe, AlertTriangle, RefreshCw } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type CashRegister = { id: string; name: string; balance: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; company?: { name: string; is_personal: boolean } }
 type CashTransaction = { id: string; cash_register_id: string; company_id?: string | null; tx_date: string; description: string; tx_type: 'in' | 'out'; amount: number; currency: string; exchange_rate: number; is_transfer: boolean; running_balance?: number; transfer_id?: string; company?: { name: string; is_personal: boolean } }
-type BankAccount = { id: string; bank_name: string; account_name: string; balance: number; currency: string; company_id?: string | null }
+type BankAccount = { id: string; bank_name: string; account_name: string; balance: number; currency: string; company_id?: string | null; account_color?: string | null }
 
 function getLocalTodayISO() { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}` }
 function formatDateTR(dateStr: string) { if (!dateStr) return ''; const parts = dateStr.split('-'); if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`; return dateStr }
@@ -56,7 +56,7 @@ export default function CashRegistersPage() {
 
   async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name', { ascending: true }); setCompanies(data || []) }
   async function fetchCashes() { const { data } = await supabase.from('cash_registers').select('*, company:companies(name, is_personal)').order('name', { ascending: true }); setCashes(data || []); if (data && data.length > 0 && !selectedCashId) setSelectedCashId(data[0].id) }
-  async function fetchBanks() { const { data } = await supabase.from('bank_accounts').select('id, bank_name, account_name, balance, currency, company_id'); setBanks(data || []) }
+  async function fetchBanks() { const { data } = await supabase.from('bank_accounts').select('id, bank_name, account_name, balance, currency, company_id, account_color'); setBanks(sortBankAccounts(data || [])) }
   async function fetchTransactions(cashId: string) { const { data } = await supabase.from('cash_transactions').select('*, company:companies(name, is_personal)').eq('cash_register_id', cashId).order('tx_date', { ascending: false }).order('created_at', { ascending: false }); setTransactions(data || []) }
 
   function openAddModal() { 

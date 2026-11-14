@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { formatMoney, CARD_COLORS, parseAccountColor, formatAccountColor } from '@/lib/utils'
+import { formatMoney, CARD_COLORS, parseAccountColor, formatAccountColor, sortBankAccounts } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, TrendingDown, Calculator, Sparkles, CreditCard, FileSpreadsheet, FileDown, Palette } from 'lucide-react'
+import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, TrendingDown, Calculator, Sparkles, CreditCard, FileSpreadsheet, FileDown, Palette, GripVertical, ChevronUp, ChevronDown } from 'lucide-react'
 import BankStatementExportModal from '@/components/BankStatementExportModal'
 
 type Company = { id: string; name: string; is_personal: boolean }
-type BankAccount = { id: string; bank_name: string; account_name: string; iban: string; balance: number; kmh_limit?: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; account_color?: string; is_investment?: boolean; company?: { name: string; is_personal: boolean } }
+type BankAccount = { id: string; bank_name: string; account_name: string; iban: string; balance: number; kmh_limit?: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; account_color?: string; is_investment?: boolean; sort_order?: number | null; company?: { name: string; is_personal: boolean } }
 type BankTransaction = { id: string; bank_account_id: string; company_id?: string | null; tx_date: string; description: string; tx_type: 'in' | 'out'; amount: number; currency: string; exchange_rate: number; is_transfer: boolean; running_balance?: number; transfer_id?: string; status?: string; company?: { name: string; is_personal: boolean } }
 type CashRegister = { id: string; name: string; balance: number; currency: string; company_id?: string | null }
 type CardDetail = { id: string; name: string; card_limit: number; current_debt: number; company_id?: string | null; company?: { name: string; is_personal: boolean } }
@@ -93,6 +93,8 @@ export default function BankAccountsPage() {
   const [txSearchTerm, setTxSearchTerm] = useState('')
   const [txPeriodFilter, setTxPeriodFilter] = useState<'all' | 'this_month' | 'last_month'>('all')
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
+  const [draggedBankId, setDraggedBankId] = useState<string | null>(null)
+  const [dragOverBankId, setDragOverBankId] = useState<string | null>(null)
 
   useEffect(() => { fetchCompanies(); fetchBanks(); fetchCashes(); fetchCards() }, [])
   useEffect(() => { 
@@ -108,16 +110,81 @@ export default function BankAccountsPage() {
   async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name', { ascending: true }); setCompanies(data || []) }
   async function fetchBanks() { 
     const { data } = await supabase.from('bank_accounts').select('*, company:companies(name, is_personal)').order('bank_name', { ascending: true }); 
-        const mapped = (data || []).map(b => {
+    const mapped = (data || []).map(b => {
       const parsed = parseAccountColor(b.account_color);
       return {
         ...b,
         account_color: parsed.color,
-        is_investment: Boolean(parsed.isInvestment || (b as any).is_investment)
+        is_investment: Boolean(parsed.isInvestment || (b as any).is_investment),
+        sort_order: parsed.sortOrder
       };
     });
-    setBanks(mapped); 
-    if (mapped.length > 0 && !selectedBankId) setSelectedBankId(mapped[0].id) 
+    const sorted = sortBankAccounts(mapped);
+    setBanks(sorted); 
+    if (sorted.length > 0 && !selectedBankId) setSelectedBankId(sorted[0].id) 
+  }
+
+  async function persistBankOrder(newBanks: BankAccount[]) {
+    const updated = newBanks.map((b, idx) => ({ ...b, sort_order: idx }))
+    setBanks(updated)
+    try {
+      await Promise.all(
+        updated.map((b, idx) => {
+          const rawColor = formatAccountColor(b.account_color || CARD_COLORS[0].value, Boolean(b.is_investment), idx)
+          return supabase.from('bank_accounts').update({ account_color: rawColor }).eq('id', b.id)
+        })
+      )
+      toast.success('Hesap sıralaması kaydedildi', { id: 'bank-sort-toast', duration: 1500 })
+    } catch (err: any) {
+      toast.error('Sıralama kaydedilemedi: ' + err.message)
+    }
+  }
+
+  function handleBankDragStart(e: React.DragEvent, id: string) {
+    if (searchTerm.trim()) return
+    setDraggedBankId(id)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', id)
+  }
+
+  function handleBankDragOver(e: React.DragEvent, targetId: string) {
+    if (searchTerm.trim()) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (targetId !== dragOverBankId) setDragOverBankId(targetId)
+  }
+
+  function handleBankDrop(e: React.DragEvent, targetId: string) {
+    if (searchTerm.trim()) return
+    e.preventDefault()
+    const sourceId = draggedBankId || e.dataTransfer.getData('text/plain')
+    setDraggedBankId(null)
+    setDragOverBankId(null)
+    if (!sourceId || sourceId === targetId) return
+    const fromIdx = banks.findIndex(b => b.id === sourceId)
+    const toIdx = banks.findIndex(b => b.id === targetId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const copy = [...banks]
+    const [moved] = copy.splice(fromIdx, 1)
+    copy.splice(toIdx, 0, moved)
+    persistBankOrder(copy)
+  }
+
+  function handleBankDragEnd() {
+    setDraggedBankId(null)
+    setDragOverBankId(null)
+  }
+
+  function moveBankStep(id: string, direction: 'up' | 'down', e: React.MouseEvent) {
+    e.stopPropagation()
+    const idx = banks.findIndex(b => b.id === id)
+    if (idx === -1) return
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (targetIdx < 0 || targetIdx >= banks.length) return
+    const copy = [...banks]
+    const [moved] = copy.splice(idx, 1)
+    copy.splice(targetIdx, 0, moved)
+    persistBankOrder(copy)
   }
   async function fetchCashes() { const { data } = await supabase.from('cash_registers').select('*'); setCashes(data || []) }
   async function fetchCards() { const { data } = await supabase.from('credit_cards').select('*, company:companies(name, is_personal)').order('name', { ascending: true }); setCards(data || []) }
@@ -363,7 +430,7 @@ export default function BankAccountsPage() {
            await supabase.from('bank_transactions').insert([txPayload]);
         }
 
-        const formattedColor = formatAccountColor(accountColor, isInvestment)
+        const formattedColor = formatAccountColor(accountColor, isInvestment, oldBank?.sort_order)
         const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, account_color: formattedColor, kmh_limit: finalKmhLimit }
         await supabase.from('bank_accounts').update(payload).eq('id', editingId); 
         await recalculateAbsoluteBankBalance(editingId); 
@@ -374,7 +441,7 @@ export default function BankAccountsPage() {
         if (selectedBankId === editingId) fetchTransactions(editingId);
       } 
       else { 
-        const formattedColor = formatAccountColor(accountColor, isInvestment)
+        const formattedColor = formatAccountColor(accountColor, isInvestment, banks.length)
         const payload = { bank_name: bankName, account_name: accountName, iban, currency, company_id: finalCompId, balance: 0, account_color: formattedColor, kmh_limit: finalKmhLimit } 
         const { data, error } = await supabase.from('bank_accounts').insert([payload]).select().single(); 
         if (error) throw error;
@@ -1124,17 +1191,54 @@ export default function BankAccountsPage() {
             ) : filteredBanks.map((item, index) => {
               const isSelected = item.id === selectedBankId
               const cardColor = item.account_color || CARD_COLORS[0].value
+              const isDragging = draggedBankId === item.id
+              const isDragOver = dragOverBankId === item.id && draggedBankId !== item.id
+              const canReorder = !searchTerm.trim()
               return (
                 <div 
                   key={item.id} 
+                  draggable={canReorder}
+                  onDragStart={(e) => handleBankDragStart(e, item.id)}
+                  onDragOver={(e) => handleBankDragOver(e, item.id)}
+                  onDrop={(e) => handleBankDrop(e, item.id)}
+                  onDragEnd={handleBankDragEnd}
                   onClick={() => setSelectedBankId(item.id)} 
                   style={{ animation: 'fadeInUp 0.3s both', animationDelay: `${0.15 + (index * 0.05)}s` }}
-                  className={`relative flex items-center justify-between py-2.5 px-3 rounded-xl cursor-pointer transition-all duration-200 border bg-gradient-to-br hover:-translate-y-0.5 group shadow-md ${cardColor} ${
-                    isSelected 
-                      ? 'border-indigo-400 ring-2 ring-indigo-500/80 shadow-indigo-950/60 scale-[1.01]' 
-                      : 'border-slate-800/80 hover:border-slate-600/90'
-                  }`}
+                  className={`relative flex items-center justify-between py-2.5 pl-2 pr-3 rounded-xl cursor-pointer transition-all duration-200 border bg-gradient-to-br hover:-translate-y-0.5 group shadow-md ${cardColor} ${
+                    isDragOver
+                      ? 'border-indigo-300 ring-2 ring-indigo-400 scale-[1.02]'
+                      : isSelected 
+                        ? 'border-indigo-400 ring-2 ring-indigo-500/80 shadow-indigo-950/60 scale-[1.01]' 
+                        : 'border-slate-800/80 hover:border-slate-600/90'
+                  } ${isDragging ? 'opacity-40 scale-[0.98]' : ''}`}
                 >
+                  {canReorder && (
+                    <div
+                      className="flex flex-col items-center justify-center mr-1.5 text-slate-400/60 group-hover:text-slate-200 transition-colors shrink-0 select-none"
+                      onClick={(e) => e.stopPropagation()}
+                      title="Sıralamayı değiştirmek için sürükleyin veya oklara tıklayın"
+                    >
+                      <button
+                        type="button"
+                        disabled={index === 0}
+                        onClick={(e) => moveBankStep(item.id, 'up', e)}
+                        className="opacity-0 group-hover:opacity-100 disabled:opacity-20 hover:text-indigo-300 p-0.5 transition-opacity"
+                        title="Yukarı Taşı"
+                      >
+                        <ChevronUp size={11} />
+                      </button>
+                      <GripVertical size={13} className="cursor-grab active:cursor-grabbing my-0.5 text-slate-400/70 group-hover:text-slate-300" />
+                      <button
+                        type="button"
+                        disabled={index === filteredBanks.length - 1}
+                        onClick={(e) => moveBankStep(item.id, 'down', e)}
+                        className="opacity-0 group-hover:opacity-100 disabled:opacity-20 hover:text-indigo-300 p-0.5 transition-opacity"
+                        title="Aşağı Taşı"
+                      >
+                        <ChevronDown size={11} />
+                      </button>
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0 pr-2 flex flex-col gap-0.5">
                      <div className="flex items-center gap-1.5">
                        <h4 className="text-[11px] font-bold text-white truncate tracking-wide">{item.bank_name}</h4>

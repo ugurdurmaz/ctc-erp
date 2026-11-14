@@ -144,17 +144,38 @@ export const CARD_COLORS = [
   { label: 'Koyu Yakut Kırmızısı', value: 'from-[#881337] to-[#4c0519]' },
 ]
 
-export function parseAccountColor(rawColor?: string | null): { color: string; isInvestment: boolean } {
-  if (!rawColor) return { color: CARD_COLORS[0].value, isInvestment: false }
+export function parseAccountColor(rawColor?: string | null): { color: string; isInvestment: boolean; sortOrder: number | null } {
+  if (!rawColor) return { color: CARD_COLORS[0].value, isInvestment: false, sortOrder: null }
   const isInvestment = rawColor.includes('investment') || rawColor.includes('vadeli')
-  const cleanColor = rawColor.replace(/\|?investment/gi, '').replace(/\|?vadeli/gi, '').trim()
+  const orderMatch = rawColor.match(/\|order:(\d+)/i)
+  const sortOrder = orderMatch ? parseInt(orderMatch[1], 10) : null
+  const cleanColor = rawColor
+    .replace(/\|?investment/gi, '')
+    .replace(/\|?vadeli/gi, '')
+    .replace(/\|?order:\d+/gi, '')
+    .trim()
   const validColor = cleanColor && cleanColor.startsWith('from-') ? cleanColor : CARD_COLORS[0].value
-  return { color: validColor, isInvestment }
+  return { color: validColor, isInvestment, sortOrder }
 }
 
-export function formatAccountColor(color: string, isInvestment: boolean): string {
+export function formatAccountColor(color: string, isInvestment: boolean, sortOrder?: number | null): string {
   const baseColor = color || CARD_COLORS[0].value
-  return isInvestment ? `${baseColor}|investment` : baseColor
+  let res = isInvestment ? `${baseColor}|investment` : baseColor
+  if (sortOrder !== undefined && sortOrder !== null && !Number.isNaN(sortOrder)) {
+    res += `|order:${sortOrder}`
+  }
+  return res
+}
+
+export function sortBankAccounts<T extends { bank_name?: string; account_color?: string | null; sort_order?: number | null }>(list: T[]): T[] {
+  return [...list].sort((a, b) => {
+    const orderA = a.sort_order !== undefined && a.sort_order !== null ? a.sort_order : parseAccountColor(a.account_color).sortOrder
+    const orderB = b.sort_order !== undefined && b.sort_order !== null ? b.sort_order : parseAccountColor(b.account_color).sortOrder
+    const numA = orderA !== null && orderA !== undefined ? orderA : 999999
+    const numB = orderB !== null && orderB !== undefined ? orderB : 999999
+    if (numA !== numB) return numA - numB
+    return (a.bank_name || '').localeCompare(b.bank_name || '', 'tr')
+  })
 }
 
 
