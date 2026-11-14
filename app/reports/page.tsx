@@ -10,8 +10,9 @@ import {
   TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
   BarChart2, PieChart, ShoppingBag, X, ChevronDown, ChevronUp,
   Search, CheckCircle2, AlertCircle, Sparkles, HelpCircle, Layers,
-  Users, Building2, Scale, Package, Wrench
+  Users, Building2, Scale, Package, Wrench, FileText
 } from 'lucide-react'
+import ComprehensiveAnalysisReportModal from '@/components/ComprehensiveAnalysisReportModal'
 
 type Company = { id: string; name: string; is_personal: boolean }
 type DateFilterType = 'thisMonth' | 'lastMonth' | 'last7Days' | 'last30Days' | 'thisYear' | 'custom' | 'all'
@@ -99,6 +100,10 @@ export default function AdvancedReportsPage() {
   const [bankTxs, setBankTxs] = useState<any[]>([])
   const [posTxs, setPosTxs] = useState<any[]>([])
   const [techTickets, setTechTickets] = useState<any[]>([])
+  const [subscriptions, setSubscriptions] = useState<any[]>([])
+  const [loans, setLoans] = useState<any[]>([])
+  const [cardTxs, setCardTxs] = useState<any[]>([])
+  const [isCompReportOpen, setIsCompReportOpen] = useState<boolean>(false)
   
   const [banks, setBanks] = useState<any[]>([])
   const [cashes, setCashes] = useState<any[]>([])
@@ -150,19 +155,19 @@ export default function AdvancedReportsPage() {
 
       // Cari Hareket Tabloları
       const { data: cTxs } = await supabase.from('customer_transactions')
-        .select('id, tx_date, tx_type, amount, exchange_rate, company_id, payment_source_type, payment_source_id, description, customer_id')
+        .select('id, tx_date, tx_type, amount, currency, exchange_rate, company_id, payment_source_type, payment_source_id, description, customer_id, invoice_lines, created_at')
       setCustomerTxs(cTxs || [])
 
       const { data: sTxs } = await supabase.from('supplier_transactions')
-        .select('id, tx_date, tx_type, amount, exchange_rate, company_id, payment_source_type, payment_source_id, description, supplier_id')
+        .select('id, tx_date, tx_type, amount, currency, exchange_rate, company_id, payment_source_type, payment_source_id, description, supplier_id')
       setSupplierTxs(sTxs || [])
 
       const { data: exps } = await supabase.from('expense_transactions')
-        .select('id, tx_date, amount, exchange_rate, company_id, payment_source_type, payment_source_id, created_at, category_id, description, category:expense_categories(name)')
+        .select('id, tx_date, amount, currency, exchange_rate, company_id, payment_source_type, payment_source_id, created_at, category_id, description, category:expense_categories(name)')
       setExpenseTxs(exps || [])
 
       const { data: stTxs } = await supabase.from('stock_transactions')
-        .select('tx_date, tx_type, quantity, unit_price, currency, company_id, stock_id')
+        .select('id, tx_date, tx_type, quantity, unit_price, currency, vat_rate, description, company_id, stock_id')
       setStockTxs(stTxs || [])
 
       const { data: cData } = await supabase.from('cash_registers')
@@ -170,11 +175,11 @@ export default function AdvancedReportsPage() {
       setCashes(cData || [])
 
       const { data: bData } = await supabase.from('bank_accounts')
-        .select('id, bank_name, balance, currency, company_id')
+        .select('id, bank_name, account_name, balance, currency, kmh_limit, company_id')
       setBanks(bData || [])
 
       const { data: cdData } = await supabase.from('credit_cards')
-        .select('id, name, current_debt, company_id')
+        .select('id, name, current_debt, card_limit, cutoff_day, company_id')
       setCards(cdData || [])
 
       const { data: wData } = await supabase.from('warehouses')
@@ -182,7 +187,7 @@ export default function AdvancedReportsPage() {
       setWarehouses(wData || [])
 
       const { data: stkData } = await supabase.from('stocks')
-        .select('id, quantity, unit_price, currency, warehouse_id')
+        .select('id, product_name, quantity, unit_price, currency, vat_rate, warehouse_id')
       setStocks(stkData || [])
 
       // Nakit ve Banka Hareket Tabloları
@@ -194,6 +199,10 @@ export default function AdvancedReportsPage() {
         .select('id, bank_account_id, company_id, tx_date, description, tx_type, amount, currency, exchange_rate, is_transfer, transfer_id, status')
       setBankTxs(bankTransactions || [])
 
+      const { data: cardTransactions } = await supabase.from('card_transactions')
+        .select('id, credit_card_id, company_id, tx_date, description, tx_type, amount, currency')
+      setCardTxs(cardTransactions || [])
+
       // Mağaza (POS) Satış ve Z-Raporu Hareketleri
       const { data: posTransactions } = await supabase.from('pos_transactions')
         .select('id, date, category_id, description, cash, card, cost, stock_id, company_id')
@@ -203,6 +212,15 @@ export default function AdvancedReportsPage() {
       const { data: techData } = await supabase.from('technical_service_tickets')
         .select('id, ticket_no, customer_name, brand_model, total_cost, parts_cost, payment_method, status, delivered_at, created_at, company_id')
       setTechTickets(techData || [])
+
+      // Kredili Abonelikler ve Banka Kredileri
+      const { data: subData } = await supabase.from('credit_subscriptions')
+        .select('id, username, full_name, reference_note, start_date, sale_price, credit_cost, is_paid, company_id')
+      setSubscriptions(subData || [])
+
+      const { data: loanData } = await supabase.from('bank_loans')
+        .select('id, bank_name, loan_name, principal_amount, total_repayment, remaining_principal, monthly_installment, total_installments, paid_installments, status, company_id')
+      setLoans(loanData || [])
 
     } catch (err) {
       toast.error('Veriler alınırken hata oluştu.')
@@ -1186,7 +1204,7 @@ export default function AdvancedReportsPage() {
       <div style={{ animation: 'fadeInDown 0.4s both' }} className="flex flex-col gap-3 bg-[#0d1322] border border-slate-800/80 p-3.5 rounded-xl shadow-md shrink-0 mb-4 transition-colors print:hidden">
         {/* SEKME GEÇİŞİ (TABS) */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setActiveTab('retail_profit')}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
@@ -1218,6 +1236,19 @@ export default function AdvancedReportsPage() {
                 activeTab === 'mizan' ? 'bg-black/25 text-indigo-100' : 'bg-slate-800 text-indigo-400'
               }`}>
                 Bilanço
+              </span>
+            </button>
+
+            {/* TEK TUŞLA MERKEZ BAZLI KAPSAMLI KÂR, DEĞER & BİLANÇO ANALİZ RAPORU OLUŞTURMA BUTONU */}
+            <button
+              onClick={() => setIsCompReportOpen(true)}
+              className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-black bg-gradient-to-r from-amber-500 via-orange-600 to-rose-600 hover:from-amber-400 hover:via-orange-500 hover:to-rose-500 text-white shadow-lg shadow-orange-950/50 border border-amber-300/40 transition-all active:scale-95 cursor-pointer"
+              title="Seçili ay veya zaman aralığı için tüm merkezlerin ayrı ayrı kâr, değer, varlık, alacak ve borç analiz raporunu oluştur ve PDF al"
+            >
+              <FileText size={14} className="text-amber-100" />
+              <span>📑 Kapsamlı Merkez, Kâr & Bilanço Analiz Raporu Oluştur (PDF)</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase bg-black/30 text-amber-100">
+                Tek Tuşla Rapor
               </span>
             </button>
           </div>
@@ -2704,6 +2735,34 @@ export default function AdvancedReportsPage() {
           </>
         )}
       </div>
+
+      {/* KAPSAMLI MERKEZ BAZLI DEĞER, KÂR VE BİLANÇO ANALİZ RAPORU MODALI */}
+      <ComprehensiveAnalysisReportModal
+        isOpen={isCompReportOpen}
+        onClose={() => setIsCompReportOpen(false)}
+        initialStartDate={start === '1900-01-01' ? `${currentYear}-${currentMonth}-01` : start}
+        initialEndDate={end === '2100-12-31' ? `${currentYear}-${currentMonth}-${String(new Date(currentYear, now.getMonth() + 1, 0).getDate()).padStart(2, '0')}` : end}
+        companies={companies}
+        customers={customers}
+        suppliers={suppliers}
+        customerTxs={customerTxs}
+        supplierTxs={supplierTxs}
+        expenseTxs={expenseTxs}
+        stockTxs={stockTxs}
+        cashTxs={cashTxs}
+        bankTxs={bankTxs}
+        cardTxs={cardTxs}
+        posTxs={posTxs}
+        techTickets={techTickets}
+        subscriptions={subscriptions}
+        loans={loans}
+        banks={banks}
+        cashes={cashes}
+        cards={cards}
+        warehouses={warehouses}
+        stocks={stocks}
+        rates={rates}
+      />
     </div>
   )
 }
