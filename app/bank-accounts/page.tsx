@@ -10,7 +10,7 @@ import BankStatementExportModal from '@/components/BankStatementExportModal'
 type Company = { id: string; name: string; is_personal: boolean }
 type BankAccount = { id: string; bank_name: string; account_name: string; iban: string; balance: number; kmh_limit?: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; account_color?: string; is_investment?: boolean; company?: { name: string; is_personal: boolean } }
 type BankTransaction = { id: string; bank_account_id: string; company_id?: string | null; tx_date: string; description: string; tx_type: 'in' | 'out'; amount: number; currency: string; exchange_rate: number; is_transfer: boolean; running_balance?: number; transfer_id?: string; status?: string; company?: { name: string; is_personal: boolean } }
-type CashRegister = { id: string; name: string; balance: number; currency: string }
+type CashRegister = { id: string; name: string; balance: number; currency: string; company_id?: string | null }
 type CardDetail = { id: string; name: string; card_limit: number; current_debt: number; company_id?: string | null; company?: { name: string; is_personal: boolean } }
 
 function getLocalTodayISO() { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}` }
@@ -1631,8 +1631,30 @@ export default function BankAccountsPage() {
                 <label className="block text-slate-400 mb-1">Hedef Hesap (Paranın Gideceği Yer) *</label>
                 <select value={transferTarget} onChange={(e) => handleTransferTargetSelect(e.target.value)} required className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors">
                   <option value="">Seçiniz</option>
-                  {banks.filter(b => b.id !== selectedBank.id).length > 0 && <optgroup label="Diğer Banka Hesapları">{banks.filter(b => b.id !== selectedBank.id).map(b => <option key={`bank|${b.id}`} value={`bank|${b.id}`}>{b.bank_name} - {b.account_name} ({b.currency})</option>)}</optgroup>}
-                  {cashes.length > 0 && <optgroup label="Nakit Kasalar">{cashes.map(c => <option key={`cash|${c.id}`} value={`cash|${c.id}`}>{c.name} ({c.currency})</option>)}</optgroup>}
+                  {banks.filter(b => b.id !== selectedBank.id).length > 0 && (
+                    <optgroup label="🏦 Diğer Banka Hesapları">
+                      {banks.filter(b => b.id !== selectedBank.id).map(b => {
+                        const comp = companies.find(cp => cp.id === b.company_id)
+                        return (
+                          <option key={`bank|${b.id}`} value={`bank|${b.id}`}>
+                            🏦 {b.bank_name} - {b.account_name} {comp ? `(${comp.name})` : '(Ortak)'} — Bakiye: {formatMoney(b.balance, b.currency).formatted}
+                          </option>
+                        )
+                      })}
+                    </optgroup>
+                  )}
+                  {cashes.length > 0 && (
+                    <optgroup label="💵 Nakit Kasalar">
+                      {cashes.map(c => {
+                        const comp = companies.find(cp => cp.id === c.company_id)
+                        return (
+                          <option key={`cash|${c.id}`} value={`cash|${c.id}`}>
+                            💵 {c.name} {comp ? `(${comp.name})` : '(Ortak)'} — Bakiye: {formatMoney(c.balance, c.currency).formatted}
+                          </option>
+                        )
+                      })}
+                    </optgroup>
+                  )}
                   {cards.length > 0 && (
                     <optgroup label="💳 Kredi Kartları (Ekstre Borç Ödemesi)">
                       {cards.map(c => {
