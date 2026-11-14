@@ -196,12 +196,14 @@ export default function BankAccountsPage() {
       .order('created_at', { ascending: false }); 
 
     const sorted = (data || []).sort((a: any, b: any) => {
+      // Açılış Bakiyesi / Devir kaydı tarihten bağımsız olarak her zaman en altta (ilk başlangıç noktası olarak) yer almalı
+      const aOpen = a.description === 'Açılış Bakiyesi / Devir' || a.description === 'Dönem Başı Devir Borcu';
+      const bOpen = b.description === 'Açılış Bakiyesi / Devir' || b.description === 'Dönem Başı Devir Borcu';
+      if (aOpen && !bOpen) return 1;
+      if (!aOpen && bOpen) return -1;
       if (a.tx_date !== b.tx_date) {
         return b.tx_date.localeCompare(a.tx_date);
       }
-      // Aynı gün içinde Açılış Bakiyesi / Devir kaydı en başta (en eski, azalan sıralamada en altta) olmalı
-      if (a.description === 'Açılış Bakiyesi / Devir') return 1;
-      if (b.description === 'Açılış Bakiyesi / Devir') return -1;
       return (b.created_at || '').localeCompare(a.created_at || '');
     });
 

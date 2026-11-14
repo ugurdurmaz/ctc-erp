@@ -207,7 +207,17 @@ export default function CreditCardsPage() {
     try {
       const { data, error } = await supabase.from('card_transactions').select('*, company:companies(name, is_personal)').eq('card_id', cardId).order('tx_date', { ascending: false }).order('created_at', { ascending: false })
       if (error) throw error
-      setTransactions(data || [])
+      const sorted = (data || []).sort((a: any, b: any) => {
+        const aOpen = a.description === 'Dönem Başı Devir Borcu' || a.description === 'Açılış Bakiyesi / Devir'
+        const bOpen = b.description === 'Dönem Başı Devir Borcu' || b.description === 'Açılış Bakiyesi / Devir'
+        if (aOpen && !bOpen) return 1
+        if (!aOpen && bOpen) return -1
+        if (a.tx_date !== b.tx_date) {
+          return (b.tx_date || '').localeCompare(a.tx_date || '')
+        }
+        return (b.created_at || '').localeCompare(a.created_at || '')
+      })
+      setTransactions(sorted)
     } catch (err) { console.error(err) }
   }
 
@@ -566,6 +576,14 @@ export default function CreditCardsPage() {
 
   const selectedCard = cards.find((c) => c.id === selectedCardId)
 
+  let currentRunningDebt = selectedCard ? Number(selectedCard.current_debt || 0) : 0
+  const displayTransactions = transactions.map((t) => {
+    const rowDebt = currentRunningDebt
+    if (t.tx_type === 'expense') currentRunningDebt -= Number(t.amount || 0)
+    else currentRunningDebt += Number(t.amount || 0)
+    return { ...t, running_debt: rowDebt }
+  })
+
   useEffect(() => {
     if (selectedCard?.company_id) {
       setTxCompanyId(selectedCard.company_id)
@@ -764,9 +782,9 @@ export default function CreditCardsPage() {
                     </td>
                   </tr>
                 ) : (
-                  transactions.map((t) => {
+                  displayTransactions.map((t) => {
                     const amtMoney = formatMoney(t.amount)
-                    const balMoney = formatMoney(selectedCard.current_debt)
+                    const balMoney = formatMoney(t.running_debt ?? selectedCard.current_debt)
                     const isPersonal = t.company?.is_personal
                     return (
                       <tr key={t.id} className="hover:bg-slate-800/30 font-mono transition-colors animate-in fade-in duration-200">
