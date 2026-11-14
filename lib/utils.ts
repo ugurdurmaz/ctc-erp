@@ -178,4 +178,15 @@ export function sortBankAccounts<T extends { bank_name?: string; account_color?:
   })
 }
 
+export function sortCreditCards<T extends { name?: string; card_color?: string | null; sort_order?: number | null }>(list: T[]): T[] {
+  return [...list].sort((a, b) => {
+    const orderA = a.sort_order !== undefined && a.sort_order !== null ? a.sort_order : parseAccountColor(a.card_color).sortOrder
+    const orderB = b.sort_order !== undefined && b.sort_order !== null ? b.sort_order : parseAccountColor(b.card_color).sortOrder
+    const numA = orderA !== null && orderA !== undefined ? orderA : 999999
+    const numB = orderB !== null && orderB !== undefined ? orderB : 999999
+    if (numA !== numB) return numA - numB
+    return (a.name || '').localeCompare(b.name || '', 'tr')
+  })
+}
+
 

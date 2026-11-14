@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { formatMoney, CARD_COLORS, parseAccountColor, formatAccountColor, sortBankAccounts } from '@/lib/utils'
+import { formatMoney, CARD_COLORS, parseAccountColor, formatAccountColor, sortBankAccounts, sortCreditCards } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, TrendingDown, Calculator, Sparkles, CreditCard, FileSpreadsheet, FileDown, Palette, GripVertical, ChevronUp, ChevronDown } from 'lucide-react'
 import BankStatementExportModal from '@/components/BankStatementExportModal'
@@ -11,7 +11,7 @@ type Company = { id: string; name: string; is_personal: boolean }
 type BankAccount = { id: string; bank_name: string; account_name: string; iban: string; balance: number; kmh_limit?: number; currency: 'TRY' | 'USD' | 'EUR'; company_id?: string | null; account_color?: string; is_investment?: boolean; sort_order?: number | null; company?: { name: string; is_personal: boolean } }
 type BankTransaction = { id: string; bank_account_id: string; company_id?: string | null; tx_date: string; description: string; tx_type: 'in' | 'out'; amount: number; currency: string; exchange_rate: number; is_transfer: boolean; running_balance?: number; transfer_id?: string; status?: string; company?: { name: string; is_personal: boolean } }
 type CashRegister = { id: string; name: string; balance: number; currency: string; company_id?: string | null }
-type CardDetail = { id: string; name: string; card_limit: number; current_debt: number; company_id?: string | null; company?: { name: string; is_personal: boolean } }
+type CardDetail = { id: string; name: string; card_limit: number; current_debt: number; card_color?: string | null; company_id?: string | null; company?: { name: string; is_personal: boolean } }
 
 function getLocalTodayISO() { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}` }
 function formatDateTR(dateStr: string) { if (!dateStr) return ''; const parts = dateStr.split('-'); if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`; return dateStr }
@@ -187,7 +187,7 @@ export default function BankAccountsPage() {
     persistBankOrder(copy)
   }
   async function fetchCashes() { const { data } = await supabase.from('cash_registers').select('*'); setCashes(data || []) }
-  async function fetchCards() { const { data } = await supabase.from('credit_cards').select('*, company:companies(name, is_personal)').order('name', { ascending: true }); setCards(data || []) }
+  async function fetchCards() { const { data } = await supabase.from('credit_cards').select('*, company:companies(name, is_personal)').order('name', { ascending: true }); setCards(sortCreditCards(data || [])) }
   async function fetchTransactions(bankId: string) { 
     const { data } = await supabase.from('bank_transactions')
       .select('*, company:companies(name, is_personal)')

@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { formatMoney, CARD_COLORS } from '@/lib/utils'
+import { formatMoney, CARD_COLORS, parseAccountColor, formatAccountColor, sortCreditCards } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { CreditCard, Plus, Trash2, X, Edit3, Building, Home, Globe, AlertTriangle, RefreshCw } from 'lucide-react'
+import { CreditCard, Plus, Trash2, X, Edit3, Building, Home, Globe, AlertTriangle, RefreshCw, GripVertical, ChevronLeft, ChevronRight } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 
@@ -15,6 +15,7 @@ type Card = {
   cutoff_day: number
   current_debt: number
   card_color: string
+  sort_order?: number | null
   company_id?: string | null
   company?: { name: string; is_personal: boolean }
 }
@@ -78,6 +79,8 @@ export default function CreditCardsPage() {
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean; title: string; message: string; confirmText: string; cancelText: string; isDanger: boolean; onConfirm: () => void;
   }>({ isOpen: false, title: '', message: '', confirmText: '', cancelText: '', isDanger: false, onConfirm: () => {} })
+  const [draggedCardId, setDraggedCardId] = useState<string | null>(null)
+  const [dragOverCardId, setDragOverCardId] = useState<string | null>(null)
 
   useEffect(() => { 
     fetchCompanies()
@@ -107,13 +110,21 @@ export default function CreditCardsPage() {
         if (!isRestricted) return true
         if (!c.company_id) return false
         return profile?.allowed_companies?.includes(c.company_id)
+      }).map(c => {
+        const parsed = parseAccountColor(c.card_color)
+        return {
+          ...c,
+          card_color: parsed.color,
+          sort_order: parsed.sortOrder
+        }
       })
 
-      setCards(filtered)
-      if (filtered.length > 0) {
+      const sorted = sortCreditCards(filtered)
+      setCards(sorted)
+      if (sorted.length > 0) {
         setSelectedCardId(prev => {
-          if (prev && filtered.some(c => c.id === prev)) return prev
-          return filtered[0].id
+          if (prev && sorted.some(c => c.id === prev)) return prev
+          return sorted[0].id
         })
       } else { 
         setSelectedCardId(null) 
@@ -123,6 +134,66 @@ export default function CreditCardsPage() {
     } finally { 
       setLoading(false) 
     }
+  }
+
+  async function persistCardOrder(newCards: Card[]) {
+    const updated = newCards.map((c, idx) => ({ ...c, sort_order: idx }))
+    setCards(updated)
+    try {
+      await Promise.all(
+        updated.map((c, idx) => {
+          const rawColor = formatAccountColor(c.card_color || CARD_COLORS[0].value, false, idx)
+          return supabase.from('credit_cards').update({ card_color: rawColor }).eq('id', c.id)
+        })
+      )
+      toast.success('Kart sıralaması kaydedildi', { id: 'card-sort-toast', duration: 1500 })
+    } catch (err: any) {
+      toast.error('Sıralama kaydedilemedi: ' + err.message)
+    }
+  }
+
+  function handleCardDragStart(e: React.DragEvent, id: string) {
+    setDraggedCardId(id)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', id)
+  }
+
+  function handleCardDragOver(e: React.DragEvent, targetId: string) {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (targetId !== dragOverCardId) setDragOverCardId(targetId)
+  }
+
+  function handleCardDrop(e: React.DragEvent, targetId: string) {
+    e.preventDefault()
+    const sourceId = draggedCardId || e.dataTransfer.getData('text/plain')
+    setDraggedCardId(null)
+    setDragOverCardId(null)
+    if (!sourceId || sourceId === targetId) return
+    const fromIdx = cards.findIndex(c => c.id === sourceId)
+    const toIdx = cards.findIndex(c => c.id === targetId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const copy = [...cards]
+    const [moved] = copy.splice(fromIdx, 1)
+    copy.splice(toIdx, 0, moved)
+    persistCardOrder(copy)
+  }
+
+  function handleCardDragEnd() {
+    setDraggedCardId(null)
+    setDragOverCardId(null)
+  }
+
+  function moveCardStep(id: string, direction: 'left' | 'right', e: React.MouseEvent) {
+    e.stopPropagation()
+    const idx = cards.findIndex(c => c.id === id)
+    if (idx === -1) return
+    const targetIdx = direction === 'left' ? idx - 1 : idx + 1
+    if (targetIdx < 0 || targetIdx >= cards.length) return
+    const copy = [...cards]
+    const [moved] = copy.splice(idx, 1)
+    copy.splice(targetIdx, 0, moved)
+    persistCardOrder(copy)
   }
 
   async function fetchTransactions(cardId: string) {
@@ -236,7 +307,8 @@ export default function CreditCardsPage() {
            await supabase.from('card_transactions').insert([txPayload]);
         }
 
-        const payload = { name: cardName, card_limit: limitNum, cutoff_day: cutoffNum, card_color: cardColor, company_id: finalCompId }
+        const formattedColor = formatAccountColor(cardColor, false, oldCard?.sort_order)
+        const payload = { name: cardName, card_limit: limitNum, cutoff_day: cutoffNum, card_color: formattedColor, company_id: finalCompId }
 
         const { error } = await supabase.from('credit_cards').update(payload).eq('id', editingCardId)
         if (error) throw error
@@ -252,7 +324,8 @@ export default function CreditCardsPage() {
         }
 
       } else {
-        const payload = { name: cardName, card_limit: limitNum, cutoff_day: cutoffNum, current_debt: 0, card_color: cardColor, company_id: finalCompId }
+        const formattedColor = formatAccountColor(cardColor, false, cards.length)
+        const payload = { name: cardName, card_limit: limitNum, cutoff_day: cutoffNum, current_debt: 0, card_color: formattedColor, company_id: finalCompId }
         const { data, error } = await supabase.from('credit_cards').insert([payload]).select().single()
         if (error) throw error
         
@@ -540,10 +613,17 @@ export default function CreditCardsPage() {
           const debtMoney = formatMoney(card.current_debt)
           const limitMoney = formatMoney(card.card_limit)
           const availMoney = formatMoney(availableLimit)
+          const isDragging = draggedCardId === card.id
+          const isDragOver = dragOverCardId === card.id && draggedCardId !== card.id
 
           return (
             <div
               key={card.id}
+              draggable
+              onDragStart={(e) => handleCardDragStart(e, card.id)}
+              onDragOver={(e) => handleCardDragOver(e, card.id)}
+              onDrop={(e) => handleCardDrop(e, card.id)}
+              onDragEnd={handleCardDragEnd}
               onClick={() => setSelectedCardId(card.id)}
               style={{ 
                 aspectRatio: '1.586',
@@ -553,16 +633,41 @@ export default function CreditCardsPage() {
                 animationDelay: `${idx * 0.06}s`
               }} 
               className={`relative w-full sm:w-[280px] shrink-0 rounded-xl p-4 cursor-pointer transition-all duration-300 border flex flex-col justify-between select-none shadow-lg bg-gradient-to-br group hover:-translate-y-1 ${card.card_color || CARD_COLORS[0].value} ${
-                isSelected ? 'border-indigo-500 shadow-indigo-950/60 ring-2 ring-indigo-500/80 scale-[1.02] z-10' : 'border-slate-800/80 hover:border-slate-600'
-              }`}
+                isDragOver
+                  ? 'border-indigo-300 ring-2 ring-indigo-400 scale-[1.03] z-20'
+                  : isSelected
+                    ? 'border-indigo-500 shadow-indigo-950/60 ring-2 ring-indigo-500/80 scale-[1.02] z-10'
+                    : 'border-slate-800/80 hover:border-slate-600'
+              } ${isDragging ? 'opacity-40 scale-[0.97]' : ''}`}
             >
               <div className="flex justify-between items-start">
-                <div className="w-8 h-6 rounded bg-gradient-to-tr from-amber-600 via-amber-300 to-amber-500 border border-amber-400/60 p-0.5 flex flex-col justify-between shadow-inner">
-                  <div className="w-full h-px bg-amber-800/40" /><div className="w-full h-px bg-amber-800/40" />
+                <div className="flex items-center gap-1.5" title="Sıralamayı değiştirmek için kartı sürükleyin">
+                  <GripVertical size={14} className="text-slate-400/60 group-hover:text-slate-200 cursor-grab active:cursor-grabbing transition-colors -ml-1" />
+                  <div className="w-8 h-6 rounded bg-gradient-to-tr from-amber-600 via-amber-300 to-amber-500 border border-amber-400/60 p-0.5 flex flex-col justify-between shadow-inner">
+                    <div className="w-full h-px bg-amber-800/40" /><div className="w-full h-px bg-amber-800/40" />
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-slate-300 font-mono">Ekstre: {card.cutoff_day}</span>
-                  <div className="flex items-center gap-1 bg-black/40 p-1 rounded backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-0.5 bg-black/40 p-1 rounded backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      disabled={idx === 0}
+                      onClick={(e) => moveCardStep(card.id, 'left', e)}
+                      title="Sola Taşı"
+                      className="text-slate-300 hover:text-indigo-400 disabled:opacity-25 p-0.5 transition"
+                    >
+                      <ChevronLeft size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={idx === cards.length - 1}
+                      onClick={(e) => moveCardStep(card.id, 'right', e)}
+                      title="Sağa Taşı"
+                      className="text-slate-300 hover:text-indigo-400 disabled:opacity-25 p-0.5 transition mr-0.5"
+                    >
+                      <ChevronRight size={12} />
+                    </button>
                     <button onClick={(e) => openEditModal(card, e)} title="Düzenle" className="text-slate-300 hover:text-indigo-400 p-0.5 transition"><Edit3 size={12} /></button>
                     <button onClick={(e) => handleDeleteCard(card.id, e)} title="Sil" className="text-slate-300 hover:text-rose-400 p-0.5 transition"><Trash2 size={12} /></button>
                   </div>
