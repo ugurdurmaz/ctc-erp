@@ -598,14 +598,23 @@ export default function Home() {
     return { ...wh, totalValue: val }
   }).filter(wh => wh.totalValue > 0)
 
-  const commercialExpensesList = filteredExpenses.filter(e => e.company_id && !companies.find(c => c.id === e.company_id)?.is_personal)
+  const isSelectedCompanyPersonal = Boolean(companies.find(c => c.id === effectiveCompanyId)?.is_personal)
+
+  const commercialExpensesList = filteredExpenses.filter(e => {
+    if (isSelectedCompanyPersonal) {
+      // Şahsi merkez tek başına seçildiğinde, merkezin kendi harcamaları P&L analizine dahil edilir
+      return isMatch(e.company_id)
+    }
+    // Holding veya ticari şirket görünümünde şahsi merkez giderleri ticari bilançoya karıştırılmaz
+    return e.company_id && !companies.find(c => c.id === e.company_id)?.is_personal
+  })
   const personalExpensesList = isAdmin ? filteredExpenses.filter(e => !e.company_id || companies.find(c => c.id === e.company_id)?.is_personal) : []
   
   // POS (Mağaza) Nakit Giderlerinin Hesaplanması (Genel Giderlerden ödenen EXP kayıtları çifte sayılmaz)
   const posExpTotalComm = posTxs.filter(t => 
     t.category_id === 'gider' && 
     isMatch(t.company_id) && 
-    (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal) &&
+    (isSelectedCompanyPersonal ? true : (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal)) &&
     !t.description?.includes('[EXP-') && 
     !t.description?.startsWith('Gider Ödemesi')
   ).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0)
@@ -618,7 +627,7 @@ export default function Home() {
     !t.description?.startsWith('Gider Ödemesi')
   ).reduce((acc, t) => acc + Number(t.cash) + Number(t.card), 0) : 0
 
-  const posCommTotalComm = bankCommTxs.filter(t => isMatch(t.company_id) && (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal)).reduce((acc, t) => acc + (t.amount * (t.exchange_rate || 1)), 0)
+  const posCommTotalComm = bankCommTxs.filter(t => isMatch(t.company_id) && (isSelectedCompanyPersonal ? true : (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal))).reduce((acc, t) => acc + (t.amount * (t.exchange_rate || 1)), 0)
 
   const totalCommExpTry = commercialExpensesList.reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0) + posExpTotalComm + posCommTotalComm
   const totalPersExpTry = personalExpensesList.reduce((acc, e) => acc + (e.amount * (e.exchange_rate || 1)), 0) + posExpTotalPers
@@ -886,8 +895,8 @@ export default function Home() {
       }
     }
 
-    // 1. Cari ve Abonelik Gelirleri (Açılış bakiyesi / devir işlemleri ve şahsi merkez borçlandırmaları ticari ciro ve kâr sayılmaz)
-    customerTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'debt' && (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal) && !t.description?.toLowerCase().includes('açılış') && !t.description?.toLowerCase().includes('devir')).forEach(tx => {
+    // 1. Cari ve Abonelik Gelirleri (Açılış bakiyesi / devir işlemleri ciro sayılmaz; şahsi merkezde yalnızca o merkez seçiliyse sayılır)
+    customerTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'debt' && (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal || isSelectedCompanyPersonal) && !t.description?.toLowerCase().includes('açılış') && !t.description?.toLowerCase().includes('devir')).forEach(tx => {
       const dStr = tx.tx_date || tx.created_at
       const pt = findPoint(dStr)
       if (pt) {

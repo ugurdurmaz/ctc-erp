@@ -405,7 +405,7 @@ SMM     = Σ stock_transactions(out) qty×price(TRY) + Σ subscriptions.cost_pri
 Gider   = Σ expense_transactions (ticari merkez)×rate + Σ pos_transactions(gider).cash+card
 Net Kâr = Ciro − SMM − Gider
 ```
-"Mağaza POS Kârı" kartı ise **stok durumuna bakmadan** tüm POS maliyetini düşer. Şahsi merkez giderleri P&L'e girmez, ayrı kartta gösterilir.
+"Mağaza POS Kârı" kartı ise **stok durumuna bakmadan** tüm POS maliyetini düşer. Şahsi merkez giderleri Holding veya ticari şirket görünümlerinde ticari P&L'e girmez, ayrı kartta gösterilir; ancak filtrede doğrudan şahsi merkez (ör. Uğur Durmaz) seçildiğinde o merkezin kendi gelir-gider dengesini ve nakit akışını göstermek üzere P&L grafiğine ve gider toplamlarına dahil edilir.
 
 ### 6.8 Raporlar (Dönem Başı / Sonu Mizanı)
 

@@ -469,11 +469,12 @@ export default function AdvancedReportsPage() {
       }
     })
 
-    // 5. İlgili Dönemin Ticari Genel Giderleri (Şahsi merkez giderleri ticari P&L'e dahil edilmez)
+    // 5. İlgili Dönemin Genel Giderleri (Ticari şirket veya şahsi merkez seçimine duyarlı)
+    const isSelectedCompanyPersonal = Boolean(companies.find(c => c.id === selectedCompany)?.is_personal)
     let commercialExpTotal = 0
     expenseTxs.forEach(e => {
       if (!isMatchCompany(e.company_id)) return
-      if (!e.company_id || companies.find(c => c.id === e.company_id)?.is_personal) return
+      if (!isSelectedCompanyPersonal && (!e.company_id || companies.find(c => c.id === e.company_id)?.is_personal)) return
       const d = (e.tx_date || e.created_at)?.substring(0, 10)
       if (d && d >= start && d <= end) {
         commercialExpTotal += Number(e.amount || 0) * Number(e.exchange_rate || 1)
