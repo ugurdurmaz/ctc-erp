@@ -302,11 +302,11 @@ export default function PersonalStickyNotesPopover() {
 
       if (direction === 'left' || direction === 'bottom-left') {
         // Pencere sağa yaslı olduğu için sola çektikçe (-dx) genişlik artar
-        const maxAllowedW = Math.min(920, window.innerWidth - 24)
+        const maxAllowedW = Math.min(1200, window.innerWidth - 24)
         latestW = Math.max(320, Math.min(maxAllowedW, startW - dx))
         setWindowWidth(latestW)
       } else if (direction === 'bottom-right') {
-        const maxAllowedW = Math.min(920, window.innerWidth - 24)
+        const maxAllowedW = Math.min(1200, window.innerWidth - 24)
         latestW = Math.max(320, Math.min(maxAllowedW, startW - dx))
         setWindowWidth(latestW)
       }
@@ -567,51 +567,51 @@ export default function PersonalStickyNotesPopover() {
               </div>
             </>
           )}
-          {/* ÜST BAŞLIK ÇUBUĞU (POST-IT ŞERİDİ) */}
-          <div className="bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-slate-900 px-3.5 py-2.5 border-b border-amber-500/25 flex items-center justify-between gap-2">
+          {/* ÜST BAŞLIK ÇUBUĞU (KOMPAKT POST-IT ŞERİDİ) */}
+          <div className="bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-slate-900 px-3 py-1.5 border-b border-amber-500/25 flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="p-1.5 rounded-lg bg-amber-400/20 border border-amber-400/40 text-amber-300 shrink-0">
-                <StickyNote size={15} />
+              <div className="p-1 rounded-md bg-amber-400/20 border border-amber-400/40 text-amber-300 shrink-0">
+                <StickyNote size={13} />
               </div>
-              <div className="min-w-0">
-                <h3 className="text-xs font-black text-white flex items-center gap-1.5 truncate">
+              <div className="min-w-0 flex items-center gap-2">
+                <h3 className="text-[11px] font-black text-white flex items-center gap-1.5 truncate">
                   <span>Post-it & Yapılacaklar</span>
                   {isPinnedWindow && (
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 border border-amber-400/40 font-bold">
+                    <span className="text-[8px] px-1 py-0.2 rounded bg-amber-400/20 text-amber-300 border border-amber-400/40 font-bold">
                       Sabit
                     </span>
                   )}
                 </h3>
-                <p className="text-[10px] text-slate-400 truncate">
-                  {profile?.full_name || user?.email?.split('@')[0] || 'Kişisel Alan'} •{' '}
+                <span className="text-[9px] text-slate-400 hidden sm:inline-flex items-center gap-1">
+                  •{' '}
                   {syncStatus === 'saving' ? (
                     <span className="text-amber-300">Kaydediliyor...</span>
                   ) : syncStatus === 'loading' ? (
                     <span className="text-sky-300">Yükleniyor...</span>
                   ) : (
                     <span className="text-emerald-400 inline-flex items-center gap-0.5">
-                      <Cloud size={10} /> Senkronize
+                      <Cloud size={9} /> Senkronize
                     </span>
                   )}
-                </p>
+                </span>
               </div>
             </div>
 
             {/* SAĞ KONTROL İKONLARI: YENİLE, SABİTLE, KÜÇÜLT, KAPAT */}
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-0.5 shrink-0">
               <button
                 type="button"
                 onClick={() => userId && loadWorkspace(userId)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/70 transition cursor-pointer"
+                className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800/70 transition cursor-pointer"
                 title="Buluttan Yenile"
               >
-                <RefreshCw size={13} className={syncStatus === 'loading' ? 'animate-spin text-amber-300' : ''} />
+                <RefreshCw size={12} className={syncStatus === 'loading' ? 'animate-spin text-amber-300' : ''} />
               </button>
 
               <button
                 type="button"
                 onClick={() => setIsPinnedWindow(prev => !prev)}
-                className={`p-1.5 rounded-lg transition cursor-pointer flex items-center gap-1 text-[10px] font-bold ${
+                className={`p-1 rounded-md transition cursor-pointer flex items-center gap-1 text-[10px] font-bold ${
                   isPinnedWindow
                     ? 'bg-amber-400 text-slate-950 shadow-sm'
                     : 'text-slate-400 hover:text-amber-300 hover:bg-slate-800/70'
@@ -622,46 +622,46 @@ export default function PersonalStickyNotesPopover() {
                     : 'Pencereyi Ekrana Sabitle (Arka planda çalışırken açık kalsın)'
                 }
               >
-                <Pin size={13} className={isPinnedWindow ? 'fill-slate-950' : ''} />
+                <Pin size={12} className={isPinnedWindow ? 'fill-slate-950' : ''} />
               </button>
 
               <button
                 type="button"
                 onClick={() => setIsMinimized(prev => !prev)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/70 transition cursor-pointer"
+                className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800/70 transition cursor-pointer"
                 title={isMinimized ? 'Genişlet' : 'Küçült'}
               >
-                {isMinimized ? <Maximize2 size={13} /> : <Minimize2 size={13} />}
+                {isMinimized ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
               </button>
 
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-rose-500/80 transition cursor-pointer"
+                className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-rose-500/80 transition cursor-pointer"
                 title="Kapat"
               >
-                <X size={14} />
+                <X size={13} />
               </button>
             </div>
           </div>
 
           {!isMinimized && (
             <>
-              {/* SEKME GEÇİŞ ÇUBUĞU: YAPILACAKLAR vs POST-IT NOTLARIM */}
-              <div className="grid grid-cols-2 gap-1.5 p-2 bg-[#070b14] border-b border-slate-800/80">
+              {/* KOMPAKT SEKME GEÇİŞ ÇUBUĞU: YAPILACAKLAR vs POST-IT NOTLAR */}
+              <div className="grid grid-cols-2 gap-1 px-2 py-1 bg-[#070b14] border-b border-slate-800/80 shrink-0">
                 <button
                   type="button"
                   onClick={() => setActiveTab('todos')}
-                  className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
                     activeTab === 'todos'
-                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-md shadow-amber-950/50'
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-sm'
                       : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
                   }`}
                 >
-                  <CheckSquare size={14} />
+                  <CheckSquare size={12} />
                   <span>Yapılacaklar</span>
                   <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-extrabold ${
+                    className={`text-[9px] px-1.5 py-0.1 rounded-full font-mono font-extrabold ${
                       activeTab === 'todos'
                         ? 'bg-black/20 text-slate-950'
                         : pendingTodosCount > 0
@@ -676,16 +676,16 @@ export default function PersonalStickyNotesPopover() {
                 <button
                   type="button"
                   onClick={() => setActiveTab('notes')}
-                  className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
                     activeTab === 'notes'
-                      ? 'bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 shadow-md shadow-amber-950/50'
+                      ? 'bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 shadow-sm'
                       : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
                   }`}
                 >
-                  <StickyNote size={14} />
+                  <StickyNote size={12} />
                   <span>Post-it Notlar</span>
                   <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-extrabold ${
+                    className={`text-[9px] px-1.5 py-0.1 rounded-full font-mono font-extrabold ${
                       activeTab === 'notes'
                         ? 'bg-black/20 text-slate-950'
                         : 'bg-slate-800 text-slate-300'
@@ -701,51 +701,51 @@ export default function PersonalStickyNotesPopover() {
               {/* ============================================================ */}
               {activeTab === 'todos' ? (
                 <div className="flex flex-col flex-1 min-h-0">
-                  {/* Hızlı Madde Ekleme Formu */}
+                  {/* Hızlı Madde Ekleme Formu (Kompakt) */}
                   <form
                     onSubmit={handleAddTodo}
-                    className="p-3 bg-[#090e1a] border-b border-slate-800/80 flex items-center gap-1.5"
+                    className="px-2 py-1.5 bg-[#090e1a] border-b border-slate-800/80 flex items-center gap-1.5 shrink-0"
                   >
                     <input
                       type="text"
                       value={newTodoText}
                       onChange={e => setNewTodoText(e.target.value)}
                       placeholder="Yapılacak bir iş yazıp Enter'a basın..."
-                      className="flex-1 bg-[#0f172a] border border-slate-700/80 focus:border-amber-400 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
+                      className="flex-1 bg-[#0f172a] border border-slate-700/80 focus:border-amber-400 rounded-lg px-2.5 py-1 text-[11px] text-white placeholder-slate-500 focus:outline-none transition-colors"
                     />
                     <button
                       type="button"
                       onClick={() => setNewTodoUrgent(prev => !prev)}
-                      className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                      className={`p-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer shrink-0 ${
                         newTodoUrgent
                           ? 'bg-rose-500/20 border-rose-500/60 text-rose-300 shadow-sm shadow-rose-950'
                           : 'bg-[#0f172a] border-slate-700/80 text-slate-500 hover:text-rose-300'
                       }`}
                       title="Acil / Öncelikli İşaretle"
                     >
-                      <Flame size={15} className={newTodoUrgent ? 'fill-rose-400' : ''} />
+                      <Flame size={13} className={newTodoUrgent ? 'fill-rose-400' : ''} />
                     </button>
                     <button
                       type="submit"
-                      className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-black px-3 py-2 rounded-xl text-xs flex items-center gap-1 transition-all active:scale-95 cursor-pointer shrink-0"
+                      className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-black px-2.5 py-1 rounded-lg text-[11px] flex items-center gap-1 transition-all active:scale-95 cursor-pointer shrink-0"
                     >
-                      <Plus size={15} />
+                      <Plus size={13} />
                       <span>Ekle</span>
                     </button>
                   </form>
 
                   {/* İlerleme Çubuğu (Varsa) */}
                   {todos.length > 0 && (
-                    <div className="px-3.5 py-2 bg-[#070b14] border-b border-slate-800/60 flex items-center justify-between gap-3">
+                    <div className="px-2.5 py-1.5 bg-[#070b14] border-b border-slate-800/60 flex items-center justify-between gap-2.5 shrink-0">
                       <div className="flex-1">
-                        <div className="flex justify-between text-[10px] text-slate-400 font-bold mb-1">
-                          <span>Tamamlanma Durumu</span>
+                        <div className="flex justify-between text-[9.5px] text-slate-400 font-bold mb-0.5">
+                          <span>Tamamlanma</span>
                           <span className="text-amber-300 font-mono">
                             {completedTodosCount} / {todos.length} (%
                             {Math.round((completedTodosCount / todos.length) * 100)})
                           </span>
                         </div>
-                        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                        <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-300"
                             style={{ width: `${(completedTodosCount / todos.length) * 100}%` }}
@@ -756,7 +756,7 @@ export default function PersonalStickyNotesPopover() {
                         <button
                           type="button"
                           onClick={clearCompletedTodos}
-                          className="text-[10px] font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 px-2 py-1 rounded-lg transition cursor-pointer shrink-0"
+                          className="text-[9.5px] font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 px-2 py-0.5 rounded-md transition cursor-pointer shrink-0"
                         >
                           Bitenleri Sil ({completedTodosCount})
                         </button>
@@ -764,12 +764,24 @@ export default function PersonalStickyNotesPopover() {
                     </div>
                   )}
 
-                  {/* Yapılacaklar Maddeleri */}
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-2.5 space-y-1.5">
+                  {/* Yapılacaklar Maddeleri (Pencere genişliğine göre yan yana da dizilebilir) */}
+                  <div
+                    className="flex-1 overflow-y-auto custom-scrollbar p-2"
+                    style={
+                      todos.length > 0
+                        ? {
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+                            gap: '6px',
+                            alignContent: 'start'
+                          }
+                        : undefined
+                    }
+                  >
                     {todos.length === 0 ? (
                       <div className="py-10 px-4 text-center flex flex-col items-center justify-center gap-2 text-slate-500">
-                        <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300/70">
-                          <CheckSquare size={26} />
+                        <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300/70">
+                          <CheckSquare size={22} />
                         </div>
                         <p className="text-xs font-bold text-slate-300">Yapılacaklar listeniz tertemiz!</p>
                         <p className="text-[11px] text-slate-500 max-w-[260px]">
@@ -780,7 +792,7 @@ export default function PersonalStickyNotesPopover() {
                       todos.map((item, idx) => (
                         <div
                           key={item.id}
-                          className={`group flex items-start gap-2 p-2.5 rounded-xl border transition-all ${
+                          className={`group flex items-start gap-2 p-2 rounded-lg border transition-all ${
                             item.completed
                               ? 'bg-slate-900/40 border-slate-800/60 opacity-60'
                               : item.isUrgent
@@ -792,7 +804,7 @@ export default function PersonalStickyNotesPopover() {
                           <button
                             type="button"
                             onClick={() => toggleTodoCompleted(item.id)}
-                            className={`mt-0.5 w-4 h-4 rounded-md border flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                            className={`mt-0.5 w-3.5 h-3.5 rounded border flex items-center justify-center transition-all cursor-pointer shrink-0 ${
                               item.completed
                                 ? 'bg-emerald-500 border-emerald-500 text-slate-950'
                                 : item.isUrgent
@@ -801,7 +813,7 @@ export default function PersonalStickyNotesPopover() {
                             }`}
                             title={item.completed ? 'Tamamlandı işaretini kaldır' : 'Tamamlandı olarak işaretle'}
                           >
-                            {item.completed && <Check size={11} strokeWidth={3.5} />}
+                            {item.completed && <Check size={10} strokeWidth={3.5} />}
                           </button>
 
                           {/* Düzenlenebilir Metin */}
@@ -810,15 +822,15 @@ export default function PersonalStickyNotesPopover() {
                               type="text"
                               value={item.text}
                               onChange={e => updateTodoText(item.id, e.target.value)}
-                              className={`w-full bg-transparent text-xs focus:outline-none ${
+                              className={`w-full bg-transparent text-[11.5px] focus:outline-none ${
                                 item.completed
                                   ? 'line-through text-slate-500'
                                   : 'text-slate-100 font-medium'
                               }`}
                             />
                             {item.isUrgent && !item.completed && (
-                              <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-rose-300 mt-0.5">
-                                <Flame size={10} className="fill-rose-400" /> Acil / Öncelikli
+                              <span className="inline-flex items-center gap-0.5 text-[8.5px] font-bold text-rose-300 mt-0.5">
+                                <Flame size={9} className="fill-rose-400" /> Acil / Öncelikli
                               </span>
                             )}
                           </div>
@@ -828,38 +840,38 @@ export default function PersonalStickyNotesPopover() {
                             <button
                               type="button"
                               onClick={() => toggleTodoUrgent(item.id)}
-                              className={`p-1 rounded hover:bg-slate-800 transition cursor-pointer ${
+                              className={`p-0.5 rounded hover:bg-slate-800 transition cursor-pointer ${
                                 item.isUrgent ? 'text-rose-400' : 'text-slate-500 hover:text-rose-300'
                               }`}
                               title="Acil İşareti"
                             >
-                              <Flame size={12} className={item.isUrgent ? 'fill-rose-400' : ''} />
+                              <Flame size={11} className={item.isUrgent ? 'fill-rose-400' : ''} />
                             </button>
                             <button
                               type="button"
                               disabled={idx === 0}
                               onClick={() => moveTodoStep(item.id, 'up')}
-                              className="p-1 rounded text-slate-500 hover:text-white disabled:opacity-20 hover:bg-slate-800 transition cursor-pointer"
+                              className="p-0.5 rounded text-slate-500 hover:text-white disabled:opacity-20 hover:bg-slate-800 transition cursor-pointer"
                               title="Yukarı Taşı"
                             >
-                              <ChevronUp size={12} />
+                              <ChevronUp size={11} />
                             </button>
                             <button
                               type="button"
                               disabled={idx === todos.length - 1}
                               onClick={() => moveTodoStep(item.id, 'down')}
-                              className="p-1 rounded text-slate-500 hover:text-white disabled:opacity-20 hover:bg-slate-800 transition cursor-pointer"
+                              className="p-0.5 rounded text-slate-500 hover:text-white disabled:opacity-20 hover:bg-slate-800 transition cursor-pointer"
                               title="Aşağı Taşı"
                             >
-                              <ChevronDown size={12} />
+                              <ChevronDown size={11} />
                             </button>
                             <button
                               type="button"
                               onClick={() => deleteTodo(item.id)}
-                              className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition cursor-pointer"
+                              className="p-0.5 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition cursor-pointer"
                               title="Sil"
                             >
-                              <Trash2 size={12} />
+                              <Trash2 size={11} />
                             </button>
                           </div>
                         </div>
@@ -869,34 +881,34 @@ export default function PersonalStickyNotesPopover() {
                 </div>
               ) : (
                 /* ============================================================ */
-                /* SEKME 2: RENKLİ POST-IT NOTLARIM                             */
+                /* SEKME 2: RENKLİ POST-IT NOTLARIM (KOMPAKT & YAN YANA DİZİLİM) */
                 /* ============================================================ */
                 <div className="flex flex-col flex-1 min-h-0">
-                  {/* Üst Post-it Kontrol & Yeni Ekleme Çubuğu */}
-                  <div className="p-2.5 bg-[#090e1a] border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                  {/* Üst Post-it Kontrol & Yeni Ekleme Çubuğu (Kompakt) */}
+                  <div className="px-2 py-1.5 bg-[#090e1a] border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-1.5 shrink-0">
                     {/* Arama */}
-                    <div className="relative flex-1 min-w-[140px]">
-                      <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <div className="relative flex-1 min-w-[120px]">
+                      <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
                       <input
                         type="text"
                         value={noteSearch}
                         onChange={e => setNoteSearch(e.target.value)}
                         placeholder="Notlarda ara..."
-                        className="w-full bg-[#0f172a] border border-slate-700/80 focus:border-amber-400 rounded-xl pl-7 pr-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none"
+                        className="w-full bg-[#0f172a] border border-slate-700/80 focus:border-amber-400 rounded-lg pl-6 pr-2 py-1 text-[11px] text-white placeholder-slate-500 focus:outline-none"
                       />
                     </div>
 
                     {/* Renk Seçici Noktalar + Yeni Post-it Butonu */}
                     <div className="flex items-center gap-1.5">
-                      <div className="flex items-center gap-1 bg-[#0f172a] border border-slate-800 px-2 py-1 rounded-xl">
+                      <div className="flex items-center gap-1 bg-[#0f172a] border border-slate-800 px-1.5 py-1 rounded-lg">
                         {(Object.keys(POSTIT_COLORS) as StickyColor[]).map(cKey => (
                           <button
                             key={cKey}
                             type="button"
                             onClick={() => setSelectedNewColor(cKey)}
-                            className={`w-3.5 h-3.5 rounded-full transition-transform cursor-pointer ${POSTIT_COLORS[cKey].dot} ${
+                            className={`w-2.5 h-2.5 rounded-full transition-transform cursor-pointer ${POSTIT_COLORS[cKey].dot} ${
                               selectedNewColor === cKey
-                                ? 'scale-125 ring-2 ring-white'
+                                ? 'scale-125 ring-1 ring-white'
                                 : 'opacity-60 hover:opacity-100'
                             }`}
                             title={POSTIT_COLORS[cKey].name}
@@ -907,20 +919,32 @@ export default function PersonalStickyNotesPopover() {
                       <button
                         type="button"
                         onClick={handleAddNote}
-                        className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-black px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 transition-all active:scale-95 cursor-pointer shrink-0 shadow-sm"
+                        className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-black px-2.5 py-1 rounded-lg text-[11px] flex items-center gap-1 transition-all active:scale-95 cursor-pointer shrink-0 shadow-sm"
                       >
-                        <Plus size={14} />
+                        <Plus size={12} />
                         <span>Yeni Post-it</span>
                       </button>
                     </div>
                   </div>
 
-                  {/* Post-it Kartları Listesi */}
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
+                  {/* Post-it Kartları Listesi (Pencere Büyüklüğüne Göre Ekonomik Yan Yana Grid) */}
+                  <div
+                    className="flex-1 overflow-y-auto custom-scrollbar p-2.5"
+                    style={
+                      filteredNotes.length > 0
+                        ? {
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(205px, 1fr))',
+                            gap: '8px',
+                            alignContent: 'start'
+                          }
+                        : undefined
+                    }
+                  >
                     {filteredNotes.length === 0 ? (
                       <div className="py-10 px-4 text-center flex flex-col items-center justify-center gap-2 text-slate-500">
-                        <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300/70">
-                          <StickyNote size={26} />
+                        <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300/70">
+                          <StickyNote size={22} />
                         </div>
                         <p className="text-xs font-bold text-slate-300">Henüz Post-it notu bulunmuyor</p>
                         <p className="text-[11px] text-slate-500 max-w-[260px]">
@@ -933,27 +957,27 @@ export default function PersonalStickyNotesPopover() {
                         return (
                           <div
                             key={note.id}
-                            className={`rounded-xl border transition-all shadow-md overflow-hidden ${theme.cardBg} ${theme.cardBorder}`}
+                            className={`rounded-xl border transition-all shadow-md overflow-hidden flex flex-col ${theme.cardBg} ${theme.cardBorder}`}
                           >
                             {/* Post-it Kart Üst Şeridi */}
-                            <div className={`px-3 py-1.5 flex items-center justify-between gap-2 ${theme.headerBg}`}>
+                            <div className={`px-2.5 py-1 flex items-center justify-between gap-1.5 ${theme.headerBg}`}>
                               <input
                                 type="text"
                                 value={note.title}
                                 onChange={e => updateNoteField(note.id, 'title', e.target.value)}
                                 placeholder="Not Başlığı..."
-                                className={`flex-1 bg-transparent text-xs font-black focus:outline-none ${theme.titleText} ${theme.placeholder}`}
+                                className={`flex-1 min-w-0 bg-transparent text-[11px] font-black focus:outline-none ${theme.titleText} ${theme.placeholder}`}
                               />
 
-                              <div className="flex items-center gap-1 shrink-0">
+                              <div className="flex items-center gap-0.5 shrink-0">
                                 {/* Mini Renk Değiştirici */}
-                                <div className="flex items-center gap-1 mr-1">
+                                <div className="flex items-center gap-0.5 mr-0.5">
                                   {(Object.keys(POSTIT_COLORS) as StickyColor[]).map(cKey => (
                                     <button
                                       key={cKey}
                                       type="button"
                                       onClick={() => updateNoteField(note.id, 'color', cKey)}
-                                      className={`w-2.5 h-2.5 rounded-full transition-transform cursor-pointer ${POSTIT_COLORS[cKey].dot} ${
+                                      className={`w-2 h-2 rounded-full transition-transform cursor-pointer ${POSTIT_COLORS[cKey].dot} ${
                                         note.color === cKey ? 'scale-125 ring-1 ring-white' : 'opacity-45 hover:opacity-100'
                                       }`}
                                       title={POSTIT_COLORS[cKey].name}
@@ -965,27 +989,27 @@ export default function PersonalStickyNotesPopover() {
                                 <button
                                   type="button"
                                   onClick={() => toggleNotePin(note.id)}
-                                  className={`p-1 rounded transition cursor-pointer ${
+                                  className={`p-0.5 rounded transition cursor-pointer ${
                                     note.isPinned
                                       ? 'text-amber-300 bg-amber-400/20'
                                       : 'text-slate-400 hover:text-white'
                                   }`}
                                   title={note.isPinned ? 'Sabitlemeyi Kaldır' : 'Bu Notu En Üste Sabitle'}
                                 >
-                                  <Pin size={12} className={note.isPinned ? 'fill-amber-300' : ''} />
+                                  <Pin size={11} className={note.isPinned ? 'fill-amber-300' : ''} />
                                 </button>
 
                                 {/* Panoya Kopyala */}
                                 <button
                                   type="button"
                                   onClick={() => copyNoteToClipboard(note)}
-                                  className="p-1 rounded text-slate-300 hover:text-white transition cursor-pointer"
+                                  className="p-0.5 rounded text-slate-300 hover:text-white transition cursor-pointer"
                                   title="Notu Kopyala"
                                 >
                                   {copiedNoteId === note.id ? (
-                                    <Check size={12} className="text-emerald-400" />
+                                    <Check size={11} className="text-emerald-400" />
                                   ) : (
-                                    <Copy size={12} />
+                                    <Copy size={11} />
                                   )}
                                 </button>
 
@@ -993,26 +1017,26 @@ export default function PersonalStickyNotesPopover() {
                                 <button
                                   type="button"
                                   onClick={() => deleteNote(note.id)}
-                                  className="p-1 rounded text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                  className="p-0.5 rounded text-slate-400 hover:text-rose-400 transition cursor-pointer"
                                   title="Notu Sil"
                                 >
-                                  <Trash2 size={12} />
+                                  <Trash2 size={11} />
                                 </button>
                               </div>
                             </div>
 
                             {/* Post-it Not Gövdesi */}
-                            <div className="p-3">
+                            <div className="p-2.5 flex-1 flex flex-col justify-between">
                               <textarea
                                 rows={4}
                                 value={note.content}
                                 onChange={e => updateNoteField(note.id, 'content', e.target.value)}
-                                placeholder="Notunuzu buraya yazın (otomatik kaydedilir)..."
-                                className={`w-full bg-transparent text-xs leading-relaxed resize-y focus:outline-none ${theme.bodyText} ${theme.placeholder}`}
+                                placeholder="Notunuzu buraya yazın..."
+                                className={`w-full bg-transparent text-[11.5px] leading-relaxed resize-y focus:outline-none ${theme.bodyText} ${theme.placeholder}`}
                               />
-                              <div className="flex items-center justify-between text-[9px] text-slate-400/80 mt-1 pt-1 border-t border-white/5 font-mono">
-                                <span>{note.isPinned ? '📌 Üste Sabitli' : '📝 Post-it'}</span>
-                                <span>Son kayıt: {formatDateTimeShortTR(note.updatedAt)}</span>
+                              <div className="flex items-center justify-between text-[8.5px] text-slate-400/80 mt-1 pt-1 border-t border-white/5 font-mono">
+                                <span>{note.isPinned ? '📌 Sabitli' : '📝 Post-it'}</span>
+                                <span>{formatDateTimeShortTR(note.updatedAt)}</span>
                               </div>
                             </div>
                           </div>
