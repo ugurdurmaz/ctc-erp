@@ -23,7 +23,7 @@ type CardTx = { id: string; card_id: string; company_id?: string | null; tx_date
 type LoanDetail = { id: string; loan_name: string; bank_name: string; principal_amount: number; remaining_principal: number; monthly_installment: number; currency?: string; company_id: string | null; status: string; installments_plan: any[] }
 type CustomerDetail = { id: string; name: string; balance: number; currency: string }
 type SupplierDetail = { id: string; company_name: string; balance: number; currency: string }
-type RawStock = { id?: string; product_name?: string; quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
+type RawStock = { id?: string; name?: string; quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
 type Warehouse = { id: string; name: string; company_id: string | null }
 type ExpenseTransaction = { id: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; tx_date: string; description?: string; created_at: string; transfer_id?: string | null; category_id?: string | null; payment_source_type?: string | null; payment_source_id?: string | null; category?: any }
 type Company = { id: string; name: string; is_personal: boolean }
@@ -31,7 +31,7 @@ type Company = { id: string; name: string; is_personal: boolean }
 type CustTx = { id: string; tx_date: string; description: string; customer_id: string; tx_type: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; invoice_lines?: any[]; created_at: string }
 type SuppTx = { id: string; tx_date: string; description: string; supplier_id: string; tx_type: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; created_at: string }
 type StockTx = { id?: string; stock_id?: string | null; tx_date: string; tx_type: string; quantity: number; unit_price: number; currency: string; vat_rate?: number; description?: string; company_id: string | null }
-type SubTx = { id?: string; username?: string; full_name?: string; reference_note?: string; start_date: string; cost_price: number; credit_cost?: number; sale_price: number; currency: string; company_id: string | null }
+type SubTx = { id?: string; username?: string; full_name?: string; reference_note?: string; start_date: string; cost_price: number; sale_price: number; currency: string; company_id: string | null }
 type PosTx = { id: string; date: string; category_id: string; cash: number; card: number; cost: number; stock_id: string | null; company_id: string | null; description?: string | null }
 type TechTicket = { id: string; ticket_no: string; brand_model: string; customer_name: string; status: string; total_cost: number; parts_cost: number; labor_cost: number; payment_method?: string | null; delivered_at: string | null; company_id: string | null; created_at: string }
 
@@ -116,7 +116,7 @@ export default function Home() {
   // Kâr / Zarar (P&L) ve Performans Analizi Periyodu
   const [pnlPeriod, setPnlPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
   const [hoveredChartPointKey, setHoveredChartPointKey] = useState<string | null>(null)
-  const [hoveredChartMetric, setHoveredChartMetric] = useState<'revenue' | 'cost' | 'expense' | 'posProfit' | 'interest' | null>(null)
+  const [hoveredChartMetric, setHoveredChartMetric] = useState<'revenue' | 'cost' | 'expense' | 'posProfit' | 'subProfit' | 'interest' | null>(null)
 
   // Ana Analiz Sekmesi: 'pnl' (Kâr/Zarar) | 'stock' (Depo & Stok Değer Analizi)
   const [analyticsTab, setAnalyticsTab] = useState<'pnl' | 'stock'>('pnl')
@@ -231,7 +231,7 @@ export default function Home() {
       const { data: whData } = await supabase.from('warehouses').select('id, name, company_id')
       setWarehouses(whData || [])
 
-      const { data: stockData } = await supabase.from('stocks').select('id, product_name, quantity, unit_price, vat_rate, currency, warehouse_id')
+      const { data: stockData } = await supabase.from('stocks').select('id, name, quantity, unit_price, vat_rate, currency, warehouse_id')
       setRawStocks(stockData || [])
 
       const { data: expData } = await supabase.from('expense_transactions').select('id, amount, currency, exchange_rate, company_id, tx_date, description, created_at, transfer_id, category_id, payment_source_type, payment_source_id, category:expense_categories(name)')
@@ -243,7 +243,7 @@ export default function Home() {
       const { data: stxData } = await supabase.from('stock_transactions').select('id, stock_id, tx_date, tx_type, quantity, unit_price, currency, vat_rate, description, company_id')
       setStockTxs(stxData || [])
 
-      const { data: subData } = await supabase.from('credit_subscriptions').select('id, username, full_name, reference_note, start_date, cost_price, credit_cost, sale_price, currency, company_id')
+      const { data: subData } = await supabase.from('credit_subscriptions').select('id, username, full_name, reference_note, start_date, cost_price, sale_price, currency, company_id')
       setSubscriptions(subData || [])
 
       const { data: posData } = await supabase.from('pos_transactions').select('id, date, category_id, cash, card, cost, stock_id, company_id, description')
@@ -712,11 +712,15 @@ export default function Home() {
       posRev: number
       posCost: number
       posProfit: number
+      subRev: number
+      subCost: number
+      subProfit: number
       interestRev: number
       revenueDetails: PnlBreakdownItem[]
       costDetails: PnlBreakdownItem[]
       expenseDetails: PnlBreakdownItem[]
       posProfitDetails: PnlBreakdownItem[]
+      subProfitDetails: PnlBreakdownItem[]
       interestDetails: PnlBreakdownItem[]
       isCurrent: boolean
       isFuture?: boolean
@@ -760,11 +764,15 @@ export default function Home() {
           posRev: 0,
           posCost: 0,
           posProfit: 0,
+          subRev: 0,
+          subCost: 0,
+          subProfit: 0,
           interestRev: 0,
           revenueDetails: [],
           costDetails: [],
           expenseDetails: [],
           posProfitDetails: [],
+          subProfitDetails: [],
           interestDetails: [],
           isCurrent: i === 0
         })
@@ -804,11 +812,15 @@ export default function Home() {
           posRev: 0,
           posCost: 0,
           posProfit: 0,
+          subRev: 0,
+          subCost: 0,
+          subProfit: 0,
           interestRev: 0,
           revenueDetails: [],
           costDetails: [],
           expenseDetails: [],
           posProfitDetails: [],
+          subProfitDetails: [],
           interestDetails: [],
           isCurrent: i === 0
         })
@@ -845,11 +857,15 @@ export default function Home() {
           posRev: 0,
           posCost: 0,
           posProfit: 0,
+          subRev: 0,
+          subCost: 0,
+          subProfit: 0,
           interestRev: 0,
           revenueDetails: [],
           costDetails: [],
           expenseDetails: [],
           posProfitDetails: [],
+          subProfitDetails: [],
           interestDetails: [],
           isCurrent: isToday,
           isFuture
@@ -892,9 +908,11 @@ export default function Home() {
       const pt = findPoint(sub.start_date)
       if (pt) {
         const revVal = getTryEquivalent(sub.sale_price, sub.currency || 'TRY')
-        const costVal = getTryEquivalent(sub.cost_price || sub.credit_cost || 0, sub.currency || 'TRY')
+        const costVal = getTryEquivalent(sub.cost_price || 0, sub.currency || 'TRY')
         pt.revenue += revVal
         pt.cost += costVal
+        pt.subRev += revVal
+        pt.subCost += costVal
         const subTitle = `${sub.username || sub.full_name || 'Abonelik'}${sub.reference_note ? ` (${sub.reference_note})` : ''}`
         if (revVal > 0) {
           pt.revenueDetails.push({
@@ -916,6 +934,14 @@ export default function Home() {
             amount: costVal
           })
         }
+        pt.subProfitDetails.push({
+          id: `sub_prf_${sub.id || idx}`,
+          category: 'Abonelik Net Kârı',
+          title: subTitle,
+          subtitle: `Satış: ${formatMoney(revVal, 'TRY').formatted} • Maliyet: ${formatMoney(costVal, 'TRY').formatted}`,
+          companyName: getCompLabel(sub.company_id),
+          amount: revVal - costVal
+        })
       }
     })
 
@@ -926,7 +952,7 @@ export default function Home() {
         const costVal = getTryEquivalent(tx.quantity * tx.unit_price, tx.currency || 'TRY')
         pt.cost += costVal
         if (costVal > 0) {
-          const stkName = rawStocks.find(s => s.id === tx.stock_id)?.product_name || 'Stok / Yedek Parça'
+          const stkName = rawStocks.find(s => s.id === tx.stock_id)?.name || 'Stok / Yedek Parça'
           pt.costDetails.push({
             id: `stx_${tx.id || idx}`,
             category: 'Stok / Parça Çıkışı',
@@ -1090,6 +1116,7 @@ export default function Home() {
     points.forEach(p => {
       p.profit = p.revenue - p.cost - p.expense
       p.posProfit = p.posRev - p.posCost
+      p.subProfit = p.subRev - p.subCost
       p.marginPct = p.revenue > 0 ? (p.profit / p.revenue) * 100 : 0
       const totalOut = p.cost + p.expense
       const barMax = Math.max(p.revenue, totalOut)
@@ -2304,6 +2331,16 @@ export default function Home() {
                             items: [...pt.posProfitDetails].sort((a, b) => b.amount - a.amount)
                           }
                         }
+                        if (hoveredChartMetric === 'subProfit') {
+                          return {
+                            title: 'Abonelik (tvghost) Kâr Dökümü',
+                            colorText: 'text-indigo-400',
+                            borderColor: 'border-indigo-500/40',
+                            badgeBg: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+                            total: pt.subProfit,
+                            items: [...pt.subProfitDetails].sort((a, b) => b.amount - a.amount)
+                          }
+                        }
                         if (hoveredChartMetric === 'interest') {
                           return {
                             title: 'Faiz & Finansman Dökümü',
@@ -2397,6 +2434,23 @@ export default function Home() {
                                         <span>Mağaza Kârı: {formatMoney(pt.posProfit, 'TRY').formatted}</span>
                                         {pt.posProfitDetails.length > 0 && (
                                           <span className="text-[8px] text-cyan-300/80 font-sans">({pt.posProfitDetails.length}) ▸</span>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* ABONELİK KÂRI SATIRI */}
+                                    {pt.subRev > 0 && (
+                                      <div
+                                        onMouseEnter={() => setHoveredChartMetric('subProfit')}
+                                        className={`flex items-center justify-between px-1.5 py-0.5 -mx-1 rounded text-[9.5px] cursor-pointer transition-colors ${
+                                          hoveredChartMetric === 'subProfit'
+                                            ? 'bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-500/40'
+                                            : 'text-indigo-400 hover:bg-slate-800/80'
+                                        }`}
+                                      >
+                                        <span>Abonelik Kârı: +{formatMoney(pt.subProfit, 'TRY').formatted}</span>
+                                        {pt.subProfitDetails.length > 0 && (
+                                          <span className="text-[8px] text-indigo-300/80 font-sans">({pt.subProfitDetails.length}) ▸</span>
                                         )}
                                       </div>
                                     )}

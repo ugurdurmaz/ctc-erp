@@ -215,7 +215,7 @@ export default function AdvancedReportsPage() {
 
       // Kredili Abonelikler ve Banka Kredileri
       const { data: subData } = await supabase.from('credit_subscriptions')
-        .select('id, username, full_name, reference_note, start_date, sale_price, credit_cost, is_paid, company_id')
+        .select('id, username, full_name, reference_note, start_date, sale_price, cost_price, currency, is_paid, company_id')
       setSubscriptions(subData || [])
 
       const { data: loanData } = await supabase.from('bank_loans')
