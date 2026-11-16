@@ -21,7 +21,9 @@ import {
   Search,
   Sparkles,
   Minimize2,
-  Maximize2
+  Maximize2,
+  ChevronsUpDown,
+  ChevronsDownUp
 } from 'lucide-react'
 
 export type StickyColor = 'yellow' | 'blue' | 'emerald' | 'purple' | 'rose'
@@ -40,6 +42,7 @@ export interface StickyNoteItem {
   content: string
   color: StickyColor
   isPinned: boolean
+  isCompact?: boolean
   updatedAt: string
 }
 
@@ -48,6 +51,7 @@ export interface UserStickyWorkspace {
   notes: StickyNoteItem[]
   windowWidth?: number
   windowHeight?: number
+  isCompactMode?: boolean
   updatedAt: number
 }
 
@@ -132,6 +136,50 @@ function formatDateTimeShortTR(iso: string) {
   }
 }
 
+// İçine yazılan metnin uzunluğuna göre otomatik uzayan (veya kompakt modda sabit kalan) Post-it metin alanı
+function AutoExpandingNoteTextarea({
+  value,
+  isCompact,
+  onChange,
+  placeholder,
+  className
+}: {
+  value: string
+  isCompact?: boolean
+  onChange: (val: string) => void
+  placeholder: string
+  className: string
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (isCompact) {
+      el.style.height = '74px'
+    } else {
+      el.style.height = 'auto'
+      el.style.height = `${Math.max(74, el.scrollHeight)}px`
+    }
+  }, [value, isCompact])
+
+  return (
+    <textarea
+      ref={ref}
+      rows={isCompact ? 3 : 3}
+      spellCheck={false}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+      style={{
+        height: isCompact ? '74px' : undefined,
+        overflowY: isCompact ? 'auto' : 'hidden'
+      }}
+      className={`${className} ${isCompact ? 'custom-scrollbar resize-y' : 'resize-none overflow-hidden'}`}
+    />
+  )
+}
+
 export default function PersonalStickyNotesPopover() {
   const { user, profile } = useAuth()
   const userId = user?.id || profile?.id || null
@@ -143,8 +191,10 @@ export default function PersonalStickyNotesPopover() {
 
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [notes, setNotes] = useState<StickyNoteItem[]>([])
-  const [windowWidth, setWindowWidth] = useState<number>(420)
-  const [windowHeight, setWindowHeight] = useState<number>(540)
+  const [windowWidth, setWindowWidth] = useState<number>(480)
+  const [windowHeight, setWindowHeight] = useState<number>(420)
+  const [isCompactMode, setIsCompactMode] = useState<boolean>(false)
+  const [hasCustomHeight, setHasCustomHeight] = useState<boolean>(false)
   const [isResizing, setIsResizing] = useState<boolean>(false)
   const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'loading'>('synced')
 
@@ -182,6 +232,7 @@ export default function PersonalStickyNotesPopover() {
       setNotes(Array.isArray(localData.notes) ? localData.notes : [])
       if (localData.windowWidth && localData.windowWidth >= 320) setWindowWidth(localData.windowWidth)
       if (localData.windowHeight && localData.windowHeight >= 320) setWindowHeight(localData.windowHeight)
+      if (typeof localData.isCompactMode === 'boolean') setIsCompactMode(localData.isCompactMode)
     }
 
     try {
@@ -195,16 +246,18 @@ export default function PersonalStickyNotesPopover() {
         if (!localData || cloudTime >= localTime) {
           const cTodos = Array.isArray(cloudWorkspace.todos) ? cloudWorkspace.todos : []
           const cNotes = Array.isArray(cloudWorkspace.notes) ? cloudWorkspace.notes : []
-          const cWidth = cloudWorkspace.windowWidth && cloudWorkspace.windowWidth >= 320 ? cloudWorkspace.windowWidth : 420
-          const cHeight = cloudWorkspace.windowHeight && cloudWorkspace.windowHeight >= 320 ? cloudWorkspace.windowHeight : 540
+          const cWidth = cloudWorkspace.windowWidth && cloudWorkspace.windowWidth >= 320 ? cloudWorkspace.windowWidth : 480
+          const cHeight = cloudWorkspace.windowHeight && cloudWorkspace.windowHeight >= 320 ? cloudWorkspace.windowHeight : 420
+          const cCompact = typeof cloudWorkspace.isCompactMode === 'boolean' ? cloudWorkspace.isCompactMode : false
           setTodos(cTodos)
           setNotes(cNotes)
           setWindowWidth(cWidth)
           setWindowHeight(cHeight)
+          setIsCompactMode(cCompact)
           try {
             localStorage.setItem(
               getLocalKey(uid),
-              JSON.stringify({ todos: cTodos, notes: cNotes, windowWidth: cWidth, windowHeight: cHeight, updatedAt: cloudTime })
+              JSON.stringify({ todos: cTodos, notes: cNotes, windowWidth: cWidth, windowHeight: cHeight, isCompactMode: cCompact, updatedAt: cloudTime })
             )
           } catch {}
         } else if (localData && localTime > cloudTime) {
@@ -246,13 +299,14 @@ export default function PersonalStickyNotesPopover() {
 
   // Değişiklikleri hem anında localStorage'a hem de debounced olarak Supabase'e kaydet
   const persistWorkspace = useCallback(
-    (nextTodos: TodoItem[], nextNotes: StickyNoteItem[], nextW?: number, nextH?: number) => {
+    (nextTodos: TodoItem[], nextNotes: StickyNoteItem[], nextW?: number, nextH?: number, nextCompact?: boolean) => {
       if (!userId) return
       const payload: UserStickyWorkspace = {
         todos: nextTodos,
         notes: nextNotes,
         windowWidth: nextW ?? windowWidth,
         windowHeight: nextH ?? windowHeight,
+        isCompactMode: nextCompact ?? isCompactMode,
         updatedAt: Date.now()
       }
 
@@ -276,7 +330,7 @@ export default function PersonalStickyNotesPopover() {
         }
       }, 650)
     },
-    [userId, getLocalKey, windowWidth, windowHeight]
+    [userId, getLocalKey, windowWidth, windowHeight, isCompactMode]
   )
 
   // Fare ile Pencere Boyutlandırma (Sol Kenar, Alt Kenar, Sol-Alt ve Sağ-Alt Köşeler)
@@ -288,10 +342,11 @@ export default function PersonalStickyNotesPopover() {
     e.stopPropagation()
     setIsResizing(true)
 
+    const currentEl = popoverRef.current?.querySelector('.sticky-popover-window') as HTMLElement | null
     const startX = e.clientX
     const startY = e.clientY
     const startW = windowWidth
-    const startH = windowHeight
+    const startH = currentEl ? currentEl.getBoundingClientRect().height : windowHeight
 
     let latestW = startW
     let latestH = startH
@@ -313,7 +368,8 @@ export default function PersonalStickyNotesPopover() {
 
       if (direction === 'bottom' || direction === 'bottom-left' || direction === 'bottom-right') {
         const maxAllowedH = Math.min(880, window.innerHeight - 80)
-        latestH = Math.max(340, Math.min(maxAllowedH, startH + dy))
+        latestH = Math.max(260, Math.min(maxAllowedH, startH + dy))
+        setHasCustomHeight(true)
         setWindowHeight(latestH)
       }
     }
@@ -451,6 +507,25 @@ export default function PersonalStickyNotesPopover() {
     persistWorkspace(todos, sorted)
   }
 
+  const toggleNoteCompact = (id: string) => {
+    const updated = notes.map(n => {
+      if (n.id !== id) return n
+      const currentCompact = typeof n.isCompact === 'boolean' ? n.isCompact : isCompactMode
+      return { ...n, isCompact: !currentCompact }
+    })
+    setNotes(updated)
+    persistWorkspace(todos, updated)
+  }
+
+  const toggleGlobalCompactMode = () => {
+    const nextCompact = !isCompactMode
+    setIsCompactMode(nextCompact)
+    setHasCustomHeight(false)
+    const updated = notes.map(n => ({ ...n, isCompact: nextCompact }))
+    setNotes(updated)
+    persistWorkspace(todos, updated, windowWidth, windowHeight, nextCompact)
+  }
+
   const deleteNote = (id: string) => {
     const updated = notes.filter(n => n.id !== id)
     setNotes(updated)
@@ -522,11 +597,18 @@ export default function PersonalStickyNotesPopover() {
         <div
           style={{
             width: isMinimized ? 340 : windowWidth,
-            height: isMinimized ? 'auto' : windowHeight,
+            height: isMinimized
+              ? 'auto'
+              : hasCustomHeight
+                ? windowHeight
+                : isCompactMode
+                  ? 380
+                  : 'auto',
+            minHeight: isMinimized ? undefined : 280,
             maxWidth: 'calc(100vw - 16px)',
             maxHeight: 'calc(100vh - 80px)'
           }}
-          className={`fixed sm:absolute right-2 sm:right-0 top-14 sm:top-12 bg-[#0b1120]/95 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden z-[9999] flex flex-col ${
+          className={`sticky-popover-window fixed sm:absolute right-2 sm:right-0 top-14 sm:top-12 bg-[#0b1120]/95 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden z-[9999] flex flex-col ${
             isResizing ? 'select-none transition-none' : 'transition-colors duration-200'
           } ${
             isPinnedWindow
@@ -898,8 +980,26 @@ export default function PersonalStickyNotesPopover() {
                       />
                     </div>
 
-                    {/* Renk Seçici Noktalar + Yeni Post-it Butonu */}
+                    {/* Renk Seçici Noktalar + Kompakt/Tam Boy + Yeni Post-it Butonu */}
                     <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={toggleGlobalCompactMode}
+                        className={`px-2 py-1 rounded-lg border text-[10px] font-bold flex items-center gap-1 transition cursor-pointer shrink-0 ${
+                          isCompactMode
+                            ? 'bg-slate-800 border-slate-600 text-amber-300 hover:bg-slate-700'
+                            : 'bg-[#0f172a] border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
+                        }`}
+                        title={
+                          isCompactMode
+                            ? 'Şu an Kompakt Modda — Tıklayarak notların uzunluğuna göre otomatik genişlet'
+                            : 'Şu an İçeriğe Göre Genişliyor — Tıklayarak tüm notları kompakt boyuta küçült'
+                        }
+                      >
+                        {isCompactMode ? <ChevronsUpDown size={11} /> : <ChevronsDownUp size={11} />}
+                        <span>{isCompactMode ? 'Tam Aç' : 'Kompakt'}</span>
+                      </button>
+
                       <div className="flex items-center gap-1 bg-[#0f172a] border border-slate-800 px-1.5 py-1 rounded-lg">
                         {(Object.keys(POSTIT_COLORS) as StickyColor[]).map(cKey => (
                           <button
@@ -936,7 +1036,8 @@ export default function PersonalStickyNotesPopover() {
                             display: 'grid',
                             gridTemplateColumns: 'repeat(auto-fill, minmax(205px, 1fr))',
                             gap: '8px',
-                            alignContent: 'start'
+                            alignContent: 'start',
+                            alignItems: 'start'
                           }
                         : undefined
                     }
@@ -954,6 +1055,7 @@ export default function PersonalStickyNotesPopover() {
                     ) : (
                       filteredNotes.map(note => {
                         const theme = POSTIT_COLORS[note.color] || POSTIT_COLORS.yellow
+                        const noteIsCompact = typeof note.isCompact === 'boolean' ? note.isCompact : isCompactMode
                         return (
                           <div
                             key={note.id}
@@ -963,6 +1065,7 @@ export default function PersonalStickyNotesPopover() {
                             <div className={`px-2.5 py-1 flex items-center justify-between gap-1.5 ${theme.headerBg}`}>
                               <input
                                 type="text"
+                                spellCheck={false}
                                 value={note.title}
                                 onChange={e => updateNoteField(note.id, 'title', e.target.value)}
                                 placeholder="Not Başlığı..."
@@ -984,6 +1087,24 @@ export default function PersonalStickyNotesPopover() {
                                     />
                                   ))}
                                 </div>
+
+                                {/* Bu Notu Kompakt / Tam Boy Yap */}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleNoteCompact(note.id)}
+                                  className={`p-0.5 rounded transition cursor-pointer ${
+                                    noteIsCompact
+                                      ? 'text-amber-300 bg-amber-400/20'
+                                      : 'text-slate-300 hover:text-white'
+                                  }`}
+                                  title={
+                                    noteIsCompact
+                                      ? 'Tam Boy Göster (Yazının tamamı görünsün)'
+                                      : 'Kompakt Boyuta Küçült'
+                                  }
+                                >
+                                  {noteIsCompact ? <ChevronsUpDown size={11} /> : <ChevronsDownUp size={11} />}
+                                </button>
 
                                 {/* En Üste İğnele */}
                                 <button
@@ -1025,17 +1146,25 @@ export default function PersonalStickyNotesPopover() {
                               </div>
                             </div>
 
-                            {/* Post-it Not Gövdesi */}
+                            {/* Post-it Not Gövdesi (İçeriğe Göre Otomatik Uzayan veya Kompakt) */}
                             <div className="p-2.5 flex-1 flex flex-col justify-between">
-                              <textarea
-                                rows={4}
+                              <AutoExpandingNoteTextarea
                                 value={note.content}
-                                onChange={e => updateNoteField(note.id, 'content', e.target.value)}
+                                isCompact={noteIsCompact}
+                                onChange={val => updateNoteField(note.id, 'content', val)}
                                 placeholder="Notunuzu buraya yazın..."
-                                className={`w-full bg-transparent text-[11.5px] leading-relaxed resize-y focus:outline-none ${theme.bodyText} ${theme.placeholder}`}
+                                className={`w-full bg-transparent text-[11.5px] leading-relaxed focus:outline-none ${theme.bodyText} ${theme.placeholder}`}
                               />
                               <div className="flex items-center justify-between text-[8.5px] text-slate-400/80 mt-1 pt-1 border-t border-white/5 font-mono">
-                                <span>{note.isPinned ? '📌 Sabitli' : '📝 Post-it'}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleNoteCompact(note.id)}
+                                  className="hover:text-amber-300 transition cursor-pointer flex items-center gap-0.5"
+                                  title={noteIsCompact ? 'Tam boy açmak için tıklayın' : 'Kompakt boyuta küçültmek için tıklayın'}
+                                >
+                                  <span>{note.isPinned ? '📌 Sabitli' : '📝 Post-it'}</span>
+                                  <span>• {noteIsCompact ? '↕ Tam Aç' : '↕ Kompakt Yap'}</span>
+                                </button>
                                 <span>{formatDateTimeShortTR(note.updatedAt)}</span>
                               </div>
                             </div>
