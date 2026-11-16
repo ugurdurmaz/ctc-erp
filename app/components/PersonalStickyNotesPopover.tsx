@@ -71,52 +71,52 @@ const POSTIT_COLORS: Record<
   yellow: {
     name: 'Sarı Post-it',
     dot: 'bg-amber-400',
-    cardBg: 'bg-gradient-to-br from-amber-500/20 via-yellow-500/15 to-amber-900/20',
-    cardBorder: 'border-amber-400/40 hover:border-amber-400/70',
-    headerBg: 'bg-amber-500/15 border-b border-amber-400/25',
+    cardBg: 'bg-[#161510] bg-gradient-to-br from-amber-500/25 via-yellow-500/15 to-amber-950/40',
+    cardBorder: 'border-amber-400/45 hover:border-amber-400/75',
+    headerBg: 'bg-amber-500/20 border-b border-amber-400/30',
     titleText: 'text-amber-200',
-    bodyText: 'text-amber-50/95',
-    placeholder: 'placeholder-amber-300/40'
+    bodyText: 'text-amber-50',
+    placeholder: 'placeholder-amber-300/45'
   },
   blue: {
     name: 'Mavi Post-it',
     dot: 'bg-sky-400',
-    cardBg: 'bg-gradient-to-br from-sky-500/20 via-blue-500/15 to-sky-900/20',
-    cardBorder: 'border-sky-400/40 hover:border-sky-400/70',
-    headerBg: 'bg-sky-500/15 border-b border-sky-400/25',
+    cardBg: 'bg-[#0c1624] bg-gradient-to-br from-sky-500/25 via-blue-500/15 to-sky-950/40',
+    cardBorder: 'border-sky-400/45 hover:border-sky-400/75',
+    headerBg: 'bg-sky-500/20 border-b border-sky-400/30',
     titleText: 'text-sky-200',
-    bodyText: 'text-sky-50/95',
-    placeholder: 'placeholder-sky-300/40'
+    bodyText: 'text-sky-50',
+    placeholder: 'placeholder-sky-300/45'
   },
   emerald: {
     name: 'Yeşil Post-it',
     dot: 'bg-emerald-400',
-    cardBg: 'bg-gradient-to-br from-emerald-500/20 via-teal-500/15 to-emerald-900/20',
-    cardBorder: 'border-emerald-400/40 hover:border-emerald-400/70',
-    headerBg: 'bg-emerald-500/15 border-b border-emerald-400/25',
+    cardBg: 'bg-[#0b1917] bg-gradient-to-br from-emerald-500/25 via-teal-500/15 to-emerald-950/40',
+    cardBorder: 'border-emerald-400/45 hover:border-emerald-400/75',
+    headerBg: 'bg-emerald-500/20 border-b border-emerald-400/30',
     titleText: 'text-emerald-200',
-    bodyText: 'text-emerald-50/95',
-    placeholder: 'placeholder-emerald-300/40'
+    bodyText: 'text-emerald-50',
+    placeholder: 'placeholder-emerald-300/45'
   },
   purple: {
     name: 'Mor Post-it',
     dot: 'bg-purple-400',
-    cardBg: 'bg-gradient-to-br from-purple-500/20 via-indigo-500/15 to-purple-900/20',
-    cardBorder: 'border-purple-400/40 hover:border-purple-400/70',
-    headerBg: 'bg-purple-500/15 border-b border-purple-400/25',
+    cardBg: 'bg-[#141124] bg-gradient-to-br from-purple-500/25 via-indigo-500/15 to-purple-950/40',
+    cardBorder: 'border-purple-400/45 hover:border-purple-400/75',
+    headerBg: 'bg-purple-500/20 border-b border-purple-400/30',
     titleText: 'text-purple-200',
-    bodyText: 'text-purple-50/95',
-    placeholder: 'placeholder-purple-300/40'
+    bodyText: 'text-purple-50',
+    placeholder: 'placeholder-purple-300/45'
   },
   rose: {
     name: 'Pembe Post-it',
     dot: 'bg-rose-400',
-    cardBg: 'bg-gradient-to-br from-rose-500/20 via-pink-500/15 to-rose-900/20',
-    cardBorder: 'border-rose-400/40 hover:border-rose-400/70',
-    headerBg: 'bg-rose-500/15 border-b border-rose-400/25',
+    cardBg: 'bg-[#1c1018] bg-gradient-to-br from-rose-500/25 via-pink-500/15 to-rose-950/40',
+    cardBorder: 'border-rose-400/45 hover:border-rose-400/75',
+    headerBg: 'bg-rose-500/20 border-b border-rose-400/30',
     titleText: 'text-rose-200',
-    bodyText: 'text-rose-50/95',
-    placeholder: 'placeholder-rose-300/40'
+    bodyText: 'text-rose-50',
+    placeholder: 'placeholder-rose-300/45'
   }
 }
 
@@ -608,7 +608,7 @@ export default function PersonalStickyNotesPopover() {
             maxWidth: 'calc(100vw - 16px)',
             maxHeight: 'calc(100vh - 80px)'
           }}
-          className={`sticky-popover-window fixed sm:absolute right-2 sm:right-0 top-14 sm:top-12 bg-[#0b1120]/95 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden z-[9999] flex flex-col ${
+          className={`sticky-popover-window fixed sm:absolute right-2 sm:right-0 top-14 sm:top-12 bg-[#0b1120] border rounded-2xl shadow-2xl overflow-hidden z-[9999] flex flex-col ${
             isResizing ? 'select-none transition-none' : 'transition-colors duration-200'
           } ${
             isPinnedWindow
@@ -782,7 +782,7 @@ export default function PersonalStickyNotesPopover() {
               {/* SEKME 1: YAPILACAKLAR LİSTESİ (TO-DO)                         */}
               {/* ============================================================ */}
               {activeTab === 'todos' ? (
-                <div className="flex flex-col flex-1 min-h-0">
+                <div className="flex flex-col flex-auto min-h-0">
                   {/* Hızlı Madde Ekleme Formu (Kompakt) */}
                   <form
                     onSubmit={handleAddTodo}
@@ -846,20 +846,8 @@ export default function PersonalStickyNotesPopover() {
                     </div>
                   )}
 
-                  {/* Yapılacaklar Maddeleri (Pencere genişliğine göre yan yana da dizilebilir) */}
-                  <div
-                    className="flex-1 overflow-y-auto custom-scrollbar p-2"
-                    style={
-                      todos.length > 0
-                        ? {
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
-                            gap: '6px',
-                            alignContent: 'start'
-                          }
-                        : undefined
-                    }
-                  >
+                  {/* Yapılacaklar Maddeleri (Kaydırma Kapsayıcısı ile Grid Ayrı) */}
+                  <div className="flex-auto overflow-y-auto custom-scrollbar p-2 min-h-0">
                     {todos.length === 0 ? (
                       <div className="py-10 px-4 text-center flex flex-col items-center justify-center gap-2 text-slate-500">
                         <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300/70">
@@ -871,93 +859,102 @@ export default function PersonalStickyNotesPopover() {
                         </p>
                       </div>
                     ) : (
-                      todos.map((item, idx) => (
-                        <div
-                          key={item.id}
-                          className={`group flex items-start gap-2 p-2 rounded-lg border transition-all ${
-                            item.completed
-                              ? 'bg-slate-900/40 border-slate-800/60 opacity-60'
-                              : item.isUrgent
-                                ? 'bg-gradient-to-r from-rose-950/35 via-amber-950/20 to-slate-900/90 border-rose-500/40'
-                                : 'bg-[#0f172a]/90 border-slate-800 hover:border-amber-500/40'
-                          }`}
-                        >
-                          {/* Checkbox */}
-                          <button
-                            type="button"
-                            onClick={() => toggleTodoCompleted(item.id)}
-                            className={`mt-0.5 w-3.5 h-3.5 rounded border flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                          gap: '6px',
+                          alignItems: 'start'
+                        }}
+                      >
+                        {todos.map((item, idx) => (
+                          <div
+                            key={item.id}
+                            className={`group flex items-start gap-2 p-2 rounded-lg border transition-all ${
                               item.completed
-                                ? 'bg-emerald-500 border-emerald-500 text-slate-950'
+                                ? 'bg-slate-900/40 border-slate-800/60 opacity-60'
                                 : item.isUrgent
-                                  ? 'border-rose-400 hover:bg-rose-500/20'
-                                  : 'border-amber-400/70 hover:bg-amber-400/20'
+                                  ? 'bg-[#1a1118] bg-gradient-to-r from-rose-950/50 via-amber-950/25 to-slate-900 border-rose-500/40'
+                                  : 'bg-[#0f172a] border-slate-800 hover:border-amber-500/40'
                             }`}
-                            title={item.completed ? 'Tamamlandı işaretini kaldır' : 'Tamamlandı olarak işaretle'}
                           >
-                            {item.completed && <Check size={10} strokeWidth={3.5} />}
-                          </button>
-
-                          {/* Düzenlenebilir Metin */}
-                          <div className="flex-1 min-w-0">
-                            <input
-                              type="text"
-                              value={item.text}
-                              onChange={e => updateTodoText(item.id, e.target.value)}
-                              className={`w-full bg-transparent text-[11.5px] focus:outline-none ${
+                            {/* Checkbox */}
+                            <button
+                              type="button"
+                              onClick={() => toggleTodoCompleted(item.id)}
+                              className={`mt-0.5 w-3.5 h-3.5 rounded border flex items-center justify-center transition-all cursor-pointer shrink-0 ${
                                 item.completed
-                                  ? 'line-through text-slate-500'
-                                  : 'text-slate-100 font-medium'
+                                  ? 'bg-emerald-500 border-emerald-500 text-slate-950'
+                                  : item.isUrgent
+                                    ? 'border-rose-400 hover:bg-rose-500/20'
+                                    : 'border-amber-400/70 hover:bg-amber-400/20'
                               }`}
-                            />
-                            {item.isUrgent && !item.completed && (
-                              <span className="inline-flex items-center gap-0.5 text-[8.5px] font-bold text-rose-300 mt-0.5">
-                                <Flame size={9} className="fill-rose-400" /> Acil / Öncelikli
-                              </span>
-                            )}
-                          </div>
+                              title={item.completed ? 'Tamamlandı işaretini kaldır' : 'Tamamlandı olarak işaretle'}
+                            >
+                              {item.completed && <Check size={10} strokeWidth={3.5} />}
+                            </button>
 
-                          {/* Aksiyon Butonları (Acil, Yukarı/Aşağı, Sil) */}
-                          <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => toggleTodoUrgent(item.id)}
-                              className={`p-0.5 rounded hover:bg-slate-800 transition cursor-pointer ${
-                                item.isUrgent ? 'text-rose-400' : 'text-slate-500 hover:text-rose-300'
-                              }`}
-                              title="Acil İşareti"
-                            >
-                              <Flame size={11} className={item.isUrgent ? 'fill-rose-400' : ''} />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={idx === 0}
-                              onClick={() => moveTodoStep(item.id, 'up')}
-                              className="p-0.5 rounded text-slate-500 hover:text-white disabled:opacity-20 hover:bg-slate-800 transition cursor-pointer"
-                              title="Yukarı Taşı"
-                            >
-                              <ChevronUp size={11} />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={idx === todos.length - 1}
-                              onClick={() => moveTodoStep(item.id, 'down')}
-                              className="p-0.5 rounded text-slate-500 hover:text-white disabled:opacity-20 hover:bg-slate-800 transition cursor-pointer"
-                              title="Aşağı Taşı"
-                            >
-                              <ChevronDown size={11} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteTodo(item.id)}
-                              className="p-0.5 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition cursor-pointer"
-                              title="Sil"
-                            >
-                              <Trash2 size={11} />
-                            </button>
+                            {/* Düzenlenebilir Metin */}
+                            <div className="flex-1 min-w-0">
+                              <input
+                                type="text"
+                                value={item.text}
+                                onChange={e => updateTodoText(item.id, e.target.value)}
+                                className={`w-full bg-transparent text-[11.5px] focus:outline-none ${
+                                  item.completed
+                                    ? 'line-through text-slate-500'
+                                    : 'text-slate-100 font-medium'
+                                }`}
+                              />
+                              {item.isUrgent && !item.completed && (
+                                <span className="inline-flex items-center gap-0.5 text-[8.5px] font-bold text-rose-300 mt-0.5">
+                                  <Flame size={9} className="fill-rose-400" /> Acil / Öncelikli
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Aksiyon Butonları (Acil, Yukarı/Aşağı, Sil) */}
+                            <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => toggleTodoUrgent(item.id)}
+                                className={`p-0.5 rounded hover:bg-slate-800 transition cursor-pointer ${
+                                  item.isUrgent ? 'text-rose-400' : 'text-slate-500 hover:text-rose-300'
+                                }`}
+                                title="Acil İşareti"
+                              >
+                                <Flame size={11} className={item.isUrgent ? 'fill-rose-400' : ''} />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => moveTodoStep(item.id, 'up')}
+                                className="p-0.5 rounded text-slate-500 hover:text-white disabled:opacity-20 hover:bg-slate-800 transition cursor-pointer"
+                                title="Yukarı Taşı"
+                              >
+                                <ChevronUp size={11} />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === todos.length - 1}
+                                onClick={() => moveTodoStep(item.id, 'down')}
+                                className="p-0.5 rounded text-slate-500 hover:text-white disabled:opacity-20 hover:bg-slate-800 transition cursor-pointer"
+                                title="Aşağı Taşı"
+                              >
+                                <ChevronDown size={11} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteTodo(item.id)}
+                                className="p-0.5 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition cursor-pointer"
+                                title="Sil"
+                              >
+                                <Trash2 size={11} />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -965,7 +962,7 @@ export default function PersonalStickyNotesPopover() {
                 /* ============================================================ */
                 /* SEKME 2: RENKLİ POST-IT NOTLARIM (KOMPAKT & YAN YANA DİZİLİM) */
                 /* ============================================================ */
-                <div className="flex flex-col flex-1 min-h-0">
+                <div className="flex flex-col flex-auto min-h-0">
                   {/* Üst Post-it Kontrol & Yeni Ekleme Çubuğu (Kompakt) */}
                   <div className="px-2 py-1.5 bg-[#090e1a] border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-1.5 shrink-0">
                     {/* Arama */}
@@ -1027,21 +1024,8 @@ export default function PersonalStickyNotesPopover() {
                     </div>
                   </div>
 
-                  {/* Post-it Kartları Listesi (Pencere Büyüklüğüne Göre Ekonomik Yan Yana Grid) */}
-                  <div
-                    className="flex-1 overflow-y-auto custom-scrollbar p-2.5"
-                    style={
-                      filteredNotes.length > 0
-                        ? {
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fill, minmax(205px, 1fr))',
-                            gap: '8px',
-                            alignContent: 'start',
-                            alignItems: 'start'
-                          }
-                        : undefined
-                    }
-                  >
+                  {/* Post-it Kartları Listesi (Kaydırma Kapsayıcısı ile Grid Ayrı — Üst Üste Binme Olmaz) */}
+                  <div className="flex-auto overflow-y-auto custom-scrollbar p-2.5 min-h-0">
                     {filteredNotes.length === 0 ? (
                       <div className="py-10 px-4 text-center flex flex-col items-center justify-center gap-2 text-slate-500">
                         <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300/70">
@@ -1053,124 +1037,133 @@ export default function PersonalStickyNotesPopover() {
                         </p>
                       </div>
                     ) : (
-                      filteredNotes.map(note => {
-                        const theme = POSTIT_COLORS[note.color] || POSTIT_COLORS.yellow
-                        const noteIsCompact = typeof note.isCompact === 'boolean' ? note.isCompact : isCompactMode
-                        return (
-                          <div
-                            key={note.id}
-                            className={`rounded-xl border transition-all shadow-md overflow-hidden flex flex-col ${theme.cardBg} ${theme.cardBorder}`}
-                          >
-                            {/* Post-it Kart Üst Şeridi */}
-                            <div className={`px-2.5 py-1 flex items-center justify-between gap-1.5 ${theme.headerBg}`}>
-                              <input
-                                type="text"
-                                spellCheck={false}
-                                value={note.title}
-                                onChange={e => updateNoteField(note.id, 'title', e.target.value)}
-                                placeholder="Not Başlığı..."
-                                className={`flex-1 min-w-0 bg-transparent text-[11px] font-black focus:outline-none ${theme.titleText} ${theme.placeholder}`}
-                              />
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                          gap: '8px',
+                          alignItems: 'start'
+                        }}
+                      >
+                        {filteredNotes.map(note => {
+                          const theme = POSTIT_COLORS[note.color] || POSTIT_COLORS.yellow
+                          const noteIsCompact = typeof note.isCompact === 'boolean' ? note.isCompact : isCompactMode
+                          return (
+                            <div
+                              key={note.id}
+                              className={`rounded-xl border transition-all shadow-md flex flex-col h-fit ${theme.cardBg} ${theme.cardBorder}`}
+                            >
+                              {/* Post-it Kart Üst Şeridi */}
+                              <div className={`px-2.5 py-1 rounded-t-xl flex items-center justify-between gap-1.5 shrink-0 ${theme.headerBg}`}>
+                                <input
+                                  type="text"
+                                  spellCheck={false}
+                                  value={note.title}
+                                  onChange={e => updateNoteField(note.id, 'title', e.target.value)}
+                                  placeholder="Not Başlığı..."
+                                  className={`flex-1 min-w-0 bg-transparent text-[11px] font-black focus:outline-none ${theme.titleText} ${theme.placeholder}`}
+                                />
 
-                              <div className="flex items-center gap-0.5 shrink-0">
-                                {/* Mini Renk Değiştirici */}
-                                <div className="flex items-center gap-0.5 mr-0.5">
-                                  {(Object.keys(POSTIT_COLORS) as StickyColor[]).map(cKey => (
-                                    <button
-                                      key={cKey}
-                                      type="button"
-                                      onClick={() => updateNoteField(note.id, 'color', cKey)}
-                                      className={`w-2 h-2 rounded-full transition-transform cursor-pointer ${POSTIT_COLORS[cKey].dot} ${
-                                        note.color === cKey ? 'scale-125 ring-1 ring-white' : 'opacity-45 hover:opacity-100'
-                                      }`}
-                                      title={POSTIT_COLORS[cKey].name}
-                                    />
-                                  ))}
+                                <div className="flex items-center gap-0.5 shrink-0">
+                                  {/* Mini Renk Değiştirici */}
+                                  <div className="flex items-center gap-0.5 mr-0.5">
+                                    {(Object.keys(POSTIT_COLORS) as StickyColor[]).map(cKey => (
+                                      <button
+                                        key={cKey}
+                                        type="button"
+                                        onClick={() => updateNoteField(note.id, 'color', cKey)}
+                                        className={`w-2 h-2 rounded-full transition-transform cursor-pointer ${POSTIT_COLORS[cKey].dot} ${
+                                          note.color === cKey ? 'scale-125 ring-1 ring-white' : 'opacity-45 hover:opacity-100'
+                                        }`}
+                                        title={POSTIT_COLORS[cKey].name}
+                                      />
+                                    ))}
+                                  </div>
+
+                                  {/* Bu Notu Kompakt / Tam Boy Yap */}
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleNoteCompact(note.id)}
+                                    className={`p-0.5 rounded transition cursor-pointer ${
+                                      noteIsCompact
+                                        ? 'text-amber-300 bg-amber-400/20'
+                                        : 'text-slate-300 hover:text-white'
+                                    }`}
+                                    title={
+                                      noteIsCompact
+                                        ? 'Tam Boy Göster (Yazının tamamı görünsün)'
+                                        : 'Kompakt Boyuta Küçült'
+                                    }
+                                  >
+                                    {noteIsCompact ? <ChevronsUpDown size={11} /> : <ChevronsDownUp size={11} />}
+                                  </button>
+
+                                  {/* En Üste İğnele */}
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleNotePin(note.id)}
+                                    className={`p-0.5 rounded transition cursor-pointer ${
+                                      note.isPinned
+                                        ? 'text-amber-300 bg-amber-400/20'
+                                        : 'text-slate-400 hover:text-white'
+                                    }`}
+                                    title={note.isPinned ? 'Sabitlemeyi Kaldır' : 'Bu Notu En Üste Sabitle'}
+                                  >
+                                    <Pin size={11} className={note.isPinned ? 'fill-amber-300' : ''} />
+                                  </button>
+
+                                  {/* Panoya Kopyala */}
+                                  <button
+                                    type="button"
+                                    onClick={() => copyNoteToClipboard(note)}
+                                    className="p-0.5 rounded text-slate-300 hover:text-white transition cursor-pointer"
+                                    title="Notu Kopyala"
+                                  >
+                                    {copiedNoteId === note.id ? (
+                                      <Check size={11} className="text-emerald-400" />
+                                    ) : (
+                                      <Copy size={11} />
+                                    )}
+                                  </button>
+
+                                  {/* Notu Sil */}
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteNote(note.id)}
+                                    className="p-0.5 rounded text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                    title="Notu Sil"
+                                  >
+                                    <Trash2 size={11} />
+                                  </button>
                                 </div>
+                              </div>
 
-                                {/* Bu Notu Kompakt / Tam Boy Yap */}
-                                <button
-                                  type="button"
-                                  onClick={() => toggleNoteCompact(note.id)}
-                                  className={`p-0.5 rounded transition cursor-pointer ${
-                                    noteIsCompact
-                                      ? 'text-amber-300 bg-amber-400/20'
-                                      : 'text-slate-300 hover:text-white'
-                                  }`}
-                                  title={
-                                    noteIsCompact
-                                      ? 'Tam Boy Göster (Yazının tamamı görünsün)'
-                                      : 'Kompakt Boyuta Küçült'
-                                  }
-                                >
-                                  {noteIsCompact ? <ChevronsUpDown size={11} /> : <ChevronsDownUp size={11} />}
-                                </button>
-
-                                {/* En Üste İğnele */}
-                                <button
-                                  type="button"
-                                  onClick={() => toggleNotePin(note.id)}
-                                  className={`p-0.5 rounded transition cursor-pointer ${
-                                    note.isPinned
-                                      ? 'text-amber-300 bg-amber-400/20'
-                                      : 'text-slate-400 hover:text-white'
-                                  }`}
-                                  title={note.isPinned ? 'Sabitlemeyi Kaldır' : 'Bu Notu En Üste Sabitle'}
-                                >
-                                  <Pin size={11} className={note.isPinned ? 'fill-amber-300' : ''} />
-                                </button>
-
-                                {/* Panoya Kopyala */}
-                                <button
-                                  type="button"
-                                  onClick={() => copyNoteToClipboard(note)}
-                                  className="p-0.5 rounded text-slate-300 hover:text-white transition cursor-pointer"
-                                  title="Notu Kopyala"
-                                >
-                                  {copiedNoteId === note.id ? (
-                                    <Check size={11} className="text-emerald-400" />
-                                  ) : (
-                                    <Copy size={11} />
-                                  )}
-                                </button>
-
-                                {/* Notu Sil */}
-                                <button
-                                  type="button"
-                                  onClick={() => deleteNote(note.id)}
-                                  className="p-0.5 rounded text-slate-400 hover:text-rose-400 transition cursor-pointer"
-                                  title="Notu Sil"
-                                >
-                                  <Trash2 size={11} />
-                                </button>
+                              {/* Post-it Not Gövdesi (İçeriğe Göre Otomatik Uzayan veya Kompakt) */}
+                              <div className="p-2.5 flex flex-col justify-between">
+                                <AutoExpandingNoteTextarea
+                                  value={note.content}
+                                  isCompact={noteIsCompact}
+                                  onChange={val => updateNoteField(note.id, 'content', val)}
+                                  placeholder="Notunuzu buraya yazın..."
+                                  className={`w-full bg-transparent text-[11.5px] leading-relaxed focus:outline-none ${theme.bodyText} ${theme.placeholder}`}
+                                />
+                                <div className="flex items-center justify-between text-[8.5px] text-slate-400/80 mt-1 pt-1 border-t border-white/5 font-mono shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleNoteCompact(note.id)}
+                                    className="hover:text-amber-300 transition cursor-pointer flex items-center gap-0.5"
+                                    title={noteIsCompact ? 'Tam boy açmak için tıklayın' : 'Kompakt boyuta küçültmek için tıklayın'}
+                                  >
+                                    <span>{note.isPinned ? '📌 Sabitli' : '📝 Post-it'}</span>
+                                    <span>• {noteIsCompact ? '↕ Tam Aç' : '↕ Kompakt Yap'}</span>
+                                  </button>
+                                  <span>{formatDateTimeShortTR(note.updatedAt)}</span>
+                                </div>
                               </div>
                             </div>
-
-                            {/* Post-it Not Gövdesi (İçeriğe Göre Otomatik Uzayan veya Kompakt) */}
-                            <div className="p-2.5 flex-1 flex flex-col justify-between">
-                              <AutoExpandingNoteTextarea
-                                value={note.content}
-                                isCompact={noteIsCompact}
-                                onChange={val => updateNoteField(note.id, 'content', val)}
-                                placeholder="Notunuzu buraya yazın..."
-                                className={`w-full bg-transparent text-[11.5px] leading-relaxed focus:outline-none ${theme.bodyText} ${theme.placeholder}`}
-                              />
-                              <div className="flex items-center justify-between text-[8.5px] text-slate-400/80 mt-1 pt-1 border-t border-white/5 font-mono">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleNoteCompact(note.id)}
-                                  className="hover:text-amber-300 transition cursor-pointer flex items-center gap-0.5"
-                                  title={noteIsCompact ? 'Tam boy açmak için tıklayın' : 'Kompakt boyuta küçültmek için tıklayın'}
-                                >
-                                  <span>{note.isPinned ? '📌 Sabitli' : '📝 Post-it'}</span>
-                                  <span>• {noteIsCompact ? '↕ Tam Aç' : '↕ Kompakt Yap'}</span>
-                                </button>
-                                <span>{formatDateTimeShortTR(note.updatedAt)}</span>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })
+                          )
+                        })}
+                      </div>
                     )}
                   </div>
                 </div>
