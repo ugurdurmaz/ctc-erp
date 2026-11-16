@@ -23,15 +23,15 @@ type CardTx = { id: string; card_id: string; company_id?: string | null; tx_date
 type LoanDetail = { id: string; loan_name: string; bank_name: string; principal_amount: number; remaining_principal: number; monthly_installment: number; currency?: string; company_id: string | null; status: string; installments_plan: any[] }
 type CustomerDetail = { id: string; name: string; balance: number; currency: string }
 type SupplierDetail = { id: string; company_name: string; balance: number; currency: string }
-type RawStock = { id?: string; quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
+type RawStock = { id?: string; product_name?: string; quantity: number; unit_price: number; vat_rate: number; currency: string; warehouse_id: string }
 type Warehouse = { id: string; name: string; company_id: string | null }
 type ExpenseTransaction = { id: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; tx_date: string; description?: string; created_at: string; transfer_id?: string | null; category_id?: string | null; payment_source_type?: string | null; payment_source_id?: string | null; category?: any }
 type Company = { id: string; name: string; is_personal: boolean }
 
 type CustTx = { id: string; tx_date: string; description: string; customer_id: string; tx_type: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; invoice_lines?: any[]; created_at: string }
 type SuppTx = { id: string; tx_date: string; description: string; supplier_id: string; tx_type: string; amount: number; currency?: string; exchange_rate: number; company_id: string | null; created_at: string }
-type StockTx = { id?: string; stock_id?: string | null; tx_date: string; tx_type: string; quantity: number; unit_price: number; currency: string; vat_rate?: number; company_id: string | null }
-type SubTx = { start_date: string; cost_price: number; sale_price: number; currency: string; company_id: string | null }
+type StockTx = { id?: string; stock_id?: string | null; tx_date: string; tx_type: string; quantity: number; unit_price: number; currency: string; vat_rate?: number; description?: string; company_id: string | null }
+type SubTx = { id?: string; username?: string; full_name?: string; reference_note?: string; start_date: string; cost_price: number; credit_cost?: number; sale_price: number; currency: string; company_id: string | null }
 type PosTx = { id: string; date: string; category_id: string; cash: number; card: number; cost: number; stock_id: string | null; company_id: string | null; description?: string | null }
 type TechTicket = { id: string; ticket_no: string; brand_model: string; customer_name: string; status: string; total_cost: number; parts_cost: number; labor_cost: number; payment_method?: string | null; delivered_at: string | null; company_id: string | null; created_at: string }
 
@@ -115,6 +115,8 @@ export default function Home() {
 
   // Kâr / Zarar (P&L) ve Performans Analizi Periyodu
   const [pnlPeriod, setPnlPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
+  const [hoveredChartPointKey, setHoveredChartPointKey] = useState<string | null>(null)
+  const [hoveredChartMetric, setHoveredChartMetric] = useState<'revenue' | 'cost' | 'expense' | 'posProfit' | 'interest' | null>(null)
 
   // Ana Analiz Sekmesi: 'pnl' (Kâr/Zarar) | 'stock' (Depo & Stok Değer Analizi)
   const [analyticsTab, setAnalyticsTab] = useState<'pnl' | 'stock'>('pnl')
@@ -229,7 +231,7 @@ export default function Home() {
       const { data: whData } = await supabase.from('warehouses').select('id, name, company_id')
       setWarehouses(whData || [])
 
-      const { data: stockData } = await supabase.from('stocks').select('id, quantity, unit_price, vat_rate, currency, warehouse_id')
+      const { data: stockData } = await supabase.from('stocks').select('id, product_name, quantity, unit_price, vat_rate, currency, warehouse_id')
       setRawStocks(stockData || [])
 
       const { data: expData } = await supabase.from('expense_transactions').select('id, amount, currency, exchange_rate, company_id, tx_date, description, created_at, transfer_id, category_id, payment_source_type, payment_source_id, category:expense_categories(name)')
@@ -238,10 +240,10 @@ export default function Home() {
       const { data: compData } = await supabase.from('companies').select('id, name, is_personal')
       setCompanies(compData || [])
 
-      const { data: stxData } = await supabase.from('stock_transactions').select('id, stock_id, tx_date, tx_type, quantity, unit_price, currency, vat_rate, company_id')
+      const { data: stxData } = await supabase.from('stock_transactions').select('id, stock_id, tx_date, tx_type, quantity, unit_price, currency, vat_rate, description, company_id')
       setStockTxs(stxData || [])
 
-      const { data: subData } = await supabase.from('credit_subscriptions').select('start_date, cost_price, sale_price, currency, company_id')
+      const { data: subData } = await supabase.from('credit_subscriptions').select('id, username, full_name, reference_note, start_date, cost_price, credit_cost, sale_price, currency, company_id')
       setSubscriptions(subData || [])
 
       const { data: posData } = await supabase.from('pos_transactions').select('id, date, category_id, cash, card, cost, stock_id, company_id, description')
@@ -670,6 +672,31 @@ export default function Home() {
     const fullMonthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
     const dayNames = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"]
 
+    const posCategoryLabels: Record<string, string> = {
+      aksesuar: 'Aksesuar & Sarf',
+      oyun_prog: 'Oyun & Program',
+      dvd_harici: 'DVD & Hariciye',
+      orjinal: 'Orijinal Film/Oyun',
+      diger: 'Diğer Hizmet/Gelir',
+      servis: 'Servis Satışı',
+      fotokopi: 'Fotokopi / Baskı',
+      gider: 'Mağaza Gideri'
+    }
+
+    const getCompLabel = (compId: string | null | undefined) => {
+      if (!compId) return 'Ortak / Bağımsız'
+      return companies.find(c => c.id === compId)?.name || 'Merkez'
+    }
+
+    interface PnlBreakdownItem {
+      id: string
+      category: string
+      title: string
+      subtitle?: string
+      companyName: string
+      amount: number
+    }
+
     interface Point {
       key: string
       label: string
@@ -686,6 +713,11 @@ export default function Home() {
       posCost: number
       posProfit: number
       interestRev: number
+      revenueDetails: PnlBreakdownItem[]
+      costDetails: PnlBreakdownItem[]
+      expenseDetails: PnlBreakdownItem[]
+      posProfitDetails: PnlBreakdownItem[]
+      interestDetails: PnlBreakdownItem[]
       isCurrent: boolean
       isFuture?: boolean
     }
@@ -729,6 +761,11 @@ export default function Home() {
           posCost: 0,
           posProfit: 0,
           interestRev: 0,
+          revenueDetails: [],
+          costDetails: [],
+          expenseDetails: [],
+          posProfitDetails: [],
+          interestDetails: [],
           isCurrent: i === 0
         })
       }
@@ -768,6 +805,11 @@ export default function Home() {
           posCost: 0,
           posProfit: 0,
           interestRev: 0,
+          revenueDetails: [],
+          costDetails: [],
+          expenseDetails: [],
+          posProfitDetails: [],
+          interestDetails: [],
           isCurrent: i === 0
         })
       }
@@ -804,6 +846,11 @@ export default function Home() {
           posCost: 0,
           posProfit: 0,
           interestRev: 0,
+          revenueDetails: [],
+          costDetails: [],
+          expenseDetails: [],
+          posProfitDetails: [],
+          interestDetails: [],
           isCurrent: isToday,
           isFuture
         })
@@ -827,50 +874,169 @@ export default function Home() {
     customerTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'debt' && (!t.company_id || !companies.find(c => c.id === t.company_id)?.is_personal) && !t.description?.toLowerCase().includes('açılış') && !t.description?.toLowerCase().includes('devir')).forEach(tx => {
       const dStr = tx.tx_date || tx.created_at
       const pt = findPoint(dStr)
-      if (pt) pt.revenue += tx.amount * (tx.exchange_rate || 1)
+      if (pt) {
+        const val = tx.amount * (tx.exchange_rate || 1)
+        pt.revenue += val
+        const custName = customers.find(c => c.id === tx.customer_id)?.name || 'Müşteri'
+        pt.revenueDetails.push({
+          id: `cust_${tx.id}`,
+          category: 'Cari Fatura / Satış',
+          title: `${custName} — ${tx.description || 'Cari Satış'}`,
+          subtitle: dStr ? formatDateTR(dStr.substring(0, 10)) : undefined,
+          companyName: getCompLabel(tx.company_id),
+          amount: val
+        })
+      }
     })
-    subscriptions.filter(s => isMatch(s.company_id)).forEach(sub => {
+    subscriptions.filter(s => isMatch(s.company_id)).forEach((sub, idx) => {
       const pt = findPoint(sub.start_date)
       if (pt) {
-        pt.revenue += getTryEquivalent(sub.sale_price, sub.currency || 'TRY')
-        pt.cost += getTryEquivalent(sub.cost_price, sub.currency || 'TRY')
+        const revVal = getTryEquivalent(sub.sale_price, sub.currency || 'TRY')
+        const costVal = getTryEquivalent(sub.cost_price || sub.credit_cost || 0, sub.currency || 'TRY')
+        pt.revenue += revVal
+        pt.cost += costVal
+        const subTitle = `${sub.username || sub.full_name || 'Abonelik'}${sub.reference_note ? ` (${sub.reference_note})` : ''}`
+        if (revVal > 0) {
+          pt.revenueDetails.push({
+            id: `sub_rev_${sub.id || idx}`,
+            category: 'Abonelik (tvghost)',
+            title: subTitle,
+            subtitle: sub.start_date ? formatDateTR(sub.start_date) : undefined,
+            companyName: getCompLabel(sub.company_id),
+            amount: revVal
+          })
+        }
+        if (costVal > 0) {
+          pt.costDetails.push({
+            id: `sub_cost_${sub.id || idx}`,
+            category: 'Abonelik Kredi SMM',
+            title: `${subTitle} — Kredi Maliyeti`,
+            subtitle: sub.start_date ? formatDateTR(sub.start_date) : undefined,
+            companyName: getCompLabel(sub.company_id),
+            amount: costVal
+          })
+        }
       }
     })
 
     // 2. Stok ve Abonelik Maliyetleri
-    stockTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'out').forEach(tx => {
+    stockTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'out').forEach((tx, idx) => {
       const pt = findPoint(tx.tx_date)
-      if (pt) pt.cost += getTryEquivalent(tx.quantity * tx.unit_price, tx.currency || 'TRY')
+      if (pt) {
+        const costVal = getTryEquivalent(tx.quantity * tx.unit_price, tx.currency || 'TRY')
+        pt.cost += costVal
+        if (costVal > 0) {
+          const stkName = rawStocks.find(s => s.id === tx.stock_id)?.product_name || 'Stok / Yedek Parça'
+          pt.costDetails.push({
+            id: `stx_${tx.id || idx}`,
+            category: 'Stok / Parça Çıkışı',
+            title: `${stkName} (${tx.quantity} Adet)`,
+            subtitle: tx.description || (tx.tx_date ? formatDateTR(tx.tx_date) : undefined),
+            companyName: getCompLabel(tx.company_id),
+            amount: costVal
+          })
+        }
+      }
     })
 
     // 3. Ticari Giderler ve POS Komisyon Kesintileri
     commercialExpensesList.forEach(exp => {
       const dStr = exp.tx_date || exp.created_at
       const pt = findPoint(dStr)
-      if (pt) pt.expense += exp.amount * (exp.exchange_rate || 1)
+      if (pt) {
+        const val = exp.amount * (exp.exchange_rate || 1)
+        pt.expense += val
+        const rawCat = exp.category?.name || ''
+        const cleanCat = rawCat.startsWith('REC_TEMPLATE::') ? 'Sabit Gider' : (rawCat || 'Genel Gider')
+        let sourceName = ''
+        if (exp.payment_source_type === 'cash') {
+          sourceName = cashes.find(c => c.id === exp.payment_source_id)?.name || 'Nakit Kasa'
+        } else if (exp.payment_source_type === 'bank') {
+          const b = banks.find(x => x.id === exp.payment_source_id)
+          sourceName = b ? `${b.bank_name} (${b.account_name})` : 'Banka Hesabı'
+        } else if (exp.payment_source_type === 'card') {
+          sourceName = cards.find(c => c.id === exp.payment_source_id)?.name || 'Kredi Kartı'
+        }
+        pt.expenseDetails.push({
+          id: `exp_${exp.id}`,
+          category: cleanCat,
+          title: (exp.description || cleanCat).replace(/\s*\[[^\]]+\]/g, ''),
+          subtitle: [sourceName ? `Kaynak: ${sourceName}` : '', dStr ? formatDateTR(dStr.substring(0, 10)) : ''].filter(Boolean).join(' • '),
+          companyName: getCompLabel(exp.company_id),
+          amount: val
+        })
+      }
     })
     bankCommTxs.filter(t => isMatch(t.company_id)).forEach(comm => {
       const dStr = comm.tx_date || comm.created_at
       const pt = findPoint(dStr)
-      if (pt) pt.expense += comm.amount * (comm.exchange_rate || 1)
+      if (pt) {
+        const val = comm.amount * (comm.exchange_rate || 1)
+        pt.expense += val
+        pt.expenseDetails.push({
+          id: `comm_${comm.id}`,
+          category: 'POS Komisyon Kesintisi',
+          title: comm.description || 'Z-Raporu POS Komisyonu',
+          subtitle: dStr ? formatDateTR(dStr.substring(0, 10)) : undefined,
+          companyName: getCompLabel(comm.company_id),
+          amount: val
+        })
+      }
     })
 
     // 4. Mağaza Satış (POS) P&L Entegrasyonu (Çifte Sayım Korumalı)
     posTxs.filter(t => isMatch(t.company_id)).forEach(tx => {
       const pt = findPoint(tx.date)
       if (pt) {
-        const amount = Number(tx.cash || 0) + Number(tx.card || 0)
+        const cashAmt = Number(tx.cash || 0)
+        const cardAmt = Number(tx.card || 0)
+        const amount = cashAmt + cardAmt
         if (tx.category_id === 'gider') {
           if (!tx.description?.includes('[EXP-') && !tx.description?.startsWith('Gider Ödemesi')) {
             pt.expense += amount
+            const isSuppPay = tx.description?.includes('[SUPP-') || tx.description?.startsWith('Tedarikçi Ödemesi')
+            pt.expenseDetails.push({
+              id: `pos_exp_${tx.id}`,
+              category: isSuppPay ? 'Mağaza Kasa (Tedarikçi Öd.)' : 'Mağaza Günlük Gider',
+              title: (tx.description || 'Mağaza Kasa Çıkışı').replace(/\s*\[SUPP-[^\]]+\]/g, ''),
+              subtitle: `Kaynak: Mağaza POS Kasa${tx.date ? ` • ${formatDateTR(tx.date)}` : ''}`,
+              companyName: getCompLabel(tx.company_id),
+              amount
+            })
           }
         } else {
           pt.revenue += amount
           pt.posRev += amount
           const cost = Number(tx.cost || 0)
           pt.posCost += cost
-          if (!tx.stock_id) {
+          const catLabel = posCategoryLabels[tx.category_id] || 'Mağaza Satışı'
+          const payMethodLabel = cashAmt > 0 && cardAmt > 0 ? 'Nakit + Kart' : cardAmt > 0 ? 'Kredi Kartı' : 'Nakit'
+          pt.revenueDetails.push({
+            id: `pos_rev_${tx.id}`,
+            category: `POS: ${catLabel}`,
+            title: tx.description || catLabel,
+            subtitle: `${payMethodLabel}${tx.date ? ` • ${formatDateTR(tx.date)}` : ''}`,
+            companyName: getCompLabel(tx.company_id),
+            amount
+          })
+          pt.posProfitDetails.push({
+            id: `pos_prf_${tx.id}`,
+            category: catLabel,
+            title: tx.description || catLabel,
+            subtitle: `Satış: ${formatMoney(amount, 'TRY').formatted} • Maliyet: ${formatMoney(cost, 'TRY').formatted}`,
+            companyName: getCompLabel(tx.company_id),
+            amount: amount - cost
+          })
+          if (!tx.stock_id && cost > 0) {
             pt.cost += cost
+            pt.costDetails.push({
+              id: `pos_cost_${tx.id}`,
+              category: `POS Ürün Maliyeti (${catLabel})`,
+              title: `${tx.description || catLabel}`,
+              subtitle: `Satış Tutarı: ${formatMoney(amount, 'TRY').formatted}`,
+              companyName: getCompLabel(tx.company_id),
+              amount: cost
+            })
           }
         }
       }
@@ -880,12 +1046,26 @@ export default function Home() {
     techTickets.filter(t => isMatch(t.company_id) && t.status === 'delivered' && t.payment_method !== 'free').forEach(ticket => {
       const dStr = ticket.delivered_at || ticket.created_at
       const pt = findPoint(dStr)
-      if (pt) pt.revenue += Number(ticket.total_cost || 0)
+      if (pt) {
+        const val = Number(ticket.total_cost || 0)
+        pt.revenue += val
+        if (val > 0) {
+          pt.revenueDetails.push({
+            id: `srv_${ticket.id}`,
+            category: 'Teknik Servis',
+            title: `${ticket.ticket_no} — ${ticket.customer_name || 'Müşteri'} (${ticket.brand_model || 'Cihaz'})`,
+            subtitle: `${ticket.payment_method === 'card' ? 'Kredi Kartı' : 'Nakit'}${dStr ? ` • ${formatDateTR(dStr.substring(0, 10))}` : ''}`,
+            companyName: getCompLabel(ticket.company_id),
+            amount: val
+          })
+        }
+      }
     })
 
     // 6. Faiz & Finansman Gelirleri (Mevduat / Günlük Faiz Geliri)
     bankInterestTxs.forEach(tx => {
-      const compId = tx.company_id || banks.find(b => b.id === tx.bank_account_id)?.company_id || null
+      const bankObj = banks.find(b => b.id === tx.bank_account_id)
+      const compId = tx.company_id || bankObj?.company_id || null
       if (!isMatch(compId)) return
       const dStr = tx.tx_date || tx.created_at
       const pt = findPoint(dStr)
@@ -893,6 +1073,16 @@ export default function Home() {
         const val = tx.amount * (tx.exchange_rate || 1)
         pt.revenue += val
         pt.interestRev += val
+        const itemObj: PnlBreakdownItem = {
+          id: `int_${tx.id}`,
+          category: 'Mevduat Faiz Geliri',
+          title: tx.description || 'Günlük Faiz Geliri',
+          subtitle: bankObj ? `${bankObj.bank_name} (${bankObj.account_name})` : undefined,
+          companyName: getCompLabel(compId),
+          amount: val
+        }
+        pt.revenueDetails.push(itemObj)
+        pt.interestDetails.push(itemObj)
       }
     })
 
@@ -931,7 +1121,7 @@ export default function Home() {
       profitTrend,
       posProfitTrend
     }
-  }, [pnlPeriod, customerTxs, subscriptions, stockTxs, commercialExpensesList, posTxs, techTickets, bankInterestTxs, banks, companies, isMatch, rates])
+  }, [pnlPeriod, customerTxs, customers, rawStocks, cashes, cards, bankCommTxs, subscriptions, stockTxs, commercialExpensesList, posTxs, techTickets, bankInterestTxs, banks, companies, isMatch, rates])
 
   const stockValuationData = useMemo(() => {
     const now = new Date()
@@ -1817,8 +2007,8 @@ export default function Home() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* SOL 2 KOLON: P&L VE STOK DEĞER ANALİZİ SEKMELERİ */}
-          <div style={{ animation: 'fadeInUp 0.5s both 0.15s' }} className="lg:col-span-2 bg-[#0d1322] border border-slate-800/80 rounded-xl p-4 shadow-xl relative overflow-hidden flex flex-col h-full min-h-[616px] justify-between">
-            <div className={`absolute top-0 left-0 h-1 w-full transition-all duration-300 ${
+          <div style={{ animation: 'fadeInUp 0.5s both 0.15s' }} className="lg:col-span-2 bg-[#0d1322] border border-slate-800/80 rounded-xl p-4 shadow-xl relative overflow-visible flex flex-col h-full min-h-[616px] justify-between">
+            <div className={`absolute top-0 left-0 h-1 w-full rounded-t-xl transition-all duration-300 ${
               analyticsTab === 'pnl'
                 ? 'bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500'
                 : 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500'
@@ -2059,30 +2249,246 @@ export default function Home() {
                 {/* --- ORTA: P&L DİNAMİK ÇUBUK GRAFİĞİ --- */}
                 <div className="pt-3 border-t border-slate-800/60 flex-1 flex items-end min-h-[160px] pb-2">
                   <div className={`flex items-end h-full w-full ${pnlPeriod === 'daily' ? 'gap-0.5 sm:gap-1' : 'gap-1 sm:gap-1.5 md:gap-2'}`}>
-                    {pnlData.points.map((pt) => {
+                    {pnlData.points.map((pt, ptIdx) => {
                       const totalOut = pt.cost + pt.expense
                       const revHeight = Math.max((pt.revenue / pnlData.maxVal) * 100, 2)
                       const outHeight = Math.max((totalOut / pnlData.maxVal) * 100, 2)
+                      const isPointHovered = hoveredChartPointKey === pt.key
+                      const openDetailOnLeft = ptIdx >= Math.floor(pnlData.points.length * 0.55)
+                      const tooltipPosClass =
+                        ptIdx <= 2
+                          ? 'left-0'
+                          : ptIdx >= pnlData.points.length - 3
+                            ? 'right-0'
+                            : 'left-1/2 -translate-x-1/2'
+
+                      const activeMetricConfig = (() => {
+                        if (!isPointHovered || !hoveredChartMetric) return null
+                        if (hoveredChartMetric === 'revenue') {
+                          return {
+                            title: 'Ciro / Gelir Dökümü',
+                            colorText: 'text-blue-400',
+                            borderColor: 'border-blue-500/40',
+                            badgeBg: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+                            total: pt.revenue,
+                            items: [...pt.revenueDetails].sort((a, b) => b.amount - a.amount)
+                          }
+                        }
+                        if (hoveredChartMetric === 'cost') {
+                          return {
+                            title: 'Satış Maliyeti (SMM) Dökümü',
+                            colorText: 'text-orange-400',
+                            borderColor: 'border-orange-500/40',
+                            badgeBg: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+                            total: pt.cost,
+                            items: [...pt.costDetails].sort((a, b) => b.amount - a.amount)
+                          }
+                        }
+                        if (hoveredChartMetric === 'expense') {
+                          return {
+                            title: 'İşletme Giderleri Dökümü',
+                            colorText: 'text-purple-400',
+                            borderColor: 'border-purple-500/40',
+                            badgeBg: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+                            total: pt.expense,
+                            items: [...pt.expenseDetails].sort((a, b) => b.amount - a.amount)
+                          }
+                        }
+                        if (hoveredChartMetric === 'posProfit') {
+                          return {
+                            title: 'Mağaza (POS) Kâr Dökümü',
+                            colorText: 'text-cyan-400',
+                            borderColor: 'border-cyan-500/40',
+                            badgeBg: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+                            total: pt.posProfit,
+                            items: [...pt.posProfitDetails].sort((a, b) => b.amount - a.amount)
+                          }
+                        }
+                        if (hoveredChartMetric === 'interest') {
+                          return {
+                            title: 'Faiz & Finansman Dökümü',
+                            colorText: 'text-emerald-400',
+                            borderColor: 'border-emerald-500/40',
+                            badgeBg: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+                            total: pt.interestRev,
+                            items: [...pt.interestDetails].sort((a, b) => b.amount - a.amount)
+                          }
+                        }
+                        return null
+                      })()
+
                       return (
-                        <div key={pt.key} className="flex-1 flex flex-col justify-end items-center gap-1 group relative h-full min-w-0">
-                            <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#070b14] border border-slate-700 rounded-lg p-2 text-[10px] font-mono shadow-2xl z-20 w-44 pointer-events-none">
-                              <div className="text-white font-bold pb-1 mb-1 border-b border-slate-800 text-[10px]">{pt.fullLabel}</div>
-                              <div className="text-blue-400">Ciro: {formatMoney(pt.revenue, 'TRY').formatted}</div>
-                              <div className="text-orange-400">Maliyet: {formatMoney(pt.cost, 'TRY').formatted}</div>
-                              <div className="text-purple-400 border-b border-slate-700/50 pb-1 mb-1">Gider: {formatMoney(pt.expense, 'TRY').formatted}</div>
-                              {pt.posRev > 0 && (
-                                <div className="text-cyan-400 text-[9px] mb-1">Mağaza Kârı: {formatMoney(pt.posProfit, 'TRY').formatted}</div>
-                              )}
-                              {pt.interestRev > 0 && (
-                                <div className="text-emerald-400 text-[9px] mb-1">Faiz/Finansman: +{formatMoney(pt.interestRev, 'TRY').formatted}</div>
-                              )}
-                              <div className={pt.profit >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                                Net: {formatMoney(pt.profit, 'TRY').formatted}
+                        <div
+                          key={pt.key}
+                          onMouseEnter={() => {
+                            setHoveredChartPointKey(pt.key)
+                          }}
+                          onMouseLeave={() => {
+                            setHoveredChartPointKey(prev => (prev === pt.key ? null : prev))
+                            setHoveredChartMetric(null)
+                          }}
+                          className="flex-1 flex flex-col justify-end items-center gap-1 group relative h-full min-w-0"
+                        >
+                            {/* 1. AŞAMA TOOLTIP + 2. AŞAMA DETAY PENCERESİ */}
+                            {isPointHovered && (
+                              <div className={`absolute bottom-full pb-2 ${tooltipPosClass} z-50`}>
+                                <div className="relative bg-[#070b14] border border-slate-700 rounded-xl p-2.5 text-[10px] font-mono shadow-2xl w-52">
+                                  <div className="text-white font-bold pb-1.5 mb-1.5 border-b border-slate-800 text-[10.5px] flex items-center justify-between gap-1">
+                                    <span>{pt.fullLabel}</span>
+                                    <span className="text-[8.5px] font-sans font-normal text-slate-400">Detay için satıra gelin</span>
+                                  </div>
+
+                                  {/* CİRO SATIRI */}
+                                  <div
+                                    onMouseEnter={() => setHoveredChartMetric('revenue')}
+                                    className={`flex items-center justify-between px-1.5 py-0.5 -mx-1 rounded cursor-pointer transition-colors ${
+                                      hoveredChartMetric === 'revenue'
+                                        ? 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/40'
+                                        : 'text-blue-400 hover:bg-slate-800/80'
+                                    }`}
+                                  >
+                                    <span>Ciro: {formatMoney(pt.revenue, 'TRY').formatted}</span>
+                                    {pt.revenueDetails.length > 0 && (
+                                      <span className="text-[8.5px] text-blue-300/80 font-sans">({pt.revenueDetails.length}) ▸</span>
+                                    )}
+                                  </div>
+
+                                  {/* MALİYET SATIRI */}
+                                  <div
+                                    onMouseEnter={() => setHoveredChartMetric('cost')}
+                                    className={`flex items-center justify-between px-1.5 py-0.5 -mx-1 rounded cursor-pointer transition-colors ${
+                                      hoveredChartMetric === 'cost'
+                                        ? 'bg-orange-500/20 text-orange-300 ring-1 ring-orange-500/40'
+                                        : 'text-orange-400 hover:bg-slate-800/80'
+                                    }`}
+                                  >
+                                    <span>Maliyet: {formatMoney(pt.cost, 'TRY').formatted}</span>
+                                    {pt.costDetails.length > 0 && (
+                                      <span className="text-[8.5px] text-orange-300/80 font-sans">({pt.costDetails.length}) ▸</span>
+                                    )}
+                                  </div>
+
+                                  {/* GİDER SATIRI */}
+                                  <div
+                                    onMouseEnter={() => setHoveredChartMetric('expense')}
+                                    className={`flex items-center justify-between px-1.5 py-0.5 -mx-1 mb-1 rounded cursor-pointer transition-colors ${
+                                      hoveredChartMetric === 'expense'
+                                        ? 'bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/40'
+                                        : 'text-purple-400 hover:bg-slate-800/80'
+                                    }`}
+                                  >
+                                    <span>Gider: {formatMoney(pt.expense, 'TRY').formatted}</span>
+                                    {pt.expenseDetails.length > 0 && (
+                                      <span className="text-[8.5px] text-purple-300/80 font-sans">({pt.expenseDetails.length}) ▸</span>
+                                    )}
+                                  </div>
+
+                                  <div className="border-t border-slate-800 pt-1 mt-0.5 space-y-0.5">
+                                    {/* MAĞAZA KÂRI SATIRI */}
+                                    {pt.posRev > 0 && (
+                                      <div
+                                        onMouseEnter={() => setHoveredChartMetric('posProfit')}
+                                        className={`flex items-center justify-between px-1.5 py-0.5 -mx-1 rounded text-[9.5px] cursor-pointer transition-colors ${
+                                          hoveredChartMetric === 'posProfit'
+                                            ? 'bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-500/40'
+                                            : 'text-cyan-400 hover:bg-slate-800/80'
+                                        }`}
+                                      >
+                                        <span>Mağaza Kârı: {formatMoney(pt.posProfit, 'TRY').formatted}</span>
+                                        {pt.posProfitDetails.length > 0 && (
+                                          <span className="text-[8px] text-cyan-300/80 font-sans">({pt.posProfitDetails.length}) ▸</span>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* FAİZ / FİNANSMAN SATIRI */}
+                                    {pt.interestRev > 0 && (
+                                      <div
+                                        onMouseEnter={() => setHoveredChartMetric('interest')}
+                                        className={`flex items-center justify-between px-1.5 py-0.5 -mx-1 rounded text-[9.5px] cursor-pointer transition-colors ${
+                                          hoveredChartMetric === 'interest'
+                                            ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
+                                            : 'text-emerald-400 hover:bg-slate-800/80'
+                                        }`}
+                                      >
+                                        <span>Faiz/Finansman: +{formatMoney(pt.interestRev, 'TRY').formatted}</span>
+                                        {pt.interestDetails.length > 0 && (
+                                          <span className="text-[8px] text-emerald-300/80 font-sans">({pt.interestDetails.length}) ▸</span>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* NET KÂR VE MARJ */}
+                                    <div
+                                      onMouseEnter={() => setHoveredChartMetric(null)}
+                                      className={`pt-0.5 ${pt.profit >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}`}
+                                    >
+                                      Net: {formatMoney(pt.profit, 'TRY').formatted}
+                                    </div>
+                                    {pt.revenue > 0 && (
+                                      <div className="text-slate-400 text-[9px]">Marj: %{pt.marginPct.toFixed(1)}</div>
+                                    )}
+                                  </div>
+
+                                  {/* 2. AŞAMA: RAKAMI OLUŞTURAN KALEMLERİN DETAY PENCERESİ */}
+                                  {activeMetricConfig && (
+                                    <div
+                                      className={`absolute top-0 ${
+                                        openDetailOnLeft ? 'right-full pr-1.5' : 'left-full pl-1.5'
+                                      } z-50 w-72 sm:w-80`}
+                                    >
+                                      <div className={`bg-[#090e1a] border ${activeMetricConfig.borderColor} rounded-xl p-2.5 shadow-2xl font-sans`}>
+                                        <div className="flex items-center justify-between gap-2 pb-1.5 mb-2 border-b border-slate-800">
+                                          <span className={`text-[10.5px] font-black uppercase tracking-wide ${activeMetricConfig.colorText}`}>
+                                            {activeMetricConfig.title}
+                                          </span>
+                                          <span className={`text-[10px] font-mono font-bold ${activeMetricConfig.colorText}`}>
+                                            {formatMoney(activeMetricConfig.total, 'TRY').formatted}
+                                          </span>
+                                        </div>
+
+                                        {activeMetricConfig.items.length === 0 ? (
+                                          <div className="py-3 text-center text-[10px] text-slate-500">
+                                            Bu kaleme ait işlem kaydı bulunmuyor.
+                                          </div>
+                                        ) : (
+                                          <div className="max-h-56 overflow-y-auto custom-scrollbar space-y-1.5 pr-0.5">
+                                            {activeMetricConfig.items.map(item => (
+                                              <div
+                                                key={item.id}
+                                                className="bg-[#0f172a] border border-slate-800/90 rounded-lg p-2 text-[10px]"
+                                              >
+                                                <div className="flex items-center justify-between gap-1.5 mb-1">
+                                                  <div className="flex items-center gap-1 min-w-0 flex-wrap">
+                                                    <span className="text-[8.5px] font-bold px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700 truncate max-w-[115px]">
+                                                      {item.companyName}
+                                                    </span>
+                                                    <span className={`text-[8.5px] font-bold px-1.5 py-0.2 rounded border truncate max-w-[125px] ${activeMetricConfig.badgeBg}`}>
+                                                      {item.category}
+                                                    </span>
+                                                  </div>
+                                                  <span className={`font-mono font-bold shrink-0 ${activeMetricConfig.colorText}`}>
+                                                    {formatMoney(item.amount, 'TRY').formatted}
+                                                  </span>
+                                                </div>
+                                                <div className="text-slate-200 font-medium leading-snug break-words">
+                                                  {item.title}
+                                                </div>
+                                                {item.subtitle && (
+                                                  <div className="text-[9px] text-slate-400 mt-0.5 font-mono">
+                                                    {item.subtitle}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                              {pt.revenue > 0 && (
-                                <div className="text-slate-400 text-[9px] mt-0.5">Marj: %{pt.marginPct.toFixed(1)}</div>
-                              )}
-                            </div>
+                            )}
                             <div className={`w-full flex justify-center ${pnlPeriod === 'daily' ? 'gap-0.5' : 'gap-1 sm:gap-1.5'} items-end h-full relative`}>
                               <div
                                 className={`w-1/2 max-w-[22px] rounded-t transition-all duration-700 ease-out shadow-sm ${
