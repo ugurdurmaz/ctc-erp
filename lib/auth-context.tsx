@@ -127,10 +127,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     // 2. Oturum değişikliklerini dinle
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return
       setSession(session)
       setUser(session?.user ?? null)
+      if (event === 'USER_UPDATED') return
       if (session?.user) {
         await fetchProfile(session.user.id, session.user.email)
         setupProfileSubscription(session.user.id)

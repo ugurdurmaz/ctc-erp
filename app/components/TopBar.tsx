@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context'
 import { ROLE_LABELS } from '@/types/auth'
 import { Bell, Search, User, TrendingUp, DollarSign, Euro, AlertCircle, Clock, CheckCircle2, X, LogOut, Users, Shield, ChevronDown, BookOpen } from 'lucide-react'
 import ContextualHelpDrawer from './ContextualHelpDrawer'
+import PersonalStickyNotesPopover from './PersonalStickyNotesPopover'
 
 // Sayfa yollarına göre başlıkları eşleştiriyoruz
 const routeNames: Record<string, string> = {
@@ -204,6 +205,9 @@ export default function TopBar() {
         {/* BİLDİRİM VE PROFİL */}
         <div className="flex items-center gap-3">
           
+          {/* KİŞİSEL POST-IT NOTLAR & YAPILACAKLAR PENCERESİ */}
+          <PersonalStickyNotesPopover />
+
           {/* SAYFAYA ÖZEL AKILLI YARDIM ÇEKMECESİ */}
           <ContextualHelpDrawer />
 
