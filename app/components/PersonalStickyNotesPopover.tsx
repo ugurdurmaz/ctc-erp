@@ -46,6 +46,8 @@ export interface StickyNoteItem {
 export interface UserStickyWorkspace {
   todos: TodoItem[]
   notes: StickyNoteItem[]
+  windowWidth?: number
+  windowHeight?: number
   updatedAt: number
 }
 
@@ -141,6 +143,9 @@ export default function PersonalStickyNotesPopover() {
 
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [notes, setNotes] = useState<StickyNoteItem[]>([])
+  const [windowWidth, setWindowWidth] = useState<number>(420)
+  const [windowHeight, setWindowHeight] = useState<number>(540)
+  const [isResizing, setIsResizing] = useState<boolean>(false)
   const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'loading'>('synced')
 
   // Yeni Yapılacak Ekleme State'leri
@@ -175,6 +180,8 @@ export default function PersonalStickyNotesPopover() {
     if (localData) {
       setTodos(Array.isArray(localData.todos) ? localData.todos : [])
       setNotes(Array.isArray(localData.notes) ? localData.notes : [])
+      if (localData.windowWidth && localData.windowWidth >= 320) setWindowWidth(localData.windowWidth)
+      if (localData.windowHeight && localData.windowHeight >= 320) setWindowHeight(localData.windowHeight)
     }
 
     try {
@@ -188,12 +195,16 @@ export default function PersonalStickyNotesPopover() {
         if (!localData || cloudTime >= localTime) {
           const cTodos = Array.isArray(cloudWorkspace.todos) ? cloudWorkspace.todos : []
           const cNotes = Array.isArray(cloudWorkspace.notes) ? cloudWorkspace.notes : []
+          const cWidth = cloudWorkspace.windowWidth && cloudWorkspace.windowWidth >= 320 ? cloudWorkspace.windowWidth : 420
+          const cHeight = cloudWorkspace.windowHeight && cloudWorkspace.windowHeight >= 320 ? cloudWorkspace.windowHeight : 540
           setTodos(cTodos)
           setNotes(cNotes)
+          setWindowWidth(cWidth)
+          setWindowHeight(cHeight)
           try {
             localStorage.setItem(
               getLocalKey(uid),
-              JSON.stringify({ todos: cTodos, notes: cNotes, updatedAt: cloudTime })
+              JSON.stringify({ todos: cTodos, notes: cNotes, windowWidth: cWidth, windowHeight: cHeight, updatedAt: cloudTime })
             )
           } catch {}
         } else if (localData && localTime > cloudTime) {
@@ -235,11 +246,13 @@ export default function PersonalStickyNotesPopover() {
 
   // Değişiklikleri hem anında localStorage'a hem de debounced olarak Supabase'e kaydet
   const persistWorkspace = useCallback(
-    (nextTodos: TodoItem[], nextNotes: StickyNoteItem[]) => {
+    (nextTodos: TodoItem[], nextNotes: StickyNoteItem[], nextW?: number, nextH?: number) => {
       if (!userId) return
       const payload: UserStickyWorkspace = {
         todos: nextTodos,
         notes: nextNotes,
+        windowWidth: nextW ?? windowWidth,
+        windowHeight: nextH ?? windowHeight,
         updatedAt: Date.now()
       }
 
@@ -263,8 +276,58 @@ export default function PersonalStickyNotesPopover() {
         }
       }, 650)
     },
-    [userId, getLocalKey]
+    [userId, getLocalKey, windowWidth, windowHeight]
   )
+
+  // Fare ile Pencere Boyutlandırma (Sol Kenar, Alt Kenar, Sol-Alt ve Sağ-Alt Köşeler)
+  const startResize = (
+    e: React.MouseEvent,
+    direction: 'left' | 'bottom' | 'bottom-left' | 'bottom-right'
+  ) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsResizing(true)
+
+    const startX = e.clientX
+    const startY = e.clientY
+    const startW = windowWidth
+    const startH = windowHeight
+
+    let latestW = startW
+    let latestH = startH
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX
+      const dy = moveEvent.clientY - startY
+
+      if (direction === 'left' || direction === 'bottom-left') {
+        // Pencere sağa yaslı olduğu için sola çektikçe (-dx) genişlik artar
+        const maxAllowedW = Math.min(920, window.innerWidth - 24)
+        latestW = Math.max(320, Math.min(maxAllowedW, startW - dx))
+        setWindowWidth(latestW)
+      } else if (direction === 'bottom-right') {
+        const maxAllowedW = Math.min(920, window.innerWidth - 24)
+        latestW = Math.max(320, Math.min(maxAllowedW, startW - dx))
+        setWindowWidth(latestW)
+      }
+
+      if (direction === 'bottom' || direction === 'bottom-left' || direction === 'bottom-right') {
+        const maxAllowedH = Math.min(880, window.innerHeight - 80)
+        latestH = Math.max(340, Math.min(maxAllowedH, startH + dy))
+        setWindowHeight(latestH)
+      }
+    }
+
+    const onMouseUp = () => {
+      setIsResizing(false)
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      persistWorkspace(todos, notes, latestW, latestH)
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }
 
   // Sabitlenmemişse dışarı tıklandığında kapat
   useEffect(() => {
@@ -457,12 +520,53 @@ export default function PersonalStickyNotesPopover() {
       {/* ÜZERİNE AÇILAN POST-IT & YAPILACAKLAR PENCERESİ */}
       {isOpen && (
         <div
-          className={`fixed sm:absolute right-2 sm:right-0 top-14 sm:top-12 w-[calc(100vw-16px)] sm:w-[410px] bg-[#0b1120]/95 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden z-[9999] transition-all duration-200 ${
+          style={{
+            width: isMinimized ? 340 : windowWidth,
+            height: isMinimized ? 'auto' : windowHeight,
+            maxWidth: 'calc(100vw - 16px)',
+            maxHeight: 'calc(100vh - 80px)'
+          }}
+          className={`fixed sm:absolute right-2 sm:right-0 top-14 sm:top-12 bg-[#0b1120]/95 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden z-[9999] flex flex-col ${
+            isResizing ? 'select-none transition-none' : 'transition-colors duration-200'
+          } ${
             isPinnedWindow
               ? 'border-amber-400/60 ring-1 ring-amber-400/30 shadow-amber-950/50'
               : 'border-slate-700/90 shadow-black/80'
           }`}
         >
+          {/* FARE İLE BOYUTLANDIRMA KENARLARI VE KÖŞE TUTAMAÇLARI */}
+          {!isMinimized && (
+            <>
+              {/* Sol Kenar (Genişlik Değiştirme) */}
+              <div
+                onMouseDown={e => startResize(e, 'left')}
+                className="absolute left-0 top-10 bottom-4 w-2 cursor-ew-resize z-30 hover:bg-amber-400/30 transition-colors"
+                title="Genişliği değiştirmek için sürükleyin"
+              />
+              {/* Alt Kenar (Yükseklik Değiştirme) */}
+              <div
+                onMouseDown={e => startResize(e, 'bottom')}
+                className="absolute left-4 right-4 bottom-0 h-2 cursor-ns-resize z-30 hover:bg-amber-400/30 transition-colors"
+                title="Yüksekliği değiştirmek için sürükleyin"
+              />
+              {/* Sol-Alt Köşe Tutamacı (Hem Genişlik Hem Yükseklik Değiştirme) */}
+              <div
+                onMouseDown={e => startResize(e, 'bottom-left')}
+                className="absolute left-0 bottom-0 w-5 h-5 cursor-nesw-resize z-40 flex items-end justify-start p-1 group"
+                title="Boyutu değiştirmek için köşeden tutup sürükleyin"
+              >
+                <div className="w-2.5 h-2.5 border-l-2 border-b-2 border-amber-400/60 group-hover:border-amber-300 rounded-bl-[2px]" />
+              </div>
+              {/* Sağ-Alt Köşe Tutamacı (Hem Genişlik Hem Yükseklik Değiştirme) */}
+              <div
+                onMouseDown={e => startResize(e, 'bottom-right')}
+                className="absolute right-0 bottom-0 w-5 h-5 cursor-nwse-resize z-40 flex items-end justify-end p-1 group"
+                title="Boyutu değiştirmek için köşeden tutup sürükleyin"
+              >
+                <div className="w-2.5 h-2.5 border-r-2 border-b-2 border-amber-400/60 group-hover:border-amber-300 rounded-br-[2px]" />
+              </div>
+            </>
+          )}
           {/* ÜST BAŞLIK ÇUBUĞU (POST-IT ŞERİDİ) */}
           <div className="bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-slate-900 px-3.5 py-2.5 border-b border-amber-500/25 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -596,7 +700,7 @@ export default function PersonalStickyNotesPopover() {
               {/* SEKME 1: YAPILACAKLAR LİSTESİ (TO-DO)                         */}
               {/* ============================================================ */}
               {activeTab === 'todos' ? (
-                <div className="flex flex-col max-h-[460px]">
+                <div className="flex flex-col flex-1 min-h-0">
                   {/* Hızlı Madde Ekleme Formu */}
                   <form
                     onSubmit={handleAddTodo}
@@ -767,7 +871,7 @@ export default function PersonalStickyNotesPopover() {
                 /* ============================================================ */
                 /* SEKME 2: RENKLİ POST-IT NOTLARIM                             */
                 /* ============================================================ */
-                <div className="flex flex-col max-h-[460px]">
+                <div className="flex flex-col flex-1 min-h-0">
                   {/* Üst Post-it Kontrol & Yeni Ekleme Çubuğu */}
                   <div className="p-2.5 bg-[#090e1a] border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
                     {/* Arama */}
