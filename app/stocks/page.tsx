@@ -30,6 +30,19 @@ type StockItem = {
   unit_price: number
   vat_rate: number
   stock_color: string
+  web_visible?: boolean
+  web_category?: string | null
+  web_sub_category?: string | null
+  web_price?: number | null
+  web_currency?: 'TRY' | 'USD' | 'EUR' | null
+  web_updated_at?: string | null
+}
+
+type WebCategory = {
+  slug: string
+  name: string
+  parent_slug: string | null
+  sort: number
 }
 
 type StockTransaction = {
@@ -282,9 +295,20 @@ export default function StocksPage() {
   const subCategoryRowRef = useRef<HTMLDivElement>(null)
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'in_stock' | 'critical' | 'out_of_stock'>('all')
+  const [webFilter, setWebFilter] = useState<'all' | 'visible' | 'hidden' | 'missing_cat' | 'missing_price'>('all')
   const [sortBy, setSortBy] = useState<'capacity' | 'name_asc' | 'qty_desc' | 'qty_asc' | 'price_desc' | 'price_asc'>('capacity')
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({})
   const [collapsedSubCategories, setCollapsedSubCategories] = useState<Record<string, boolean>>({})
+
+  // ctcmarket.com Web E-Ticaret Kategorileri ve Toplu İşlem Durumları
+  const [webCategories, setWebCategories] = useState<WebCategory[]>([])
+  const [selectedStockIds, setSelectedStockIds] = useState<string[]>([])
+  const [isBatchCategoryModalOpen, setIsBatchCategoryModalOpen] = useState(false)
+  const [batchSelectedWebCategory, setBatchSelectedWebCategory] = useState('')
+  const [batchSelectedWebSubCategory, setBatchSelectedWebSubCategory] = useState('')
+  const [isBatchPriceModalOpen, setIsBatchPriceModalOpen] = useState(false)
+  const [batchProfitPercent, setBatchProfitPercent] = useState('30')
+  const [batchLoading, setBatchLoading] = useState(false)
 
   const [allStocks, setAllStocks] = useState<StockItem[]>([])
   const [selectedStockId, setSelectedStockId] = useState<string | null>(null)
@@ -325,6 +349,13 @@ export default function StocksPage() {
   const [vatRate, setVatRate] = useState('20')
   const [stockColor, setStockColor] = useState(THEME_COLORS[0].value)
 
+  // ctcmarket.com Form Alanları
+  const [webVisible, setWebVisible] = useState(false)
+  const [webCategory, setWebCategory] = useState('')
+  const [webSubCategory, setWebSubCategory] = useState('')
+  const [webPrice, setWebPrice] = useState('')
+  const [webCurrency, setWebCurrency] = useState<'TRY' | 'USD' | 'EUR'>('TRY')
+
   const [editingTxId, setEditingTxId] = useState<string | null>(null)
   const todayISO = getLocalTodayISO()
   const [txDate, setTxDate] = useState(todayISO)
@@ -349,6 +380,7 @@ export default function StocksPage() {
     fetchWarehouses()
     fetchAllStocks()
     fetchAllTransactions()
+    fetchWebCategories()
   }, [profile?.id, profile?.allowed_companies])
 
   useEffect(() => {
@@ -492,6 +524,34 @@ export default function StocksPage() {
       if (error) throw error
       setAllStockTxs(data || [])
     } catch (err) { console.error('Error fetching all stock txs:', err) }
+  }
+
+  async function fetchWebCategories() {
+    try {
+      const { data, error } = await supabase
+        .from('web_categories')
+        .select('*')
+        .order('sort', { ascending: true })
+      if (!error && data) {
+        setWebCategories(data as WebCategory[])
+      }
+    } catch (err) {
+      console.error('Error fetching web categories:', err)
+    }
+  }
+
+  const webMainCategories = useMemo(() => {
+    return webCategories.filter(c => !c.parent_slug).sort((a, b) => a.sort - b.sort)
+  }, [webCategories])
+
+  const getWebSubCategories = (parentSlug: string) => {
+    if (!parentSlug) return []
+    return webCategories.filter(c => c.parent_slug === parentSlug).sort((a, b) => a.sort - b.sort)
+  }
+
+  const getWebCategoryName = (slug?: string | null) => {
+    if (!slug) return ''
+    return webCategories.find(c => c.slug === slug)?.name || slug
   }
 
   async function fetchCategories(whId: string) {
@@ -1218,9 +1278,44 @@ export default function StocksPage() {
     const priceNum = parseFloat(unitPrice) || 0
     const vatNum = parseFloat(vatRate) || 0
 
+    // ctcmarket.com Web Validasyonu
+    if (webVisible) {
+      const pWebPrice = parseFloat(webPrice)
+      if (!webPrice || isNaN(pWebPrice) || pWebPrice <= 0) {
+        toast.error('Webte gösterilen ürünlerin web satış fiyatı 0\'dan büyük olmalıdır.')
+        return
+      }
+      if (!webCategory) {
+        toast.error('Webte gösterilen ürünler için Web Ana Kategorisi seçilmesi zorunludur.')
+        return
+      }
+    }
+
+    const parsedWebPrice = webPrice && !isNaN(parseFloat(webPrice)) ? parseFloat(webPrice) : null
+    const webFields = {
+      web_visible: webVisible,
+      web_category: webCategory || null,
+      web_sub_category: webSubCategory || null,
+      web_price: parsedWebPrice,
+      web_currency: webCurrency || 'TRY',
+      web_updated_at: new Date().toISOString()
+    }
+
     try {
       if (editingStockId) {
-        const payload = { warehouse_id: selectedWarehouseId, name, sku: sku || null, category: category || null, sub_category: subCategory || null, currency, unit, unit_price: priceNum, vat_rate: vatNum, stock_color: stockColor }
+        const payload = { 
+          warehouse_id: selectedWarehouseId, 
+          name, 
+          sku: sku || null, 
+          category: category || null, 
+          sub_category: subCategory || null, 
+          currency, 
+          unit, 
+          unit_price: priceNum, 
+          vat_rate: vatNum, 
+          stock_color: stockColor,
+          ...webFields
+        }
         const oldStock = allStocks.find(s => s.id === editingStockId)
         
         const { error } = await supabase.from('stocks').update(payload).eq('id', editingStockId)
@@ -1276,7 +1371,20 @@ export default function StocksPage() {
         await logActivity('stock', 'UPDATE', `Stok kartı güncellendi: ${name}`, editingStockId, priceNum, currency, oldStock, payload, null)
         toast.success('Stok kartı ve açılış stoğu güncellendi.')
       } else {
-        const payload = { warehouse_id: selectedWarehouseId, name, sku: sku || null, category: category || null, sub_category: subCategory || null, currency, unit, quantity: 0, unit_price: priceNum, vat_rate: vatNum, stock_color: stockColor }
+        const payload = { 
+          warehouse_id: selectedWarehouseId, 
+          name, 
+          sku: sku || null, 
+          category: category || null, 
+          sub_category: subCategory || null, 
+          currency, 
+          unit, 
+          quantity: 0, 
+          unit_price: priceNum, 
+          vat_rate: vatNum, 
+          stock_color: stockColor,
+          ...webFields
+        }
         const { data, error } = await supabase.from('stocks').insert([payload]).select().single()
         if (error) throw error
         await logActivity('stock', 'INSERT', `Yeni stok kartı oluşturuldu: ${name}`, data.id, priceNum, currency, null, data, null)
@@ -1317,6 +1425,133 @@ export default function StocksPage() {
         } catch (err: any) { toast.error('Silme başarısız: ' + err.message) }
       }
     })
+  }
+
+  // --- TOPLU İŞLEM YÖNETİMİ (ctcmarket.com & Stoklar) ---
+  function toggleSelectStock(id: string) {
+    setSelectedStockIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  function handleSelectAllCurrent(items: StockItem[]) {
+    const ids = items.map(it => it.id)
+    const isAllSelected = ids.every(id => selectedStockIds.includes(id))
+    if (isAllSelected) {
+      setSelectedStockIds(prev => prev.filter(id => !ids.includes(id)))
+    } else {
+      setSelectedStockIds(prev => Array.from(new Set([...prev, ...ids])))
+    }
+  }
+
+  async function handleBatchSetWebVisible() {
+    if (selectedStockIds.length === 0) return
+    const targetStocks = allStocks.filter(s => selectedStockIds.includes(s.id))
+    const missingRequirement = targetStocks.filter(s => !s.web_category || !s.web_price || s.web_price <= 0)
+    
+    if (missingRequirement.length > 0) {
+      toast.error(`Seçilen ${selectedStockIds.length} üründen ${missingRequirement.length} tanesinde Web Kategorisi veya Web Fiyatı tanımlı değil. Webte gösterilmek için her ikisi de zorunludur.`)
+      return
+    }
+
+    setBatchLoading(true)
+    try {
+      const nowIso = new Date().toISOString()
+      const { error } = await supabase
+        .from('stocks')
+        .update({ web_visible: true, web_updated_at: nowIso })
+        .in('id', selectedStockIds)
+
+      if (error) throw error
+      toast.success(`${selectedStockIds.length} ürün ctcmarket.com'da yayına alındı.`)
+      setSelectedStockIds([])
+      fetchAllStocks()
+    } catch (err: any) {
+      toast.error('Toplu güncelleme başarısız: ' + err.message)
+    } finally {
+      setBatchLoading(false)
+    }
+  }
+
+  async function handleBatchSetWebHidden() {
+    if (selectedStockIds.length === 0) return
+    setBatchLoading(true)
+    try {
+      const nowIso = new Date().toISOString()
+      const { error } = await supabase
+        .from('stocks')
+        .update({ web_visible: false, web_updated_at: nowIso })
+        .in('id', selectedStockIds)
+
+      if (error) throw error
+      toast.success(`${selectedStockIds.length} ürün ctcmarket.com'da gizlendi.`)
+      setSelectedStockIds([])
+      fetchAllStocks()
+    } catch (err: any) {
+      toast.error('Toplu gizleme başarısız: ' + err.message)
+    } finally {
+      setBatchLoading(false)
+    }
+  }
+
+  async function handleApplyBatchCategory() {
+    if (!batchSelectedWebCategory) {
+      toast.error('Lütfen bir Web Ana Kategorisi seçin.')
+      return
+    }
+    setBatchLoading(true)
+    try {
+      const nowIso = new Date().toISOString()
+      const { error } = await supabase
+        .from('stocks')
+        .update({
+          web_category: batchSelectedWebCategory,
+          web_sub_category: batchSelectedWebSubCategory || null,
+          web_updated_at: nowIso
+        })
+        .in('id', selectedStockIds)
+
+      if (error) throw error
+      toast.success(`${selectedStockIds.length} ürüne web kategorisi atandı.`)
+      setIsBatchCategoryModalOpen(false)
+      setSelectedStockIds([])
+      fetchAllStocks()
+    } catch (err: any) {
+      toast.error('Toplu kategori atama başarısız: ' + err.message)
+    } finally {
+      setBatchLoading(false)
+    }
+  }
+
+  async function handleApplyBatchPrice() {
+    const pct = parseFloat(batchProfitPercent)
+    if (isNaN(pct) || pct < 0) {
+      toast.error('Geçerli bir kâr yüzdesi girin.')
+      return
+    }
+    setBatchLoading(true)
+    try {
+      const nowIso = new Date().toISOString()
+      const targetStocks = allStocks.filter(s => selectedStockIds.includes(s.id))
+      for (const s of targetStocks) {
+        const uPrice = Number(s.unit_price || 0)
+        const newPrice = Math.round((uPrice * (1 + pct / 100)) * 100) / 100
+        await supabase
+          .from('stocks')
+          .update({
+            web_price: newPrice,
+            web_currency: s.currency || 'TRY',
+            web_updated_at: nowIso
+          })
+          .eq('id', s.id)
+      }
+      toast.success(`${targetStocks.length} ürünün web satış fiyatı güncellendi (%${pct} kâr).`)
+      setIsBatchPriceModalOpen(false)
+      setSelectedStockIds([])
+      fetchAllStocks()
+    } catch (err: any) {
+      toast.error('Toplu fiyat belirleme başarısız: ' + err.message)
+    } finally {
+      setBatchLoading(false)
+    }
   }
 
   function cancelEditTx() {
@@ -1532,7 +1767,9 @@ export default function StocksPage() {
 
   function openAddStock() {
     if (!selectedWarehouseId) { toast.error('Lütfen önce bir depo seçin.'); return }
-    setEditingStockId(null); setName(''); setSku(''); setCategory(''); setSubCategory(''); setIsCustomSubCat(false); setQuantity(''); setUnitPrice(''); setVatRate('20'); setIsStockModalOpen(true)
+    setEditingStockId(null); setName(''); setSku(''); setCategory(''); setSubCategory(''); setIsCustomSubCat(false); setQuantity(''); setUnitPrice(''); setVatRate('20')
+    setWebVisible(false); setWebCategory(''); setWebSubCategory(''); setWebPrice(''); setWebCurrency('TRY')
+    setIsStockModalOpen(true)
   }
   
   async function openEditStock(item: StockItem, e?: React.MouseEvent) {
@@ -1549,6 +1786,13 @@ export default function StocksPage() {
     setUnitPrice(item.unit_price.toString())
     setVatRate(item.vat_rate?.toString() || '0')
     setStockColor(item.stock_color || THEME_COLORS[0].value)
+
+    // ctcmarket.com Web Alanları
+    setWebVisible(Boolean(item.web_visible))
+    setWebCategory(item.web_category || '')
+    setWebSubCategory(item.web_sub_category || '')
+    setWebPrice(item.web_price !== null && item.web_price !== undefined ? item.web_price.toString() : '')
+    setWebCurrency(item.web_currency || item.currency || 'TRY')
 
     const { data: openTxs } = await supabase
       .from('stock_transactions')
@@ -1610,7 +1854,23 @@ export default function StocksPage() {
     });
   }
 
-  const statusFilteredStocks = warehouseStocks.filter(s => {
+  // ctcmarket.com Sayaçları ve Web Filtresi
+  const webVisibleCount = useMemo(() => warehouseStocks.filter(s => s.web_visible === true).length, [warehouseStocks])
+  const webHiddenCount = useMemo(() => warehouseStocks.filter(s => s.web_visible !== true).length, [warehouseStocks])
+  const webMissingCatCount = useMemo(() => warehouseStocks.filter(s => s.web_visible === true && !s.web_category).length, [warehouseStocks])
+  const webMissingPriceCount = useMemo(() => warehouseStocks.filter(s => s.web_visible === true && (!s.web_price || s.web_price <= 0)).length, [warehouseStocks])
+
+  const webFilteredStocks = useMemo(() => {
+    return warehouseStocks.filter(s => {
+      if (webFilter === 'visible') return s.web_visible === true
+      if (webFilter === 'hidden') return s.web_visible !== true
+      if (webFilter === 'missing_cat') return s.web_visible === true && !s.web_category
+      if (webFilter === 'missing_price') return s.web_visible === true && (!s.web_price || s.web_price <= 0)
+      return true
+    })
+  }, [warehouseStocks, webFilter])
+
+  const statusFilteredStocks = webFilteredStocks.filter(s => {
     if (statusFilter === 'in_stock') return s.quantity > 0;
     if (statusFilter === 'critical') return s.quantity > 0 && s.quantity <= 2;
     if (statusFilter === 'out_of_stock') return s.quantity <= 0;
@@ -2016,6 +2276,72 @@ export default function StocksPage() {
                 </button>
               </div>
             </div>
+
+            {/* ctcmarket.com E-Ticaret / Web Filtreleri */}
+            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pt-1 border-t border-slate-800/60 text-[9.5px]">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1 mr-0.5">
+                <Globe size={11} className="text-indigo-400" /> Web:
+              </span>
+              <button
+                type="button"
+                onClick={() => setWebFilter('all')}
+                className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${
+                  webFilter === 'all'
+                    ? 'bg-indigo-600 border-indigo-500 text-white font-bold'
+                    : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-slate-400'
+                }`}
+              >
+                Tümü
+              </button>
+              <button
+                type="button"
+                onClick={() => setWebFilter('visible')}
+                className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${
+                  webFilter === 'visible'
+                    ? 'bg-emerald-600 border-emerald-500 text-white font-bold'
+                    : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-emerald-400 hover:text-emerald-300'
+                }`}
+              >
+                🌐 Yayında ({webVisibleCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setWebFilter('hidden')}
+                className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${
+                  webFilter === 'hidden'
+                    ? 'bg-slate-600 border-slate-500 text-white font-bold'
+                    : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-slate-400'
+                }`}
+              >
+                🔒 Gizli ({webHiddenCount})
+              </button>
+              {webMissingCatCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setWebFilter('missing_cat')}
+                  className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${
+                    webFilter === 'missing_cat'
+                      ? 'bg-amber-600 border-amber-500 text-white font-bold'
+                      : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-amber-400'
+                  }`}
+                >
+                  ⚠️ Kategori Boş ({webMissingCatCount})
+                </button>
+              )}
+              {webMissingPriceCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setWebFilter('missing_price')}
+                  className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${
+                    webFilter === 'missing_price'
+                      ? 'bg-rose-600 border-rose-500 text-white font-bold'
+                      : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-rose-400'
+                  }`}
+                >
+                  ⚠️ Fiyat Boş ({webMissingPriceCount})
+                </button>
+              )}
+            </div>
           </div>
 
           {categories.length > 0 && (
@@ -2241,12 +2567,44 @@ export default function StocksPage() {
                                         className={`group/item flex items-center justify-between text-[11px] py-2 px-3 ${hasSubHeader ? 'pl-7' : 'pl-4'} cursor-pointer transition-colors ${isSelected ? 'bg-indigo-900/30 border-l-2 border-l-indigo-400' : 'hover:bg-slate-800/30'} ${item.quantity <= 0 ? 'opacity-60 bg-rose-950/5' : ''}`}
                                       >
                                         <div className="flex items-center gap-1.5 min-w-0 pr-2 flex-1">
+                                          <input 
+                                            type="checkbox"
+                                            checked={selectedStockIds.includes(item.id)}
+                                            onChange={(e) => {
+                                              e.stopPropagation()
+                                              toggleSelectStock(item.id)
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0 focus:ring-offset-0 cursor-pointer shrink-0 mr-1"
+                                          />
                                           <span className={`font-normal truncate ${item.quantity <= 0 ? 'text-slate-400 line-through decoration-slate-600' : 'text-slate-200'}`}>
                                             {item.name}
                                           </span>
                                           {item.sku && (
                                             <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-mono shrink-0">
                                               {item.sku}
+                                            </span>
+                                          )}
+                                          {/* ctcmarket.com Web Rozeti */}
+                                          {item.web_visible ? (
+                                            <span 
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[8px] font-bold shrink-0 font-sans"
+                                              title={`ctcmarket.com'da Yayında • Kategori: ${getWebCategoryName(item.web_category)}${item.web_sub_category ? ` / ${getWebCategoryName(item.web_sub_category)}` : ''} • Web Fiyatı: ${formatMoney(item.web_price || 0, item.web_currency || 'TRY').formatted}`}
+                                            >
+                                              <Globe size={9} />
+                                              <span>Web</span>
+                                              {item.web_price !== null && item.web_price !== undefined && item.web_price > 0 && (
+                                                <span className="font-mono text-emerald-400 font-bold">
+                                                  {formatMoney(item.web_price, item.web_currency || 'TRY').formatted}
+                                                </span>
+                                              )}
+                                            </span>
+                                          ) : (
+                                            <span 
+                                              className="hidden group-hover/item:inline-flex items-center gap-0.5 px-1 py-0.2 rounded bg-slate-800/80 text-slate-500 text-[8px] font-mono shrink-0"
+                                              title="ctcmarket.com'da Gizli"
+                                            >
+                                              <Lock size={8} /> Gizli
                                             </span>
                                           )}
                                         </div>
@@ -2296,6 +2654,76 @@ export default function StocksPage() {
               })
             )}
           </div>
+
+          {/* TOPLU İŞLEM BARI (ctcmarket.com & Stoklar) */}
+          {selectedStockIds.length > 0 && (
+            <div className="sticky bottom-0 bg-[#0a0f1d]/95 backdrop-blur-md border-t border-indigo-500/40 p-2.5 z-20 flex flex-col gap-2 shadow-2xl animate-in slide-in-from-bottom-2 duration-200">
+              <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-indigo-300 font-mono">
+                    {selectedStockIds.length} ürün seçildi
+                  </span>
+                  <button 
+                    type="button" 
+                    onClick={() => setSelectedStockIds([])}
+                    className="text-[10px] text-slate-400 hover:text-rose-400 underline cursor-pointer"
+                  >
+                    Seçimi Kaldır
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSelectAllCurrent(filteredStocks)}
+                  className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium cursor-pointer"
+                >
+                  Tümünü ({filteredStocks.length}) Seç
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  disabled={batchLoading}
+                  onClick={handleBatchSetWebVisible}
+                  className="flex-1 min-w-[100px] px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded flex items-center justify-center gap-1 transition shadow-sm cursor-pointer disabled:opacity-50"
+                  title="Seçili ürünleri ctcmarket.com'da yayına alır"
+                >
+                  <Globe size={11} /> Webte Göster
+                </button>
+                <button
+                  type="button"
+                  disabled={batchLoading}
+                  onClick={handleBatchSetWebHidden}
+                  className="flex-1 min-w-[90px] px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white text-[10px] font-bold rounded flex items-center justify-center gap-1 transition shadow-sm cursor-pointer disabled:opacity-50"
+                  title="Seçili ürünleri ctcmarket.com'da gizler"
+                >
+                  <Lock size={11} /> Webte Gizle
+                </button>
+                <button
+                  type="button"
+                  disabled={batchLoading}
+                  onClick={() => {
+                    setBatchSelectedWebCategory('')
+                    setBatchSelectedWebSubCategory('')
+                    setIsBatchCategoryModalOpen(true)
+                  }}
+                  className="flex-1 min-w-[100px] px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold rounded flex items-center justify-center gap-1 transition shadow-sm cursor-pointer disabled:opacity-50"
+                  title="Seçili ürünlere toplu web kategorisi atar"
+                >
+                  <Tag size={11} /> Kategori Ata
+                </button>
+                <button
+                  type="button"
+                  disabled={batchLoading}
+                  onClick={() => setIsBatchPriceModalOpen(true)}
+                  className="flex-1 min-w-[105px] px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold rounded flex items-center justify-center gap-1 transition shadow-sm cursor-pointer disabled:opacity-50"
+                  title="Alış fiyatı üzerinden yüzde kâr marjı ile web satış fiyatı belirler"
+                >
+                  💰 Fiyat Belirle
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* SAĞ SÜTUN */}
@@ -2445,6 +2873,32 @@ export default function StocksPage() {
                       {selectedStock.vat_rate > 0 && (
                         <div className="text-[10px] text-indigo-300 mt-0.5">
                           KDV Dahil: {formatMoney(selectedStock.unit_price * (1 + selectedStock.vat_rate / 100), selectedStock.currency).formatted} <span className="text-slate-500">(%{selectedStock.vat_rate})</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ctcmarket.com Web Durumu */}
+                    <div className="flex items-center gap-1.5 pl-3 border-l border-slate-800">
+                      {selectedStock.web_visible ? (
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold text-emerald-400 flex items-center gap-1">
+                            <Globe size={11} /> ctcmarket.com'da Yayında
+                          </span>
+                          <span className="text-white font-bold">
+                            Web: {formatMoney(selectedStock.web_price || 0, selectedStock.web_currency || 'TRY').formatted}
+                          </span>
+                          <span className="text-[9px] text-slate-400 truncate max-w-[200px]">
+                            {getWebCategoryName(selectedStock.web_category)}{selectedStock.web_sub_category ? ` / ${getWebCategoryName(selectedStock.web_sub_category)}` : ''}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold text-slate-500 flex items-center gap-1">
+                            <Lock size={10} /> Webte Gizli
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            Sitede listelenmiyor
+                          </span>
                         </div>
                       )}
                     </div>
@@ -3785,12 +4239,291 @@ export default function StocksPage() {
                   )}
                 </div>
               </div>
+
+              {/* ctcmarket.com E-Ticaret & Web Ayarları */}
+              <div className="col-span-2 mt-2 pt-3 border-t border-slate-800">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Globe size={16} className="text-sky-400" />
+                    <span className="text-white font-semibold text-xs flex items-center gap-1.5">
+                      ctcmarket.com Web Ayarları
+                    </span>
+                    <span className="text-[10px] bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded border border-sky-500/20">
+                      E-Ticaret
+                    </span>
+                  </div>
+                  
+                  {/* Web Visible Toggle Switch */}
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <span className={`text-xs font-medium ${webVisible ? 'text-sky-400 font-bold' : 'text-slate-400'}`}>
+                      {webVisible ? "Web'de Yayında" : "Web'de Gizli"}
+                    </span>
+                    <div className="relative">
+                      <input 
+                        type="checkbox" 
+                        checked={webVisible} 
+                        onChange={(e) => setWebVisible(e.target.checked)} 
+                        className="sr-only" 
+                      />
+                      <div className={`w-9 h-5 rounded-full transition-colors ${webVisible ? 'bg-sky-500' : 'bg-slate-700'}`}></div>
+                      <div className={`absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${webVisible ? 'transform translate-x-4' : ''}`}></div>
+                    </div>
+                  </label>
+                </div>
+
+                <div className={`p-3 rounded border transition-colors ${webVisible ? 'bg-sky-950/20 border-sky-500/30' : 'bg-[#0a0f1d] border-slate-800/80 opacity-90'}`}>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-400 mb-1 text-xs">
+                        Web Ana Kategori {webVisible && <span className="text-rose-400">*</span>}
+                      </label>
+                      <select 
+                        value={webCategory} 
+                        onChange={(e) => {
+                          setWebCategory(e.target.value)
+                          setWebSubCategory('')
+                        }}
+                        className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
+                      >
+                        <option value="">Seçiniz...</option>
+                        {webMainCategories.map(cat => (
+                          <option key={cat.slug} value={cat.slug}>{cat.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1 text-xs">Web Alt Kategori</label>
+                      <select 
+                        value={webSubCategory} 
+                        onChange={(e) => setWebSubCategory(e.target.value)}
+                        disabled={!webCategory}
+                        className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors disabled:opacity-40"
+                      >
+                        <option value="">{webCategory ? 'Seçiniz (Opsiyonel)' : 'Önce Ana Kategori Seçin'}</option>
+                        {getWebSubCategories(webCategory).map(sub => (
+                          <option key={sub.slug} value={sub.slug}>{sub.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1 text-xs">
+                        Web Satış Fiyatı (KDV Dahil) {webVisible && <span className="text-rose-400">*</span>}
+                      </label>
+                      <div className="flex gap-1.5">
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          placeholder="0.00" 
+                          value={webPrice} 
+                          onChange={(e) => setWebPrice(e.target.value)}
+                          className="flex-1 bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs font-mono focus:outline-none focus:border-sky-500 transition-colors" 
+                        />
+                        <select 
+                          value={webCurrency} 
+                          onChange={(e) => setWebCurrency(e.target.value as any)}
+                          className="w-16 bg-[#070b14] border border-slate-700 rounded px-1.5 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
+                        >
+                          <option value="TRY">₺ TRY</option>
+                          <option value="USD">$ USD</option>
+                          <option value="EUR">€ EUR</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col justify-end">
+                      {unitPrice && parseFloat(unitPrice) > 0 && webPrice && parseFloat(webPrice) > 0 ? (
+                        <div className="bg-sky-500/10 border border-sky-500/30 rounded px-2.5 py-1.5 text-[11px]">
+                          <div className="text-slate-400 flex justify-between">
+                            <span>Alış: {parseFloat(unitPrice).toFixed(2)} {currency}</span>
+                            <span>Web: {parseFloat(webPrice).toFixed(2)} {webCurrency}</span>
+                          </div>
+                          <div className="flex items-center justify-between font-medium mt-0.5">
+                            <span className="text-sky-300">Tahmini Kâr Marjı:</span>
+                            <span className={`font-mono font-bold ${parseFloat(webPrice) >= parseFloat(unitPrice) ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              %{(((parseFloat(webPrice) - parseFloat(unitPrice)) / parseFloat(unitPrice)) * 100).toFixed(1)}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-slate-500 italic py-1.5">
+                          {webVisible ? '⚠️ Webte görünmesi için kategori ve fiyat zorunludur.' : 'Web ayarları isteğe bağlıdır.'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
               
               <div className="col-span-2 flex justify-end gap-2 mt-3 pt-3 border-t border-slate-800">
                 <button type="button" onClick={() => setIsStockModalOpen(false)} className="px-4 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
                 <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded font-medium transition-all active:scale-95 shadow-lg shadow-indigo-900/20">Kaydet</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Toplu Kategori Atama Modalı */}
+      {isBatchCategoryModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b1329] border border-slate-700/80 rounded-xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Globe size={18} className="text-sky-400" />
+                <h3 className="text-white font-bold text-sm">Toplu Web Kategorisi Ata</h3>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setIsBatchCategoryModalOpen(false)}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 mt-3 mb-4">
+              Seçilen <span className="font-bold text-sky-400">{selectedStockIds.length}</span> ürüne toplu olarak web kategorisi ve alt kategorisi atanacaktır.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-slate-400 mb-1 text-xs font-medium">Web Ana Kategori *</label>
+                <select
+                  value={batchSelectedWebCategory}
+                  onChange={(e) => {
+                    setBatchSelectedWebCategory(e.target.value)
+                    setBatchSelectedWebSubCategory('')
+                  }}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-sky-500"
+                >
+                  <option value="">Kategori Seçin...</option>
+                  {webMainCategories.map(cat => (
+                    <option key={cat.slug} value={cat.slug}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 text-xs font-medium">Web Alt Kategori (Opsiyonel)</label>
+                <select
+                  value={batchSelectedWebSubCategory}
+                  onChange={(e) => setBatchSelectedWebSubCategory(e.target.value)}
+                  disabled={!batchSelectedWebCategory}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-sky-500 disabled:opacity-40"
+                >
+                  <option value="">{batchSelectedWebCategory ? 'Alt Kategori Seçin (Opsiyonel)' : 'Önce Ana Kategori Seçin'}</option>
+                  {getWebSubCategories(batchSelectedWebCategory).map(sub => (
+                    <option key={sub.slug} value={sub.slug}>{sub.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsBatchCategoryModalOpen(false)}
+                className="px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 text-xs transition-colors"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyBatchCategory}
+                disabled={!batchSelectedWebCategory || batchLoading}
+                className="bg-sky-600 hover:bg-sky-500 text-white font-medium px-4 py-2 rounded-lg text-xs transition-colors disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {batchLoading ? 'Uygulanıyor...' : 'Kategorileri Uygula'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toplu Fiyat Güncelleme Modalı */}
+      {isBatchPriceModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b1329] border border-slate-700/80 rounded-xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Globe size={18} className="text-emerald-400" />
+                <h3 className="text-white font-bold text-sm">Toplu Web Fiyatı Güncelle (% Kâr Marjı)</h3>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setIsBatchPriceModalOpen(false)}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 mt-3 mb-4">
+              Seçilen <span className="font-bold text-emerald-400">{selectedStockIds.length}</span> ürünün web satış fiyatı, ERP alış maliyeti üzerine belirlediğiniz kâr marjı eklenerek otomatik hesaplanacaktır:
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-slate-400 mb-1 text-xs font-medium">Hedef Kâr Marjı (%)</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={batchProfitPercent}
+                    onChange={(e) => setBatchProfitPercent(e.target.value)}
+                    placeholder="30"
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-500 font-bold">%</span>
+                </div>
+              </div>
+
+              {/* Hızlı Yüzde Butonları */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-400">Hızlı Seçim:</span>
+                {['20', '30', '40', '50', '75', '100'].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => setBatchProfitPercent(pct)}
+                    className={`px-2 py-1 text-xs rounded border transition-colors ${batchProfitPercent === pct ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-800/60 text-slate-300 border-slate-700 hover:bg-slate-700'}`}
+                  >
+                    %{pct}
+                  </button>
+                ))}
+              </div>
+
+              <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-lg p-3 text-xs text-emerald-300">
+                <p className="font-semibold mb-1">Formül:</p>
+                <p className="text-[11px] font-mono text-emerald-200">
+                  Web Satış Fiyatı = Alış Fiyatı × (1 + %{batchProfitPercent || '0'} / 100)
+                </p>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  * Alış fiyatı 0 olan veya para birimi farklı olan ürünler de orantılı hesaplanır.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsBatchPriceModalOpen(false)}
+                className="px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 text-xs transition-colors"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyBatchPrice}
+                disabled={batchLoading || !batchProfitPercent}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-4 py-2 rounded-lg text-xs transition-colors disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {batchLoading ? 'Hesaplanıyor...' : 'Fiyatları Güncelle'}
+              </button>
+            </div>
           </div>
         </div>
       )}

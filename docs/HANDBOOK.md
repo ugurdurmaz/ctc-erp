@@ -519,6 +519,14 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
   - Harici modüllerden yansıyan stok hareketleri (`Alım Faturası`, `Satış Faturası`, `Mağaza POS`, `Teknik Servis`) tabloda renkli modül rozetleri ve kilit simgesi (`🔒`) ile gösterilir.
   - Bu hareketlerin stok ekranından doğrudan düzenlenmesi (fiyat/miktar) cari ve bilet tutarlılığını bozmamak için engellenir; kullanıcı ilgili modüle yönlendirilir.
   - Silme anında: Bağlı kaynak fatura/servis fişi sistemde aktifse silme reddedilir ve kaynak modül adı gösterilir. Ancak kaynak fiş/fatura sistemde bulunamazsa (yetim kayıt), ekran kullanıcıya **"Yetim Stok Hareketini Sil"** onayı sunarak kaydın güvenle temizlenmesine ve stok bakiyesi/son alış maliyetinin onarılmasına izin verir.
+- **ctcmarket.com E-Ticaret Entegrasyonu & Toplu İşlemler:**
+  - `stocks` tablosundaki e-ticaret alanları (`web_visible`, `web_category`, `web_sub_category`, `web_price`, `web_currency`, `web_updated_at`) ERP üzerinden yönetilir.
+  - `web_categories` tablosu ERP tarafından salt okunur (read-only) kullanılır; ana kategoriler (`parent_slug IS NULL`) ve alt kategoriler dinamik hiyerarşiyle sunulur.
+  - Ürün Ekle/Düzenle modalında "ctcmarket.com Web Ayarları" kartı: Web'de Göster toggle switch, Web Ana & Alt Kategori seçimi, KDV dahil Web Satış Fiyatı ve ERP alış maliyetiyle canlı kâr marjı kıyaslaması.
+  - Validasyon: `web_visible = true` yapıldığında `web_price > 0` ve `web_category` seçilmesi zorunludur.
+  - Filtreleme: Stok listesi üstünde hızlı e-ticaret filtreleri (Hepsi, Yayında, Gizli, Kategorisi Eksik, Fiyatı Eksik).
+  - Toplu İşlemler (Batch Operations): Çoklu seçim checkbox'ları ile seçilen ürünlerde tek tıkla toplu web yayınına alma / gizleme, toplu web kategori atama modalı ve ERP alış maliyeti üzerine hedef kâr marjı ekleyerek toplu web fiyatı hesaplama modalı.
+  - Veritabanı Trigger'ı: `supabase/stocks_web_updated_at_trigger.sql` dosyası ile `stocks` tablosunda web kolonları değiştikçe `web_updated_at` kolonu otomatik güncellenir.
 
 ### 7.7 Hizmet Yönetimi `/services`
 - Kart ızgarası: ad, sahip merkez, net fiyat, KDV, KDV dahil fiyat. Arama, ekle/düzenle/sil.
