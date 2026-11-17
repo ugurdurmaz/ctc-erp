@@ -370,13 +370,10 @@ Yukarıdaki SQL şu politikayı uygular:
 - `expense_categories` ve `services` kullanımdaysa silme engellenir; uygulama bu hatayı yakalar.
 
 ### 3.3 Row Level Security (RLS)
-Uygulama `anon` anahtarla yazar. Seçenekler:
-
-**Seçenek A — Tek kullanıcılı, özel ağ (mevcut durum):** RLS kapalı veya `anon` için tam izin. **Yalnız** uygulama URL'si dışa açık değilse kabul edilebilir.
-
-**Seçenek B — Önerilen:** Supabase Auth ekleyip tüm tablolarda `authenticated` rolüne izin, `anon`'a hiç izin vermemek. Bu, `lib/supabase.ts` ve bir login sayfası gerektirir (kod değişikliği).
-
-Geçici sertleştirme (kod değişikliği olmadan): Vercel/Cloudflare önünde Basic Auth veya IP allowlist.
+Sistemde Supabase Auth ve kullanıcı profilleri devrededir (`ugurdurmaz@gmail.com` ve `gopservis@gmail.com`). 
+Tüm veritabanı tablolarında RLS'yi açmak ve anonim (`anon`) erişimi tamamen kapatarak yalnız `authenticated` rolüne izin vermek için `supabase/enable_rls_all_tables.sql` betiği Supabase Dashboard -> SQL Editor alanında çalıştırılır:
+- `anon` → Erişim SIFIR (Okuma, yazma, silme engelli).
+- `authenticated` → Tam CRUD yetkisi.
 
 ### 3.4 PostgREST satır limiti
 Varsayılan `max_rows = 1000`. Uygulama `.limit()` kullanmaz; herhangi bir hesabın hareket sayısı 1000'i aşınca **bakiye eksik hesaplanır** [HB Y-4]. Supabase Dashboard → Settings → API → "Max rows" değerini beklenen hacme göre yükseltin (örn. 10000) ve §8.2 kontrolünü aylık çalıştırın.
