@@ -4272,58 +4272,65 @@ export default function StocksPage() {
                 </div>
 
                 <div className={`p-3 rounded border transition-colors ${webVisible ? 'bg-sky-950/20 border-sky-500/30' : 'bg-[#0a0f1d] border-slate-800/80 opacity-90'}`}>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-slate-400 mb-1 text-xs">
-                        Web Ana Kategori {webVisible && <span className="text-rose-400">*</span>}
-                      </label>
-                      <select 
-                        value={webCategory} 
-                        onChange={(e) => {
-                          setWebCategory(e.target.value)
-                          setWebSubCategory('')
-                        }}
-                        className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
-                      >
-                        <option value="">Seçiniz...</option>
-                        {webMainCategories.map(cat => (
-                          <option key={cat.slug} value={cat.slug}>{cat.name}</option>
-                        ))}
-                      </select>
+                  <div className="flex flex-col gap-2.5">
+                    {/* Kategori Seçimleri */}
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-slate-400 mb-1 text-xs">
+                          Web Ana Kategori {webVisible && <span className="text-rose-400">*</span>}
+                        </label>
+                        <select 
+                          value={webCategory} 
+                          onChange={(e) => {
+                            setWebCategory(e.target.value)
+                            setWebSubCategory('')
+                          }}
+                          className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
+                        >
+                          <option value="">Seçiniz...</option>
+                          {webMainCategories.map(cat => (
+                            <option key={cat.slug} value={cat.slug}>{cat.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1 text-xs">Web Alt Kategori</label>
+                        <select 
+                          value={webSubCategory} 
+                          onChange={(e) => setWebSubCategory(e.target.value)}
+                          disabled={!webCategory}
+                          className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors disabled:opacity-40"
+                        >
+                          <option value="">{webCategory ? 'Seçiniz (Opsiyonel)' : 'Önce Ana Kategori Seçin'}</option>
+                          {getWebSubCategories(webCategory).map(sub => (
+                            <option key={sub.slug} value={sub.slug}>{sub.name}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="block text-slate-400 mb-1 text-xs">Web Alt Kategori</label>
-                      <select 
-                        value={webSubCategory} 
-                        onChange={(e) => setWebSubCategory(e.target.value)}
-                        disabled={!webCategory}
-                        className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors disabled:opacity-40"
-                      >
-                        <option value="">{webCategory ? 'Seçiniz (Opsiyonel)' : 'Önce Ana Kategori Seçin'}</option>
-                        {getWebSubCategories(webCategory).map(sub => (
-                          <option key={sub.slug} value={sub.slug}>{sub.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-slate-400 mb-1 text-xs">
-                        Web Satış Fiyatı (KDV Dahil) {webVisible && <span className="text-rose-400">*</span>}
-                      </label>
-                      <div className="flex gap-1.5">
+                    {/* Web Fiyat Girişi & Kur */}
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="block text-slate-400 mb-1 text-xs">
+                          Web Satış Fiyatı (KDV Dahil) {webVisible && <span className="text-rose-400">*</span>}
+                        </label>
                         <input 
                           type="number" 
                           step="0.01" 
                           placeholder="0.00" 
                           value={webPrice} 
                           onChange={(e) => setWebPrice(e.target.value)}
-                          className="flex-1 bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs font-mono focus:outline-none focus:border-sky-500 transition-colors" 
+                          className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs font-mono focus:outline-none focus:border-sky-500 transition-colors" 
                         />
+                      </div>
+                      <div className="w-20">
+                        <label className="block text-slate-400 mb-1 text-xs">Kur</label>
                         <select 
                           value={webCurrency} 
                           onChange={(e) => setWebCurrency(e.target.value as any)}
-                          className="w-16 bg-[#070b14] border border-slate-700 rounded px-1.5 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
+                          className="w-full bg-[#070b14] border border-slate-700 rounded px-1.5 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
                         >
                           <option value="TRY">₺ TRY</option>
                           <option value="USD">$ USD</option>
@@ -4332,26 +4339,28 @@ export default function StocksPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col justify-end">
-                      {unitPrice && parseFloat(unitPrice) > 0 && webPrice && parseFloat(webPrice) > 0 ? (
-                        <div className="bg-sky-500/10 border border-sky-500/30 rounded px-2.5 py-1.5 text-[11px]">
-                          <div className="text-slate-400 flex justify-between">
-                            <span>Alış: {parseFloat(unitPrice).toFixed(2)} {currency}</span>
-                            <span>Web: {parseFloat(webPrice).toFixed(2)} {webCurrency}</span>
-                          </div>
-                          <div className="flex items-center justify-between font-medium mt-0.5">
-                            <span className="text-sky-300">Tahmini Kâr Marjı:</span>
-                            <span className={`font-mono font-bold ${parseFloat(webPrice) >= parseFloat(unitPrice) ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              %{(((parseFloat(webPrice) - parseFloat(unitPrice)) / parseFloat(unitPrice)) * 100).toFixed(1)}
-                            </span>
-                          </div>
+                    {/* Kâr Marjı Karşılaştırma Şeridi */}
+                    {unitPrice && parseFloat(unitPrice) > 0 && webPrice && parseFloat(webPrice) > 0 ? (
+                      <div className="flex items-center justify-between bg-sky-950/40 border border-sky-500/30 rounded px-3 py-2 text-xs">
+                        <div className="flex items-center gap-2 text-slate-300">
+                          <span>Alış: <strong className="text-white font-mono">{parseFloat(unitPrice).toFixed(2)} {currency}</strong></span>
+                          <span className="text-slate-500">→</span>
+                          <span>Web: <strong className="text-sky-300 font-mono">{parseFloat(webPrice).toFixed(2)} {webCurrency}</strong></span>
                         </div>
-                      ) : (
-                        <div className="text-[11px] text-slate-500 italic py-1.5">
-                          {webVisible ? '⚠️ Webte görünmesi için kategori ve fiyat zorunludur.' : 'Web ayarları isteğe bağlıdır.'}
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <span className="text-slate-400 text-[11px]">Tahmini Kâr:</span>
+                          <span className={`font-mono font-bold px-2 py-0.5 rounded text-xs ${parseFloat(webPrice) >= parseFloat(unitPrice) ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`}>
+                            %{(((parseFloat(webPrice) - parseFloat(unitPrice)) / parseFloat(unitPrice)) * 100).toFixed(1)}
+                          </span>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      webVisible && (
+                        <div className="text-[11px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded px-2.5 py-1.5">
+                          ⚠️ Ürünün ctcmarket.com'da yayında olması için web kategorisi ve satış fiyatı zorunludur.
+                        </div>
+                      )
+                    )}
                   </div>
                 </div>
               </div>
