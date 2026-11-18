@@ -91,7 +91,9 @@ export default function BankAccountsPage() {
   const [collectDate, setCollectDate] = useState(todayISO)
   const [isCollecting, setIsCollecting] = useState(false)
   const [txSearchTerm, setTxSearchTerm] = useState('')
-  const [txPeriodFilter, setTxPeriodFilter] = useState<'all' | 'this_month' | 'last_month'>('all')
+  const [txPeriodFilter, setTxPeriodFilter] = useState<'all' | 'this_month' | 'last_month' | 'custom'>('all')
+  const [txStartDate, setTxStartDate] = useState('')
+  const [txEndDate, setTxEndDate] = useState('')
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
   const [draggedBankId, setDraggedBankId] = useState<string | null>(null)
   const [dragOverBankId, setDragOverBankId] = useState<string | null>(null)
@@ -102,6 +104,8 @@ export default function BankAccountsPage() {
       fetchTransactions(selectedBankId);
       setTxSearchTerm('');
       setTxPeriodFilter('all');
+      setTxStartDate('');
+      setTxEndDate('');
     } else {
       setTransactions([])
     }
@@ -1126,6 +1130,9 @@ export default function BankAccountsPage() {
       d.setMonth(d.getMonth() - 1);
       const lastMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (!t.tx_date.startsWith(lastMonth)) return false;
+    } else if (txPeriodFilter === 'custom') {
+      if (txStartDate && t.tx_date < txStartDate) return false;
+      if (txEndDate && t.tx_date > txEndDate) return false;
     }
     return true;
   })
@@ -1457,7 +1464,43 @@ export default function BankAccountsPage() {
                       >
                         Geçen Ay
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTxPeriodFilter('custom')
+                          if (!txStartDate) setTxStartDate(`${todayISO.substring(0, 7)}-01`)
+                          if (!txEndDate) setTxEndDate(todayISO)
+                        }}
+                        className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${
+                          txPeriodFilter === 'custom'
+                            ? 'bg-indigo-600 text-white font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Özel Tarih
+                      </button>
                     </div>
+
+                    {txPeriodFilter === 'custom' && (
+                      <div className="flex items-center gap-1.5 bg-[#0d1322] border border-indigo-500/40 px-2 py-0.5 rounded-md text-[11px] animate-in fade-in duration-150">
+                        <CalendarIcon size={12} className="text-indigo-400 shrink-0" />
+                        <input
+                          type="date"
+                          value={txStartDate}
+                          onChange={(e) => setTxStartDate(e.target.value)}
+                          className="bg-[#070b14] text-slate-200 px-1.5 py-0.5 rounded border border-slate-700 text-[10px] focus:outline-none focus:border-indigo-500 font-mono"
+                          title="Başlangıç Tarihi"
+                        />
+                        <span className="text-slate-500 text-[10px]">-</span>
+                        <input
+                          type="date"
+                          value={txEndDate}
+                          onChange={(e) => setTxEndDate(e.target.value)}
+                          className="bg-[#070b14] text-slate-200 px-1.5 py-0.5 rounded border border-slate-700 text-[10px] focus:outline-none focus:border-indigo-500 font-mono"
+                          title="Bitiş Tarihi"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-3 text-[10px] font-mono shrink-0">
@@ -1498,8 +1541,8 @@ export default function BankAccountsPage() {
                                {(txSearchTerm || txPeriodFilter !== 'all') && (
                                  <button
                                    type="button"
-                                   onClick={() => { setTxSearchTerm(''); setTxPeriodFilter('all'); }}
-                                   className="mt-3 text-[10px] text-indigo-400 hover:text-indigo-300 underline"
+                                   onClick={() => { setTxSearchTerm(''); setTxPeriodFilter('all'); setTxStartDate(''); setTxEndDate(''); }}
+                                   className="mt-3 text-[10px] text-indigo-400 hover:text-indigo-300 underline font-medium cursor-pointer"
                                  >
                                    Filtreleri Temizle
                                  </button>
