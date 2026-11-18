@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney, CARD_COLORS, parseAccountColor, formatAccountColor, sortCreditCards } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
-import { CreditCard, Plus, Trash2, X, Edit3, Building, Home, Globe, AlertTriangle, RefreshCw, GripVertical, ChevronLeft, ChevronRight } from 'lucide-react'
+import { CreditCard, Plus, Trash2, X, Edit3, Building, Home, Globe, AlertTriangle, RefreshCw, GripVertical, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
 
@@ -75,6 +75,8 @@ export default function CreditCardsPage() {
   const [txDesc, setTxDesc] = useState('')
   const [txType, setTxType] = useState<'expense' | 'payment'>('expense')
   const [txAmount, setTxAmount] = useState('')
+  const [txSearchTerm, setTxSearchTerm] = useState('')
+  const [txPeriodFilter, setTxPeriodFilter] = useState<'all' | 'this_month' | 'last_month'>('all')
 
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean; title: string; message: string; confirmText: string; cancelText: string; isDanger: boolean; onConfirm: () => void;
@@ -88,7 +90,11 @@ export default function CreditCardsPage() {
   }, [isRestricted, profile?.allowed_companies])
 
   useEffect(() => { 
-    if (selectedCardId) fetchTransactions(selectedCardId) 
+    if (selectedCardId) {
+      setTxSearchTerm('')
+      setTxPeriodFilter('all')
+      fetchTransactions(selectedCardId)
+    }
   }, [selectedCardId])
 
   async function fetchCompanies() { 
@@ -577,11 +583,35 @@ export default function CreditCardsPage() {
   const selectedCard = cards.find((c) => c.id === selectedCardId)
 
   let currentRunningDebt = selectedCard ? Number(selectedCard.current_debt || 0) : 0
-  const displayTransactions = transactions.map((t) => {
+  const allTransactionsWithDebt = transactions.map((t) => {
     const rowDebt = currentRunningDebt
     if (t.tx_type === 'expense') currentRunningDebt -= Number(t.amount || 0)
     else currentRunningDebt += Number(t.amount || 0)
     return { ...t, running_debt: rowDebt }
+  })
+
+  const displayTransactions = allTransactionsWithDebt.filter((t) => {
+    if (txSearchTerm.trim()) {
+      const q = txSearchTerm.trim().toLowerCase()
+      const matchDesc = (t.description || '').toLowerCase().includes(q)
+      const matchComp = (t.company?.name || '').toLowerCase().includes(q)
+      const matchTransfer = (t.transfer_id || '').toLowerCase().includes(q)
+      const matchAmount = String(t.amount).includes(q) || formatMoney(t.amount).formatted.toLowerCase().includes(q)
+      const matchDate = formatDateTR(t.tx_date).toLowerCase().includes(q) || t.tx_date.includes(q)
+      if (!matchDesc && !matchComp && !matchTransfer && !matchAmount && !matchDate) return false
+    }
+
+    if (txPeriodFilter === 'this_month') {
+      const thisMonth = todayISO.substring(0, 7)
+      if (!t.tx_date.startsWith(thisMonth)) return false
+    } else if (txPeriodFilter === 'last_month') {
+      const d = new Date(todayISO)
+      d.setDate(1)
+      d.setMonth(d.getMonth() - 1)
+      const lastMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      if (!t.tx_date.startsWith(lastMonth)) return false
+    }
+    return true
   })
 
   useEffect(() => {
@@ -759,6 +789,80 @@ export default function CreditCardsPage() {
             </div>
           </form>
 
+          {/* HAREKETLER ARAMA & FİLTRELEME VE İSTATİSTİK BARI */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5 bg-[#070b14] p-2.5 rounded-lg border border-slate-800 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+              <div className="relative flex-1 min-w-[160px] max-w-xs">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="text"
+                  placeholder="Hareketlerde ara (açıklama, tutar, merkez)..."
+                  value={txSearchTerm}
+                  onChange={(e) => setTxSearchTerm(e.target.value)}
+                  className="w-full bg-[#0d1322] border border-slate-700/80 rounded-md pl-8 pr-7 py-1 text-[11px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500/60 transition-all"
+                />
+                {txSearchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setTxSearchTerm('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1 bg-[#0d1322] p-0.5 rounded-md border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setTxPeriodFilter('all')}
+                  className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${
+                    txPeriodFilter === 'all'
+                      ? 'bg-indigo-600 text-white font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Tümü ({transactions.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTxPeriodFilter('this_month')}
+                  className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${
+                    txPeriodFilter === 'this_month'
+                      ? 'bg-indigo-600 text-white font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Bu Ay
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTxPeriodFilter('last_month')}
+                  className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${
+                    txPeriodFilter === 'last_month'
+                      ? 'bg-indigo-600 text-white font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Geçen Ay
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 text-[10px] font-mono shrink-0">
+              <span className="text-slate-400">
+                Görüntülenen: <strong className="text-indigo-400 font-bold">{displayTransactions.length}</strong> / {transactions.length}
+              </span>
+              <div className="h-3 w-px bg-slate-800" />
+              <span className="text-rose-400 font-bold" title="Görüntülenen Harcama Toplamı">
+                Harcama: -{formatMoney(displayTransactions.filter(t => t.tx_type === 'expense').reduce((s, t) => s + Number(t.amount || 0), 0)).formatted}
+              </span>
+              <span className="text-emerald-400 font-bold" title="Görüntülenen Ödeme Toplamı">
+                Ödeme: +{formatMoney(displayTransactions.filter(t => t.tx_type === 'payment').reduce((s, t) => s + Number(t.amount || 0), 0)).formatted}
+              </span>
+            </div>
+          </div>
+
           <div className="overflow-x-auto border border-slate-800/80 rounded-xl">
             <table className="w-full text-left text-xs">
               <thead>
@@ -772,12 +876,25 @@ export default function CreditCardsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {transactions.length === 0 ? (
+                {displayTransactions.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="p-10 text-center">
                       <div className="flex flex-col items-center justify-center text-slate-500 gap-2 animate-in fade-in duration-300">
                          <RefreshCw size={32} className="opacity-40 animate-spin" />
-                         <p className="text-sm font-bold text-slate-400">Bu karta ait hareket bulunmuyor.</p>
+                         <p className="text-sm font-bold text-slate-400">
+                           {txSearchTerm.trim() || txPeriodFilter !== 'all' 
+                             ? 'Aradığınız kriterlere uygun hareket bulunamadı.' 
+                             : 'Bu karta ait hareket bulunmuyor.'}
+                         </p>
+                         {(txSearchTerm.trim() || txPeriodFilter !== 'all') && (
+                           <button 
+                             type="button" 
+                             onClick={() => { setTxSearchTerm(''); setTxPeriodFilter('all'); }} 
+                             className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 underline font-medium cursor-pointer"
+                           >
+                             Filtreleri Temizle
+                           </button>
+                         )}
                       </div>
                     </td>
                   </tr>
