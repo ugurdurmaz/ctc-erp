@@ -5,9 +5,9 @@ import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
 import toast, { Toaster } from 'react-hot-toast'
-import { 
-  Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe, 
-  AlertTriangle, RefreshCw, Filter, Settings, Tags, ChevronLeft, ChevronRight, 
+import {
+  Package, Plus, Trash2, X, Edit3, Layers, Search, Building, Home, Globe,
+  AlertTriangle, RefreshCw, Filter, Settings, Tags, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, ChevronsUpDown, Tag, ArrowUpDown, Check, Folder, FolderPlus,
   BarChart3, PieChart, Clock, Zap, CheckCircle2, TrendingDown, ExternalLink,
   ShieldAlert, Moon, Eye, ArrowRight, AlertCircle, ShoppingCart, Lock, ArrowRightLeft
@@ -275,7 +275,7 @@ export default function StocksPage() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null)
-  
+
   const [categories, setCategories] = useState<StockCategory[]>([])
   const [subCategories, setSubCategories] = useState<{ id: string; category: string; name: string }[]>([])
   const [manageCatExpanded, setManageCatExpanded] = useState<Record<string, boolean>>({})
@@ -322,6 +322,8 @@ export default function StocksPage() {
   const [trfNote, setTrfNote] = useState<string>('')
   const [trfRecordProfit, setTrfRecordProfit] = useState<boolean>(true)
   const [trfLoading, setTrfLoading] = useState<boolean>(false)
+  const [trfSearchTerm, setTrfSearchTerm] = useState<string>('')
+  const [isTrfDropdownOpen, setIsTrfDropdownOpen] = useState<boolean>(false)
 
   const [allStocks, setAllStocks] = useState<StockItem[]>([])
   const [selectedStockId, setSelectedStockId] = useState<string | null>(null)
@@ -329,7 +331,7 @@ export default function StocksPage() {
   const [transactions, setTransactions] = useState<StockTransaction[]>([])
   const [allStockTxs, setAllStockTxs] = useState<{ id: string; stock_id: string; tx_date: string; tx_type: 'in' | 'out'; quantity: number; unit_price: number; currency: string }[]>([])
   const [rates, setRates] = useState<ExchangeRates>({ USD: 34.25, EUR: 37.80 })
-  
+
   // Sağ Panel Görünüm Modu ve Analiz Sekmeleri
   const [rightPanelMode, setRightPanelMode] = useState<'analytics' | 'product'>('analytics')
   const [analyticsTab, setAnalyticsTab] = useState<'summary' | 'critical' | 'dead'>('summary')
@@ -385,7 +387,7 @@ export default function StocksPage() {
 
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean; title: string; message: string; confirmText: string; cancelText: string; isDanger: boolean; onConfirm: () => void;
-  }>({ isOpen: false, title: '', message: '', confirmText: '', cancelText: '', isDanger: false, onConfirm: () => {} })
+  }>({ isOpen: false, title: '', message: '', confirmText: '', cancelText: '', isDanger: false, onConfirm: () => { } })
 
   useEffect(() => {
     fetchExchangeRates()
@@ -483,14 +485,14 @@ export default function StocksPage() {
     } catch (err) { console.error(err) }
   }
 
-  async function fetchCompanies() { 
+  async function fetchCompanies() {
     try {
       const { data } = await supabase.from('companies').select('*').order('name', { ascending: true })
       let comps = data || []
       if (!isAdmin && profile?.allowed_companies && profile.allowed_companies.length > 0) {
         comps = comps.filter(c => profile.allowed_companies!.includes(c.id))
       }
-      setCompanies(comps) 
+      setCompanies(comps)
     } catch (err) { console.error(err) }
   }
 
@@ -574,20 +576,20 @@ export default function StocksPage() {
       if (error) throw error
       const main: StockCategory[] = []
       const subs: { id: string; category: string; name: string }[] = []
-      ;(data || []).forEach(item => {
-        if (item.name && item.name.startsWith('SUB::')) {
-          const parts = item.name.split('::')
-          if (parts.length >= 3) {
-            subs.push({
-              id: item.id,
-              category: parts[1],
-              name: parts.slice(2).join('::')
-            })
+        ; (data || []).forEach(item => {
+          if (item.name && item.name.startsWith('SUB::')) {
+            const parts = item.name.split('::')
+            if (parts.length >= 3) {
+              subs.push({
+                id: item.id,
+                category: parts[1],
+                name: parts.slice(2).join('::')
+              })
+            }
+          } else {
+            main.push(item)
           }
-        } else {
-          main.push(item)
-        }
-      })
+        })
       setCategories(main)
       setSubCategories(subs)
     } catch (err) { console.error(err) }
@@ -625,7 +627,7 @@ export default function StocksPage() {
   // Filtreleme için kullanılabilir alt kategoriler (kategori seçimine duyarlı)
   const availableFilterSubCategories = useMemo(() => {
     const list: { name: string; category: string; count: number }[] = []
-    const targetCategories = selectedFilterCategories.length > 0 
+    const targetCategories = selectedFilterCategories.length > 0
       ? categories.filter(c => selectedFilterCategories.includes(c.name))
       : categories
 
@@ -1158,7 +1160,7 @@ export default function StocksPage() {
         try {
           const catToDelete = categories.find(c => c.id === id)
           await supabase.from('stocks').update({ category: null, sub_category: null }).eq('category', catName).eq('warehouse_id', selectedWarehouseId)
-          
+
           const subsToDelete = subCategories.filter(s => s.category === catName)
           for (const s of subsToDelete) {
             await supabase.from('stock_categories').delete().eq('id', s.id)
@@ -1166,7 +1168,7 @@ export default function StocksPage() {
 
           await supabase.from('stock_categories').delete().eq('id', id)
           await logActivity('stock_category', 'DELETE', `Stok kategorisi silindi: ${catToDelete?.name}`, id, 0, '', catToDelete, null, null)
-          
+
           toast.success('Kategori silindi.')
           setSelectedFilterCategories([])
           fetchCategories(selectedWarehouseId!)
@@ -1262,7 +1264,7 @@ export default function StocksPage() {
         const oldCat = categories.find(c => c.id === editingStockCatId)
         const { error } = await supabase.from('stock_categories').update({ name: newCategoryName }).eq('id', editingStockCatId)
         if (error) throw error
-        
+
         if (oldCat && oldCat.name !== newCategoryName) {
           await supabase.from('stocks').update({ category: newCategoryName }).eq('category', oldCat.name).eq('warehouse_id', selectedWarehouseId)
         }
@@ -1279,7 +1281,7 @@ export default function StocksPage() {
       setIsCategoryModalOpen(false)
       setNewCategoryName('')
       setEditingStockCatId(null)
-      setSelectedFilterCategories([]) 
+      setSelectedFilterCategories([])
       fetchCategories(selectedWarehouseId)
       fetchAllStocks()
     } catch (err: any) { toast.error('Kategori işlemi başarısız: ' + err.message) }
@@ -1317,21 +1319,21 @@ export default function StocksPage() {
 
     try {
       if (editingStockId) {
-        const payload = { 
-          warehouse_id: selectedWarehouseId, 
-          name, 
-          sku: sku || null, 
-          category: category || null, 
-          sub_category: subCategory || null, 
-          currency, 
-          unit, 
-          unit_price: priceNum, 
-          vat_rate: vatNum, 
+        const payload = {
+          warehouse_id: selectedWarehouseId,
+          name,
+          sku: sku || null,
+          category: category || null,
+          sub_category: subCategory || null,
+          currency,
+          unit,
+          unit_price: priceNum,
+          vat_rate: vatNum,
           stock_color: stockColor,
           ...webFields
         }
         const oldStock = allStocks.find(s => s.id === editingStockId)
-        
+
         const { error } = await supabase.from('stocks').update(payload).eq('id', editingStockId)
         if (error) throw error
 
@@ -1381,21 +1383,21 @@ export default function StocksPage() {
         if (selectedStockId === editingStockId) {
           fetchTransactions(editingStockId)
         }
-        
+
         await logActivity('stock', 'UPDATE', `Stok kartı güncellendi: ${name}`, editingStockId, priceNum, currency, oldStock, payload, null)
         toast.success('Stok kartı ve açılış stoğu güncellendi.')
       } else {
-        const payload = { 
-          warehouse_id: selectedWarehouseId, 
-          name, 
-          sku: sku || null, 
-          category: category || null, 
-          sub_category: subCategory || null, 
-          currency, 
-          unit, 
-          quantity: 0, 
-          unit_price: priceNum, 
-          vat_rate: vatNum, 
+        const payload = {
+          warehouse_id: selectedWarehouseId,
+          name,
+          sku: sku || null,
+          category: category || null,
+          sub_category: subCategory || null,
+          currency,
+          unit,
+          quantity: 0,
+          unit_price: priceNum,
+          vat_rate: vatNum,
           stock_color: stockColor,
           ...webFields
         }
@@ -1407,10 +1409,10 @@ export default function StocksPage() {
           const txPayload = { stock_id: data.id, tx_date: todayISO, description: 'Açılış Stoğu', tx_type: 'in', quantity: qtyNum, unit_price: priceNum, currency, vat_rate: vatNum, company_id: null }
           const { data: txData, error: txError } = await supabase.from('stock_transactions').insert([txPayload]).select().single()
           if (!txError && txData) {
-             await logActivity('stock_tx', 'INSERT', `Açılış Stoğu: ${name}`, txData.id, priceNum, currency, null, txData, null)
+            await logActivity('stock_tx', 'INSERT', `Açılış Stoğu: ${name}`, txData.id, priceNum, currency, null, txData, null)
           }
         }
-        
+
         await recalculateAbsoluteStock(data.id)
         toast.success('Yeni stok kartı oluşturuldu.')
       }
@@ -1460,7 +1462,7 @@ export default function StocksPage() {
     if (selectedStockIds.length === 0) return
     const targetStocks = allStocks.filter(s => selectedStockIds.includes(s.id))
     const missingRequirement = targetStocks.filter(s => !s.web_category || !s.web_price || s.web_price <= 0)
-    
+
     if (missingRequirement.length > 0) {
       toast.error(`Seçilen ${selectedStockIds.length} üründen ${missingRequirement.length} tanesinde Web Kategorisi veya Web Fiyatı tanımlı değil. Webte gösterilmek için her ikisi de zorunludur.`)
       return
@@ -1626,7 +1628,7 @@ export default function StocksPage() {
     const finalCompId = txCompanyId === 'common' ? null : txCompanyId
 
     const payload = {
-      company_id: finalCompId, tx_date: txDate || todayISO, description: txDesc, 
+      company_id: finalCompId, tx_date: txDate || todayISO, description: txDesc,
       tx_type: txType, quantity: qtyNum, unit_price: priceNum, currency: txCurrency, vat_rate: vatNum
     }
 
@@ -1634,20 +1636,20 @@ export default function StocksPage() {
       if (editingTxId) {
         const oldTx = transactions.find(t => t.id === editingTxId)
         if (!oldTx) return
-        
+
         const { error: updErr } = await supabase.from('stock_transactions').update(payload).eq('id', editingTxId)
         if (updErr) throw updErr
-        
+
         await logActivity('stock_tx', 'UPDATE', `Stok hareketi güncellendi: ${txDesc}`, editingTxId, priceNum, txCurrency, oldTx, payload, finalCompId)
         toast.success('İşlem güncellendi.')
       } else {
         const { data: newTx, error: insErr } = await supabase.from('stock_transactions').insert([{ stock_id: selectedStockId, ...payload }]).select().single()
         if (insErr) throw insErr
-        
+
         await logActivity('stock_tx', 'INSERT', `Stok ${txType === 'in' ? 'Girişi' : 'Çıkışı'}: ${txDesc}`, newTx.id, priceNum, txCurrency, null, newTx, finalCompId)
         toast.success(txType === 'in' ? 'Stok girişi eklendi.' : 'Stok çıkışı yapıldı.')
       }
-      
+
       // Mutlak miktar ve son alış fiyatını otomatik senkronize et
       await recalculateAbsoluteStock(selectedStockId)
 
@@ -1660,11 +1662,11 @@ export default function StocksPage() {
     try {
       const oldTx = transactions.find(t => t.id === txId)
       await supabase.from('stock_transactions').delete().eq('id', txId)
-      
+
       if (selectedStockId) {
         await recalculateAbsoluteStock(selectedStockId)
       }
-      
+
       await logActivity('stock_tx', 'DELETE', `Stok hareketi iptal edildi: ${oldTx?.description}`, txId, oldTx?.unit_price, oldTx?.currency || '', { ...oldTx }, null, oldTx?.company_id)
 
       toast.success('İşlem silindi ve stok başarıyla güncellendi.')
@@ -1691,7 +1693,7 @@ export default function StocksPage() {
         .select('id, description, tx_date, invoice_lines')
         .eq('is_detailed', true)
 
-      const linked = suppInvoices?.find(inv => 
+      const linked = suppInvoices?.find(inv =>
         Array.isArray(inv.invoice_lines) && inv.invoice_lines.some((l: any) => l.stockTxId === txId)
       )
       if (linked) {
@@ -1710,7 +1712,7 @@ export default function StocksPage() {
         .select('id, description, tx_date, invoice_lines')
         .eq('is_detailed', true)
 
-      const linked = custInvoices?.find(inv => 
+      const linked = custInvoices?.find(inv =>
         Array.isArray(inv.invoice_lines) && inv.invoice_lines.some((l: any) => l.stockTxId === txId)
       )
       if (linked) {
@@ -1768,7 +1770,7 @@ export default function StocksPage() {
 
             if (matchedTxs && matchedTxs.length > 0) {
               const stockIdsToRecalc = Array.from(new Set(matchedTxs.map(t => t.stock_id)))
-              
+
               const { error: delErr } = await supabase
                 .from('stock_transactions')
                 .delete()
@@ -1835,7 +1837,7 @@ export default function StocksPage() {
   }
 
   function openAddWh() { setEditingWhId(null); setWhName(''); setWhColor(WAREHOUSE_THEMES[0].value); setWhCompanyId('common'); setIsWarehouseModalOpen(true) }
-  
+
   function openEditWh(wh: Warehouse, e: React.MouseEvent) {
     e.stopPropagation()
     setEditingWhId(wh.id); setWhName(wh.name); setWhColor(wh.color ? getWarehouseTheme(wh.color).value : WAREHOUSE_THEMES[0].value); setWhCompanyId(wh.company_id || 'common'); setIsWarehouseModalOpen(true)
@@ -1850,6 +1852,20 @@ export default function StocksPage() {
   const priceDiff = inputTransferPrice - sourceCost
   const profitMarginPercent = sourceCost > 0 ? ((inputTransferPrice - sourceCost) / sourceCost) * 100 : 0
 
+  const sourceWarehouseStocks = useMemo(() => {
+    return allStocks.filter(s => s.warehouse_id === trfSourceWarehouseId)
+  }, [allStocks, trfSourceWarehouseId])
+
+  const filteredTransferStocks = useMemo(() => {
+    if (!trfSearchTerm.trim()) return sourceWarehouseStocks
+    const term = trfSearchTerm.toLocaleLowerCase('tr-TR').trim()
+    return sourceWarehouseStocks.filter(s => 
+      s.name.toLocaleLowerCase('tr-TR').includes(term) ||
+      (s.sku && s.sku.toLocaleLowerCase('tr-TR').includes(term)) ||
+      (s.category && s.category.toLocaleLowerCase('tr-TR').includes(term))
+    )
+  }, [sourceWarehouseStocks, trfSearchTerm])
+
   function openTransferModal(preselectedStock?: StockItem) {
     const srcWhId = preselectedStock?.warehouse_id || selectedWarehouseId || (warehouses[0]?.id || '')
     setTrfSourceWarehouseId(srcWhId)
@@ -1862,6 +1878,7 @@ export default function StocksPage() {
       setTrfQuantity('1')
       setTrfUnitPrice(preselectedStock.unit_price?.toString() || '0')
       setTrfCurrency(preselectedStock.currency || 'TRY')
+      setTrfSearchTerm(preselectedStock.name)
     } else {
       const availableStocksInWh = allStocks.filter(s => s.warehouse_id === srcWhId && s.quantity > 0)
       const firstStk = availableStocksInWh[0] || allStocks.find(s => s.warehouse_id === srcWhId)
@@ -1870,17 +1887,20 @@ export default function StocksPage() {
         setTrfQuantity('1')
         setTrfUnitPrice(firstStk.unit_price?.toString() || '0')
         setTrfCurrency(firstStk.currency || 'TRY')
+        setTrfSearchTerm(firstStk.name)
       } else {
         setTrfStockId('')
         setTrfQuantity('')
         setTrfUnitPrice('')
         setTrfCurrency('TRY')
+        setTrfSearchTerm('')
       }
     }
 
     setTrfDate(getLocalTodayISO())
     setTrfNote('')
     setTrfRecordProfit(true)
+    setIsTrfDropdownOpen(false)
     setIsTransferModalOpen(true)
   }
 
@@ -1895,10 +1915,13 @@ export default function StocksPage() {
       setTrfStockId(firstStk.id)
       setTrfUnitPrice(firstStk.unit_price?.toString() || '0')
       setTrfCurrency(firstStk.currency || 'TRY')
+      setTrfSearchTerm(firstStk.name)
     } else {
       setTrfStockId('')
       setTrfUnitPrice('')
+      setTrfSearchTerm('')
     }
+    setIsTrfDropdownOpen(false)
   }
 
   function handleTrfStockChange(stockId: string) {
@@ -1907,6 +1930,7 @@ export default function StocksPage() {
     if (stk) {
       setTrfUnitPrice(stk.unit_price?.toString() || '0')
       setTrfCurrency(stk.currency || 'TRY')
+      setTrfSearchTerm(stk.name)
     }
   }
 
@@ -1947,7 +1971,7 @@ export default function StocksPage() {
 
       // Hedef depoda aynı ürün var mı kontrol et (SKU veya İsim eşleşmesi)
       let targetStockId: string | null = null
-      const targetExisting = allStocks.find(s => 
+      const targetExisting = allStocks.find(s =>
         s.warehouse_id === trfTargetWarehouseId && (
           (sourceStock.sku && s.sku && s.sku.trim().toLowerCase() === sourceStock.sku.trim().toLowerCase()) ||
           (s.name.trim().toLowerCase() === sourceStock.name.trim().toLowerCase())
@@ -2082,7 +2106,7 @@ export default function StocksPage() {
     setWebVisible(false); setWebCategory(''); setWebSubCategory(''); setWebPrice(''); setWebCurrency('TRY')
     setIsStockModalOpen(true)
   }
-  
+
   async function openEditStock(item: StockItem, e?: React.MouseEvent) {
     if (e) e.stopPropagation()
     setEditingStockId(item.id)
@@ -2192,15 +2216,15 @@ export default function StocksPage() {
     const catMatch = selectedFilterCategories.length === 0 || selectedFilterCategories.includes(s.category || 'Kategorisiz')
     const subCatMatch = selectedFilterSubCategories.length === 0 || selectedFilterSubCategories.includes(s.sub_category || '')
     const searchStr = searchTerm.toLowerCase().trim()
-    const searchMatch = !searchStr || 
-      s.name.toLowerCase().includes(searchStr) || 
+    const searchMatch = !searchStr ||
+      s.name.toLowerCase().includes(searchStr) ||
       (s.sku && s.sku.toLowerCase().includes(searchStr)) ||
       (s.sub_category && s.sub_category.toLowerCase().includes(searchStr))
     return catMatch && subCatMatch && searchMatch
   })
 
-  const quickSearchStocks = warehouseStocks.filter(s => 
-    quickSearchTerm.length > 1 && 
+  const quickSearchStocks = warehouseStocks.filter(s =>
+    quickSearchTerm.length > 1 &&
     (s.name.toLowerCase().includes(quickSearchTerm.toLowerCase()) || (s.sku && s.sku.toLowerCase().includes(quickSearchTerm.toLowerCase())))
   )
 
@@ -2325,10 +2349,10 @@ export default function StocksPage() {
     <div className="flex flex-col h-[calc(100vh-32px)] relative">
       {/* TOASTER KONTEYNER Z-INDEX DEĞERİ MAX VE POZİSYONU BOTTOM-RIGHT YAPILDI */}
       <Toaster position="bottom-right" containerStyle={{ zIndex: 99999999 }} toastOptions={{ style: { background: '#0f172a', color: '#fff', border: '1px solid #1e293b', fontSize: '12px' } }} />
-      
+
       {/* Üst Bar: Depo Seçici & Canlı Envanter Metrikleri */}
-      <div 
-        style={{ animation: 'fadeInDown 0.4s both' }} 
+      <div
+        style={{ animation: 'fadeInDown 0.4s both' }}
         className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#0d1322] border border-slate-800/80 px-3.5 py-2 rounded-xl shadow-md shrink-0 mb-3 transition-colors"
       >
         {/* SOL: DEPO SEÇİM SEKMELERİ (Birden fazla depo için yatay kaydırma ve hızlı geçiş) */}
@@ -2344,32 +2368,31 @@ export default function StocksPage() {
               const isSelected = selectedWarehouseId === wh.id
               const theme = getWarehouseTheme(wh.color)
               return (
-                <div 
-                  key={wh.id} 
+                <div
+                  key={wh.id}
                   onClick={() => {
                     setSelectedWarehouseId(wh.id);
-                    try { localStorage.setItem('ctc_stock_selected_warehouse', wh.id); } catch {}
-                  }} 
-                  style={{ 
-                    animation: 'fadeInUp 0.3s both', 
+                    try { localStorage.setItem('ctc_stock_selected_warehouse', wh.id); } catch { }
+                  }}
+                  style={{
+                    animation: 'fadeInUp 0.3s both',
                     animationDelay: `${0.05 + (index * 0.04)}s`,
                     borderLeftColor: !isSelected ? theme.hex : undefined,
                   }}
-                  className={`flex flex-col px-3 py-1.5 rounded-lg cursor-pointer transition-all border whitespace-nowrap group select-none shrink-0 ${
-                    isSelected 
-                      ? `bg-gradient-to-r ${theme.value} ${theme.border} shadow-md ${theme.glow} ring-1 ${theme.ring}` 
-                      : `bg-slate-900/50 border-slate-800/80 border-l-[3px] opacity-70 hover:opacity-100 hover:border-slate-700 hover:bg-slate-800/50`
-                  }`}
+                  className={`flex flex-col px-3 py-1.5 rounded-lg cursor-pointer transition-all border whitespace-nowrap group select-none shrink-0 ${isSelected
+                    ? `bg-gradient-to-r ${theme.value} ${theme.border} shadow-md ${theme.glow} ring-1 ${theme.ring}`
+                    : `bg-slate-900/50 border-slate-800/80 border-l-[3px] opacity-70 hover:opacity-100 hover:border-slate-700 hover:bg-slate-800/50`
+                    }`}
                   title={`${wh.name} deposunu seç (${formatMoney(totals.totalTry, 'TRY').formatted})`}
                 >
                   <div className="flex items-center justify-between gap-2.5">
                     <div className="flex items-center gap-1.5">
-                      <span 
+                      <span
                         className={`w-2 h-2 rounded-full shrink-0 ${isSelected ? 'animate-pulse' : ''}`}
                         style={{ backgroundColor: theme.hex }}
                       />
                       {wh.company ? (
-                        wh.company.is_personal 
+                        wh.company.is_personal
                           ? <Home size={11} className={isSelected ? theme.text : 'text-slate-400'} />
                           : <Building size={11} className={isSelected ? theme.text : 'text-slate-400'} />
                       ) : (
@@ -2402,9 +2425,9 @@ export default function StocksPage() {
               )
             })}
 
-            <button 
-              style={{ animation: 'fadeInUp 0.3s both 0.2s' }} 
-              onClick={openAddWh} 
+            <button
+              style={{ animation: 'fadeInUp 0.3s both 0.2s' }}
+              onClick={openAddWh}
               className="p-1.5 px-2 rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-indigo-500 hover:bg-indigo-950/20 shrink-0 transition-all active:scale-95 flex items-center gap-1 text-[11px] font-medium"
               title="Yeni Depo Oluştur"
             >
@@ -2413,10 +2436,10 @@ export default function StocksPage() {
             </button>
 
             {/* MODEL 3: DEPOLAR ARASI TRANSFER BUTONU */}
-            <button 
+            <button
               type="button"
-              style={{ animation: 'fadeInUp 0.3s both 0.25s' }} 
-              onClick={() => openTransferModal()} 
+              style={{ animation: 'fadeInUp 0.3s both 0.25s' }}
+              onClick={() => openTransferModal()}
               className="p-1.5 px-2.5 rounded-lg border border-cyan-500/50 text-cyan-400 bg-cyan-950/20 hover:text-white hover:border-cyan-400 hover:bg-cyan-900/30 shrink-0 transition-all active:scale-95 flex items-center gap-1.5 text-[11px] font-medium shadow-sm shadow-cyan-950/30"
               title="Depolar Arası Ürün Transferi Yap (Model 3)"
             >
@@ -2429,7 +2452,7 @@ export default function StocksPage() {
         {/* SAĞ: SEÇİLİ DEPO CANLI ENVANTER & SAĞLIK ÖZETİ (Tek Satır Kompakt Metrik Şeridi) */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0 py-0.5 border-t lg:border-t-0 lg:border-l border-slate-800/80 pt-2 lg:pt-0 lg:pl-3">
           {/* Bağlı Sermaye */}
-          <div 
+          <div
             onClick={() => {
               setRightPanelMode('analytics')
               setAnalyticsTab('summary')
@@ -2465,16 +2488,15 @@ export default function StocksPage() {
           </div>
 
           {/* Kritik & Tükenen */}
-          <div 
+          <div
             onClick={() => {
               setRightPanelMode('analytics')
               setAnalyticsTab('critical')
             }}
-            className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border transition-colors cursor-pointer group select-none shrink-0 ${
-              categoryAnalytics.totalCriticalCount + categoryAnalytics.totalOutOfStockCount > 0
-                ? 'bg-amber-950/20 hover:bg-amber-950/30 border-amber-500/30'
-                : 'bg-[#070b14] border-slate-800/90 text-slate-400'
-            }`}
+            className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border transition-colors cursor-pointer group select-none shrink-0 ${categoryAnalytics.totalCriticalCount + categoryAnalytics.totalOutOfStockCount > 0
+              ? 'bg-amber-950/20 hover:bg-amber-950/30 border-amber-500/30'
+              : 'bg-[#070b14] border-slate-800/90 text-slate-400'
+              }`}
             title="Kritik ve Tükenen Ürünleri Görüntüle"
           >
             <div className="p-1 rounded bg-amber-500/15 text-amber-400">
@@ -2494,16 +2516,15 @@ export default function StocksPage() {
           </div>
 
           {/* Ölü / Uyuyan Stok */}
-          <div 
+          <div
             onClick={() => {
               setRightPanelMode('analytics')
               setAnalyticsTab('dead')
             }}
-            className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border transition-colors cursor-pointer group select-none shrink-0 ${
-              categoryAnalytics.totalDeadCount > 0
-                ? 'bg-purple-950/20 hover:bg-purple-950/30 border-purple-500/30'
-                : 'bg-[#070b14] border-slate-800/90 text-slate-400'
-            }`}
+            className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border transition-colors cursor-pointer group select-none shrink-0 ${categoryAnalytics.totalDeadCount > 0
+              ? 'bg-purple-950/20 hover:bg-purple-950/30 border-purple-500/30'
+              : 'bg-[#070b14] border-slate-800/90 text-slate-400'
+              }`}
             title="Hareketsiz / Ölü Stokları Görüntüle"
           >
             <div className="p-1 rounded bg-purple-500/15 text-purple-400">
@@ -2528,11 +2549,11 @@ export default function StocksPage() {
           <div className="p-3 border-b border-slate-800/80 bg-[#0a0f1d] rounded-t-xl flex flex-col gap-3 shrink-0">
             <div className="flex justify-between items-start">
               <div>
-                 <span className="text-xs font-bold text-slate-300">Stok Kartları</span>
-                 <div className="text-[9px] text-slate-500 mt-1 flex items-center gap-1">
-                    {activeWarehouse?.company ? (activeWarehouse.company.is_personal ? <Home size={10} className="text-slate-400"/> : <Building size={10} className="text-indigo-400"/>) : <Globe size={10} className="text-emerald-500/70"/>}
-                    Sahiplik: {activeWarehouse?.company ? activeWarehouse.company.name : 'Ortak / Bağımsız Depo'}
-                 </div>
+                <span className="text-xs font-bold text-slate-300">Stok Kartları</span>
+                <div className="text-[9px] text-slate-500 mt-1 flex items-center gap-1">
+                  {activeWarehouse?.company ? (activeWarehouse.company.is_personal ? <Home size={10} className="text-slate-400" /> : <Building size={10} className="text-indigo-400" />) : <Globe size={10} className="text-emerald-500/70" />}
+                  Sahiplik: {activeWarehouse?.company ? activeWarehouse.company.name : 'Ortak / Bağımsız Depo'}
+                </div>
               </div>
               <button onClick={openAddStock} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95"><Plus size={14} /> Ürün Ekle</button>
             </div>
@@ -2544,30 +2565,30 @@ export default function StocksPage() {
             {/* Durum & Sıralama Kontrolleri */}
             <div className="flex items-center justify-between gap-1 pt-0.5 text-[10px]">
               <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
-                <button 
+                <button
                   type="button"
-                  onClick={() => setStatusFilter('all')} 
+                  onClick={() => setStatusFilter('all')}
                   className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none cursor-pointer ${statusFilter === 'all' ? 'bg-indigo-600 border-indigo-500 text-white font-bold' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-slate-400'}`}
                 >
                   Tümü ({warehouseStocks.length})
                 </button>
-                <button 
+                <button
                   type="button"
-                  onClick={() => setStatusFilter('in_stock')} 
+                  onClick={() => setStatusFilter('in_stock')}
                   className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none cursor-pointer ${statusFilter === 'in_stock' ? 'bg-emerald-600 border-emerald-500 text-white font-bold' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-emerald-400/80 hover:text-emerald-300'}`}
                 >
                   Stokta ({warehouseStocks.filter(s => s.quantity > 0).length})
                 </button>
-                <button 
+                <button
                   type="button"
-                  onClick={() => setStatusFilter('critical')} 
+                  onClick={() => setStatusFilter('critical')}
                   className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none cursor-pointer ${statusFilter === 'critical' ? 'bg-amber-600 border-amber-500 text-white font-bold' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-amber-400/80 hover:text-amber-300'}`}
                 >
                   Kritik ({warehouseStocks.filter(s => s.quantity > 0 && s.quantity <= 2).length})
                 </button>
-                <button 
+                <button
                   type="button"
-                  onClick={() => setStatusFilter('out_of_stock')} 
+                  onClick={() => setStatusFilter('out_of_stock')}
                   className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none cursor-pointer ${statusFilter === 'out_of_stock' ? 'bg-rose-600 border-rose-500 text-white font-bold' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-rose-400/80 hover:text-rose-300'}`}
                 >
                   Tükenen ({warehouseStocks.filter(s => s.quantity <= 0).length})
@@ -2608,33 +2629,30 @@ export default function StocksPage() {
               <button
                 type="button"
                 onClick={() => setWebFilter('all')}
-                className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${
-                  webFilter === 'all'
-                    ? 'bg-indigo-600 border-indigo-500 text-white font-bold'
-                    : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-slate-400'
-                }`}
+                className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${webFilter === 'all'
+                  ? 'bg-indigo-600 border-indigo-500 text-white font-bold'
+                  : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-slate-400'
+                  }`}
               >
                 Tümü
               </button>
               <button
                 type="button"
                 onClick={() => setWebFilter('visible')}
-                className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${
-                  webFilter === 'visible'
-                    ? 'bg-emerald-600 border-emerald-500 text-white font-bold'
-                    : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-emerald-400 hover:text-emerald-300'
-                }`}
+                className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${webFilter === 'visible'
+                  ? 'bg-emerald-600 border-emerald-500 text-white font-bold'
+                  : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-emerald-400 hover:text-emerald-300'
+                  }`}
               >
                 🌐 Yayında ({webVisibleCount})
               </button>
               <button
                 type="button"
                 onClick={() => setWebFilter('hidden')}
-                className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${
-                  webFilter === 'hidden'
-                    ? 'bg-slate-600 border-slate-500 text-white font-bold'
-                    : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-slate-400'
-                }`}
+                className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${webFilter === 'hidden'
+                  ? 'bg-slate-600 border-slate-500 text-white font-bold'
+                  : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-slate-400'
+                  }`}
               >
                 🔒 Gizli ({webHiddenCount})
               </button>
@@ -2642,11 +2660,10 @@ export default function StocksPage() {
                 <button
                   type="button"
                   onClick={() => setWebFilter('missing_cat')}
-                  className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${
-                    webFilter === 'missing_cat'
-                      ? 'bg-amber-600 border-amber-500 text-white font-bold'
-                      : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-amber-400'
-                  }`}
+                  className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${webFilter === 'missing_cat'
+                    ? 'bg-amber-600 border-amber-500 text-white font-bold'
+                    : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-amber-400'
+                    }`}
                 >
                   ⚠️ Kategori Boş ({webMissingCatCount})
                 </button>
@@ -2655,11 +2672,10 @@ export default function StocksPage() {
                 <button
                   type="button"
                   onClick={() => setWebFilter('missing_price')}
-                  className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${
-                    webFilter === 'missing_price'
-                      ? 'bg-rose-600 border-rose-500 text-white font-bold'
-                      : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-rose-400'
-                  }`}
+                  className={`px-2 py-0.5 rounded transition-colors border select-none cursor-pointer whitespace-nowrap ${webFilter === 'missing_price'
+                    ? 'bg-rose-600 border-rose-500 text-white font-bold'
+                    : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/70 text-rose-400'
+                    }`}
                 >
                   ⚠️ Fiyat Boş ({webMissingPriceCount})
                 </button>
@@ -2674,16 +2690,16 @@ export default function StocksPage() {
                 <div className="flex items-center gap-1 min-w-0 flex-1">
                   <Filter size={12} className="text-slate-500 shrink-0 ml-0.5 mr-0.5" />
                   <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider shrink-0 mr-1">Kat:</span>
-                  <div 
+                  <div
                     ref={categoryScrollRef}
                     className="flex items-center gap-1.5 overflow-x-auto no-scrollbar overscroll-contain flex-1 py-0.5"
                   >
                     {categories.map(c => {
                       const isActive = selectedFilterCategories.includes(c.name)
                       return (
-                        <button 
-                          key={c.id} 
-                          onClick={() => setSelectedFilterCategories(p => p.includes(c.name) ? p.filter(n => n !== c.name) : [...p, c.name])} 
+                        <button
+                          key={c.id}
+                          onClick={() => setSelectedFilterCategories(p => p.includes(c.name) ? p.filter(n => n !== c.name) : [...p, c.name])}
                           className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none shrink-0 cursor-pointer ${isActive ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm shadow-indigo-600/30 font-bold' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-slate-400 hover:text-slate-200'}`}
                         >
                           {c.name}
@@ -2704,24 +2720,24 @@ export default function StocksPage() {
                 </div>
 
                 <div className="flex items-center gap-0.5 shrink-0 pl-1 border-l border-slate-800/80">
-                  <button 
-                    type="button" 
-                    onClick={() => categoryScrollRef.current?.scrollBy({ left: -100, behavior: 'smooth' })} 
-                    className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer" 
+                  <button
+                    type="button"
+                    onClick={() => categoryScrollRef.current?.scrollBy({ left: -100, behavior: 'smooth' })}
+                    className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer"
                     title="Sola kaydır"
                   >
                     <ChevronLeft size={12} />
                   </button>
-                  <button 
-                    type="button" 
-                    onClick={() => categoryScrollRef.current?.scrollBy({ left: 100, behavior: 'smooth' })} 
-                    className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer" 
+                  <button
+                    type="button"
+                    onClick={() => categoryScrollRef.current?.scrollBy({ left: 100, behavior: 'smooth' })}
+                    className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer"
                     title="Sağa kaydır"
                   >
                     <ChevronRight size={12} />
                   </button>
-                  <button 
-                    onClick={() => setIsCategoryManageModalOpen(true)} 
+                  <button
+                    onClick={() => setIsCategoryManageModalOpen(true)}
                     className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded transition-colors shrink-0 ml-1 cursor-pointer"
                   >
                     <Settings size={12} /> Yönet
@@ -2735,16 +2751,16 @@ export default function StocksPage() {
                   <div className="flex items-center gap-1 min-w-0 flex-1">
                     <Tag size={11} className="text-teal-500/80 shrink-0 ml-0.5 mr-0.5" />
                     <span className="text-[9px] font-bold text-teal-400/80 uppercase tracking-wider shrink-0 mr-1">Alt Kat:</span>
-                    <div 
+                    <div
                       ref={subCategoryScrollRef}
                       className="flex items-center gap-1.5 overflow-x-auto no-scrollbar overscroll-contain flex-1 py-0.5"
                     >
                       {availableFilterSubCategories.map(sub => {
                         const isActive = selectedFilterSubCategories.includes(sub.name)
                         return (
-                          <button 
-                            key={sub.name} 
-                            onClick={() => setSelectedFilterSubCategories(p => p.includes(sub.name) ? p.filter(n => n !== sub.name) : [...p, sub.name])} 
+                          <button
+                            key={sub.name}
+                            onClick={() => setSelectedFilterSubCategories(p => p.includes(sub.name) ? p.filter(n => n !== sub.name) : [...p, sub.name])}
                             className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none shrink-0 cursor-pointer ${isActive ? 'bg-teal-600 border-teal-500 text-white shadow-sm shadow-teal-600/30 font-bold' : 'bg-slate-800/40 hover:bg-slate-700/40 border-slate-700/80 text-teal-400/80 hover:text-teal-200'}`}
                             title={`${sub.category} > ${sub.name}`}
                           >
@@ -2766,18 +2782,18 @@ export default function StocksPage() {
                   </div>
 
                   <div className="flex items-center gap-0.5 shrink-0 pl-1 border-l border-slate-800/80">
-                    <button 
-                      type="button" 
-                      onClick={() => subCategoryScrollRef.current?.scrollBy({ left: -100, behavior: 'smooth' })} 
-                      className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer" 
+                    <button
+                      type="button"
+                      onClick={() => subCategoryScrollRef.current?.scrollBy({ left: -100, behavior: 'smooth' })}
+                      className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer"
                       title="Alt kategorileri sola kaydır"
                     >
                       <ChevronLeft size={11} />
                     </button>
-                    <button 
-                      type="button" 
-                      onClick={() => subCategoryScrollRef.current?.scrollBy({ left: 100, behavior: 'smooth' })} 
-                      className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer" 
+                    <button
+                      type="button"
+                      onClick={() => subCategoryScrollRef.current?.scrollBy({ left: 100, behavior: 'smooth' })}
+                      className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded transition-colors cursor-pointer"
                       title="Alt kategorileri sağa kaydır"
                     >
                       <ChevronRight size={11} />
@@ -2787,7 +2803,7 @@ export default function StocksPage() {
               )}
             </div>
           )}
-          
+
           <div className="overflow-y-auto flex-1 custom-scrollbar">
             {groupedHierarchy.length === 0 ? (
               <div className="flex flex-col items-center justify-center p-8 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner mt-4 mx-2">
@@ -2798,21 +2814,21 @@ export default function StocksPage() {
             ) : (
               groupedHierarchy.map((catGroup) => {
                 const isSearchActive = searchTerm.trim().length > 0;
-                const isCatOpen = isSearchActive 
-                  ? true 
+                const isCatOpen = isSearchActive
+                  ? true
                   : (selectedFilterCategories.length > 0 || selectedFilterSubCategories.length > 0)
                     ? (
-                        selectedFilterCategories.includes(catGroup.name) || 
+                      selectedFilterCategories.includes(catGroup.name) ||
                         catGroup.subGroups.some(sg => selectedFilterSubCategories.includes(sg.name))
-                          ? (openCategories[catGroup.name] !== false)
-                          : false
-                      )
+                        ? (openCategories[catGroup.name] !== false)
+                        : false
+                    )
                     : !!openCategories[catGroup.name];
 
                 return (
                   <div key={catGroup.name} className="border-b border-slate-800/80 last:border-b-0">
                     {/* KATEGORİ BAŞLIĞI (Akordeon) */}
-                    <div 
+                    <div
                       onClick={() => toggleCategory(catGroup.name)}
                       className="sticky top-0 bg-[#0a0f1d]/95 backdrop-blur-md px-3 py-2 border-b border-slate-800/80 z-10 flex items-center justify-between cursor-pointer hover:bg-slate-800/60 transition-colors select-none group"
                     >
@@ -2848,7 +2864,7 @@ export default function StocksPage() {
                             <div key={subKey} className="border-b border-slate-800/40 last:border-b-0">
                               {/* ALT KATEGORİ BAŞLIĞI (Eğer tanımlıysa) */}
                               {hasSubHeader && (
-                                <div 
+                                <div
                                   onClick={() => toggleSubCategory(subKey)}
                                   className="bg-[#080d19] px-3 py-1.5 border-b border-slate-800/30 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition-colors select-none group/sub"
                                 >
@@ -2877,12 +2893,12 @@ export default function StocksPage() {
                                     const displayUnit = item.unit === 'Adet' ? 'ad.' : item.unit
 
                                     return (
-                                      <div 
-                                        key={item.id} 
+                                      <div
+                                        key={item.id}
                                         onClick={() => {
                                           setSelectedStockId(item.id)
                                           setRightPanelMode('product')
-                                        }} 
+                                        }}
                                         onMouseEnter={() => setHoveredStockId(item.id)}
                                         onMouseLeave={() => setHoveredStockId(prev => (prev === item.id ? null : prev))}
                                         title={`${item.name} - Stok Kartını Düzenlemek için F2'ye basın`}
@@ -2890,7 +2906,7 @@ export default function StocksPage() {
                                         className={`group/item flex items-center justify-between text-[11px] py-2 px-3 ${hasSubHeader ? 'pl-7' : 'pl-4'} cursor-pointer transition-colors ${isSelected ? 'bg-indigo-900/30 border-l-2 border-l-indigo-400' : 'hover:bg-slate-800/30'} ${item.quantity <= 0 ? 'opacity-60 bg-rose-950/5' : ''}`}
                                       >
                                         <div className="flex items-center gap-1.5 min-w-0 pr-2 flex-1">
-                                          <input 
+                                          <input
                                             type="checkbox"
                                             checked={selectedStockIds.includes(item.id)}
                                             onChange={(e) => {
@@ -2910,7 +2926,7 @@ export default function StocksPage() {
                                           )}
                                           {/* ctcmarket.com Web Rozeti */}
                                           {item.web_visible ? (
-                                            <span 
+                                            <span
                                               className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[8px] font-bold shrink-0 font-sans"
                                               title={`ctcmarket.com'da Yayında • Kategori: ${getWebCategoryName(item.web_category)}${item.web_sub_category ? ` / ${getWebCategoryName(item.web_sub_category)}` : ''} • Web Fiyatı: ${formatMoney(item.web_price || 0, item.web_currency || 'TRY').formatted}`}
                                             >
@@ -2923,7 +2939,7 @@ export default function StocksPage() {
                                               )}
                                             </span>
                                           ) : (
-                                            <span 
+                                            <span
                                               className="hidden group-hover/item:inline-flex items-center gap-0.5 px-1 py-0.2 rounded bg-slate-800/80 text-slate-500 text-[8px] font-mono shrink-0"
                                               title="ctcmarket.com'da Gizli"
                                             >
@@ -2932,7 +2948,7 @@ export default function StocksPage() {
                                           )}
                                         </div>
                                         <div className="flex items-center gap-3 shrink-0 font-mono text-[10px]">
-                                          <button 
+                                          <button
                                             type="button"
                                             onClick={(e) => openEditStock(item, e)}
                                             className="hidden group-hover/item:inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-950/90 text-indigo-300 border border-indigo-500/30 text-[9px] font-sans hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
@@ -2986,8 +3002,8 @@ export default function StocksPage() {
                   <span className="font-bold text-indigo-300 font-mono">
                     {selectedStockIds.length} ürün seçildi
                   </span>
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     onClick={() => setSelectedStockIds([])}
                     className="text-[10px] text-slate-400 hover:text-rose-400 underline cursor-pointer"
                   >
@@ -3051,18 +3067,17 @@ export default function StocksPage() {
 
         {/* SAĞ SÜTUN */}
         <div style={{ animation: 'fadeInUp 0.4s both 0.2s' }} className="flex-1 bg-[#0d1322] border border-slate-800/80 rounded-xl flex flex-col min-w-0 shadow-lg relative overflow-hidden">
-          
+
           {/* SAĞ PANEL MOD SEÇİCİ TAB BARI */}
           <div className="px-3 py-2 border-b border-slate-800/80 bg-[#070b14] flex items-center justify-between gap-2 shrink-0 z-30">
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
               <button
                 type="button"
                 onClick={() => setRightPanelMode('analytics')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${
-                  rightPanelMode === 'analytics' || !selectedStock
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950/50'
-                    : 'bg-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-700/60'
-                }`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${rightPanelMode === 'analytics' || !selectedStock
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950/50'
+                  : 'bg-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-700/60'
+                  }`}
               >
                 <BarChart3 size={13} className={rightPanelMode === 'analytics' || !selectedStock ? 'text-white' : 'text-indigo-400'} />
                 <span>📊 Kategori & Envanter Analizi</span>
@@ -3074,13 +3089,12 @@ export default function StocksPage() {
                   if (selectedStock) setRightPanelMode('product')
                 }}
                 disabled={!selectedStock}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${
-                  !selectedStock
-                    ? 'opacity-40 cursor-not-allowed bg-slate-900 border border-slate-800 text-slate-500'
-                    : rightPanelMode === 'product'
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${!selectedStock
+                  ? 'opacity-40 cursor-not-allowed bg-slate-900 border border-slate-800 text-slate-500'
+                  : rightPanelMode === 'product'
                     ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950/50'
                     : 'bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700/60'
-                }`}
+                  }`}
               >
                 <Package size={13} className={rightPanelMode === 'product' && selectedStock ? 'text-white' : 'text-amber-400'} />
                 <span className="truncate max-w-[180px] sm:max-w-[240px]">
@@ -3120,22 +3134,22 @@ export default function StocksPage() {
               {/* HIZLI ARAMA & FATURA İŞLEMİ (Her Zaman Üstte) */}
               <div className="p-3 border-b border-slate-800/80 bg-[#0a0f1d] shrink-0 z-20">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5"><Search size={12}/> Hızlı Arama & İşlem Ekleme</label>
+                  <label className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5"><Search size={12} /> Hızlı Arama & İşlem Ekleme</label>
                   <div className="relative z-20">
-                    <input 
-                      type="text" 
-                      placeholder="Seçili depoda ürün adı veya SKU ara (örn: ekran kartı)..." 
-                      value={quickSearchTerm} 
+                    <input
+                      type="text"
+                      placeholder="Seçili depoda ürün adı veya SKU ara (örn: ekran kartı)..."
+                      value={quickSearchTerm}
                       onChange={(e) => {
                         setQuickSearchTerm(e.target.value);
                         if (e.target.value.length < 2) setIsQuickActionActive(false);
-                      }} 
+                      }}
                       className="w-full bg-[#070b14] border border-indigo-500/30 rounded-lg pl-4 pr-10 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 shadow-inner transition-colors"
                     />
-                    <button 
+                    <button
                       onClick={() => setQuickSearchTerm('')}
                       className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-opacity ${quickSearchTerm ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                    ><X size={14}/></button>
+                    ><X size={14} /></button>
 
                     {/* Arama Sonuçları Dropdown */}
                     {quickSearchTerm.length > 1 && !isQuickActionActive && (
@@ -3144,8 +3158,8 @@ export default function StocksPage() {
                           <div className="p-3 text-center text-xs text-slate-400">Ürün bulunamadı.</div>
                         ) : (
                           quickSearchStocks.map(stock => (
-                            <div 
-                              key={`quick-${stock.id}`} 
+                            <div
+                              key={`quick-${stock.id}`}
                               onMouseEnter={() => setHoveredStockId(stock.id)}
                               onMouseLeave={() => setHoveredStockId(prev => (prev === stock.id ? null : prev))}
                               onClick={() => {
@@ -3177,7 +3191,7 @@ export default function StocksPage() {
               </div>
 
               {/* ÜRÜN DETAYI VE İŞLEMLER */}
-              <div 
+              <div
                 onMouseEnter={() => setHoveredStockId(selectedStock.id)}
                 onMouseLeave={() => setHoveredStockId(prev => (prev === selectedStock.id ? null : prev))}
                 className="p-4 border-b border-slate-800/80 bg-gradient-to-r from-[#0a0f1d] to-[#0d1322] flex justify-between items-center shrink-0"
@@ -3228,10 +3242,10 @@ export default function StocksPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800 shrink-0">
-                  <button 
+                  <button
                     type="button"
-                    onClick={() => openTransferModal(selectedStock)} 
-                    className="text-slate-400 hover:text-cyan-400 p-1.5 transition flex items-center gap-1 rounded hover:bg-cyan-950/30" 
+                    onClick={() => openTransferModal(selectedStock)}
+                    className="text-slate-400 hover:text-cyan-400 p-1.5 transition flex items-center gap-1 rounded hover:bg-cyan-950/30"
                     title="Bu Ürünü Başka Depoya Transfer Et (Model 3)"
                   >
                     <ArrowRightLeft size={13} className="text-cyan-400" />
@@ -3248,20 +3262,20 @@ export default function StocksPage() {
               <div className="p-4 flex-1 flex flex-col min-h-0 relative z-0 overflow-y-auto lg:overflow-hidden custom-scrollbar">
                 <form onSubmit={handleAddTransaction} style={{ animation: 'fadeInUp 0.4s both 0.3s' }} className={`grid grid-cols-1 md:grid-cols-11 gap-2 mb-4 p-3 rounded-lg border shrink-0 transition-colors ${isQuickActionActive ? 'bg-indigo-900/10 border-indigo-500/40 shadow-inner shadow-indigo-500/10' : 'bg-[#070b14] border-slate-800'}`}>
                   <div className="md:col-span-1"><label className="block text-[9px] text-slate-400 mb-0.5">Tarih</label><input type="date" required value={txDate} onChange={(e) => setTxDate(e.target.value)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" /></div>
-                  
+
                   <div className="md:col-span-2">
-                     <label className="block text-[9px] text-slate-400 mb-0.5">İlgili Şirket/Merkez *</label>
-                     <select value={txCompanyId} onChange={(e) => setTxCompanyId(e.target.value)} required className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors">
-                       <option value="common">🌍 Ortak İşlem</option>
-                       <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                       <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                     </select>
+                    <label className="block text-[9px] text-slate-400 mb-0.5">İlgili Şirket/Merkez *</label>
+                    <select value={txCompanyId} onChange={(e) => setTxCompanyId(e.target.value)} required className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors">
+                      <option value="common">🌍 Ortak İşlem</option>
+                      <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                      <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                    </select>
                   </div>
 
                   <div className="md:col-span-1"><label className="block text-[9px] text-slate-400 mb-0.5">İşlem</label><select value={txType} onChange={(e) => setTxType(e.target.value as any)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"><option value="in">Giriş (+)</option><option value="out">Çıkış (-)</option></select></div>
                   <div className="md:col-span-2"><label className="block text-[9px] text-slate-400 mb-0.5">Açıklama</label><input type="text" required placeholder="Fatura No / Açıklama" value={txDesc} onChange={(e) => setTxDesc(e.target.value)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" /></div>
                   <div className="md:col-span-1"><label className="block text-[9px] text-slate-400 mb-0.5">Miktar</label><input type="number" step="0.01" required placeholder="0" value={txQty} onChange={(e) => setTxQty(e.target.value)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" /></div>
-                  
+
                   <div className="md:col-span-3 flex flex-col gap-0.5">
                     <div className="flex gap-1">
                       <div className="flex-1"><label className="block text-[9px] text-slate-400 mb-0.5">Net B.Fiyat</label><input type="number" step="0.01" required placeholder="0.00" value={txPrice} onChange={(e) => setTxPrice(e.target.value)} className="w-full bg-[#0d1322] border border-slate-800 rounded px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" /></div>
@@ -3300,104 +3314,104 @@ export default function StocksPage() {
                         <tr>
                           <td colSpan={8} className="p-6 text-center">
                             <div className="flex flex-col items-center justify-center p-8 border border-dashed border-slate-700/60 rounded-xl bg-slate-800/10 text-slate-500 shadow-inner my-2 mx-2">
-                               <RefreshCw size={32} className="mb-3 opacity-70 text-indigo-400 animate-bounce" />
-                               <p className="text-[11px] font-bold text-slate-400">Henüz hareket bulunmuyor.</p>
+                              <RefreshCw size={32} className="mb-3 opacity-70 text-indigo-400 animate-bounce" />
+                              <p className="text-[11px] font-bold text-slate-400">Henüz hareket bulunmuyor.</p>
                             </div>
                           </td>
                         </tr>
                       ) : transactions.map((t, index) => {
-                          const txCurrency = t.currency || 'TRY'
-                          const kdvliBirim = t.unit_price * (1 + (t.vat_rate || 0) / 100)
-                          const toplamKdvli = t.quantity * kdvliBirim
-                          
-                          const tryUnitPrice = getTryEquivalent(t.unit_price, txCurrency)
-                          const tryKdvliBirim = getTryEquivalent(kdvliBirim, txCurrency)
-                          const tryToplamKdvli = getTryEquivalent(toplamKdvli, txCurrency)
+                        const txCurrency = t.currency || 'TRY'
+                        const kdvliBirim = t.unit_price * (1 + (t.vat_rate || 0) / 100)
+                        const toplamKdvli = t.quantity * kdvliBirim
 
-                          return (
-                            <tr 
-                              key={t.id} 
-                              style={{ animation: 'fadeSlideRight 0.4s both', animationDelay: `${0.35 + (index * 0.05)}s` }}
-                              className="hover:bg-slate-800/30 font-mono transition-colors"
-                            >
-                              <td className="p-2.5 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
-                              <td className="p-2.5 text-slate-200 font-sans align-top" title={t.description}>
-                                 <div className="mb-1 flex items-center gap-1.5 flex-wrap">
-                                   <span>{t.description}</span>
-                                   {(() => {
-                                     const desc = t.description || ''
-                                     if (desc.includes('/ Alım') || desc.includes('Fatura / Alım')) {
-                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30 font-bold">Alım Faturası</span>
-                                     }
-                                     if (desc.includes('/ Satış') || desc.includes('Fatura / Satış')) {
-                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/30 font-bold">Satış Faturası</span>
-                                     }
-                                     if (desc.includes('POS-') || desc.includes('Z-Raporu') || desc.includes('Mağaza Satışı') || desc.includes('Müşteri Ürün İadesi')) {
-                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/30 font-bold">Mağaza POS</span>
-                                     }
-                                     if (desc.includes('Servis Parça Çıkışı') || desc.includes('SRV-')) {
-                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-bold">Teknik Servis</span>
-                                     }
-                                     if (desc.includes('[TRF-')) {
-                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-500/40 font-bold">⇄ Transfer</span>
-                                     }
-                                     if (desc === 'Açılış Stoğu') {
-                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-300 border border-slate-600/40 font-bold">Açılış Stoğu</span>
-                                     }
-                                     return null
-                                   })()}
-                                 </div>
-                                 <div className="flex items-center gap-1 text-[9px] text-slate-500">
-                                   {t.company ? (t.company.is_personal ? <Home size={10} className="text-slate-400"/> : <Building size={10} className="text-indigo-400"/>) : <Globe size={10} className="text-emerald-500/70"/>}
-                                   {t.company ? t.company.name : 'Ortak İşlem'}
-                                 </div>
-                              </td>
-                              <td className="p-2.5 text-right text-emerald-400 align-top">{t.tx_type === 'in' ? t.quantity : '-'}</td>
-                              <td className="p-2.5 text-right text-rose-400 align-top">{t.tx_type === 'out' ? t.quantity : '-'}</td>
-                              
-                              <td className="p-2.5 text-right text-slate-300 leading-tight align-top">
-                                <div>{formatMoney(t.unit_price, txCurrency).formatted}</div>
-                                {txCurrency !== 'TRY' && (
-                                  <div className="text-[9px] text-slate-500 mt-0.5">{formatMoney(tryUnitPrice, 'TRY').formatted}</div>
-                                )}
-                              </td>
-                              
-                              <td className="p-2.5 text-right text-indigo-300 leading-tight align-top">
-                                {t.vat_rate > 0 ? (
-                                  <>
-                                    <div>{formatMoney(kdvliBirim, txCurrency).formatted}</div>
-                                    {txCurrency !== 'TRY' && (
-                                      <div className="text-[9px] text-indigo-500/70 mt-0.5">{formatMoney(tryKdvliBirim, 'TRY').formatted}</div>
-                                    )}
-                                  </>
-                                ) : '-'}
-                              </td>
-                              
-                              <td className="p-2.5 text-right font-bold text-white leading-tight align-top">
-                                <div>{formatMoney(toplamKdvli, txCurrency).formatted}</div>
-                                {txCurrency !== 'TRY' && (
-                                  <div className="text-[9px] text-slate-400 font-normal mt-0.5">{formatMoney(tryToplamKdvli, 'TRY').formatted}</div>
-                                )}
-                              </td>
+                        const tryUnitPrice = getTryEquivalent(t.unit_price, txCurrency)
+                        const tryKdvliBirim = getTryEquivalent(kdvliBirim, txCurrency)
+                        const tryToplamKdvli = getTryEquivalent(toplamKdvli, txCurrency)
 
-                              <td className="p-2.5 text-center align-top">
+                        return (
+                          <tr
+                            key={t.id}
+                            style={{ animation: 'fadeSlideRight 0.4s both', animationDelay: `${0.35 + (index * 0.05)}s` }}
+                            className="hover:bg-slate-800/30 font-mono transition-colors"
+                          >
+                            <td className="p-2.5 text-slate-400 align-top">{formatDateTR(t.tx_date)}</td>
+                            <td className="p-2.5 text-slate-200 font-sans align-top" title={t.description}>
+                              <div className="mb-1 flex items-center gap-1.5 flex-wrap">
+                                <span>{t.description}</span>
                                 {(() => {
                                   const desc = t.description || ''
-                                  const isExternal = desc.includes('/ Alım') || desc.includes('/ Satış') || desc.includes('POS-') || desc.includes('Z-Raporu') || desc.includes('Servis Parça Çıkışı') || desc.includes('SRV-') || desc.includes('[TRF-')
-                                  return (
-                                    <div className="flex items-center justify-center gap-2">
-                                      {isExternal ? (
-                                        <button onClick={() => handleEditTx(t)} className="text-slate-600 hover:text-amber-400 transition" title="Harici modülden yönetilir (Kilitli)"><Lock size={12} /></button>
-                                      ) : (
-                                        <button onClick={() => handleEditTx(t)} className="text-slate-500 hover:text-indigo-400 transition" title="Düzenle"><Edit3 size={12} /></button>
-                                      )}
-                                      <button onClick={() => handleDeleteTransaction(t.id, t.quantity, t.tx_type, t.description)} className="text-slate-600 hover:text-rose-400 transition" title={isExternal ? "Kaynağa Bağlı / Yetim Sil" : "Sil"}><Trash2 size={12} /></button>
-                                    </div>
-                                  )
+                                  if (desc.includes('/ Alım') || desc.includes('Fatura / Alım')) {
+                                    return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30 font-bold">Alım Faturası</span>
+                                  }
+                                  if (desc.includes('/ Satış') || desc.includes('Fatura / Satış')) {
+                                    return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/30 font-bold">Satış Faturası</span>
+                                  }
+                                  if (desc.includes('POS-') || desc.includes('Z-Raporu') || desc.includes('Mağaza Satışı') || desc.includes('Müşteri Ürün İadesi')) {
+                                    return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/30 font-bold">Mağaza POS</span>
+                                  }
+                                  if (desc.includes('Servis Parça Çıkışı') || desc.includes('SRV-')) {
+                                    return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-bold">Teknik Servis</span>
+                                  }
+                                  if (desc.includes('[TRF-')) {
+                                    return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-500/40 font-bold">⇄ Transfer</span>
+                                  }
+                                  if (desc === 'Açılış Stoğu') {
+                                    return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-300 border border-slate-600/40 font-bold">Açılış Stoğu</span>
+                                  }
+                                  return null
                                 })()}
-                              </td>
-                            </tr>
-                          )
+                              </div>
+                              <div className="flex items-center gap-1 text-[9px] text-slate-500">
+                                {t.company ? (t.company.is_personal ? <Home size={10} className="text-slate-400" /> : <Building size={10} className="text-indigo-400" />) : <Globe size={10} className="text-emerald-500/70" />}
+                                {t.company ? t.company.name : 'Ortak İşlem'}
+                              </div>
+                            </td>
+                            <td className="p-2.5 text-right text-emerald-400 align-top">{t.tx_type === 'in' ? t.quantity : '-'}</td>
+                            <td className="p-2.5 text-right text-rose-400 align-top">{t.tx_type === 'out' ? t.quantity : '-'}</td>
+
+                            <td className="p-2.5 text-right text-slate-300 leading-tight align-top">
+                              <div>{formatMoney(t.unit_price, txCurrency).formatted}</div>
+                              {txCurrency !== 'TRY' && (
+                                <div className="text-[9px] text-slate-500 mt-0.5">{formatMoney(tryUnitPrice, 'TRY').formatted}</div>
+                              )}
+                            </td>
+
+                            <td className="p-2.5 text-right text-indigo-300 leading-tight align-top">
+                              {t.vat_rate > 0 ? (
+                                <>
+                                  <div>{formatMoney(kdvliBirim, txCurrency).formatted}</div>
+                                  {txCurrency !== 'TRY' && (
+                                    <div className="text-[9px] text-indigo-500/70 mt-0.5">{formatMoney(tryKdvliBirim, 'TRY').formatted}</div>
+                                  )}
+                                </>
+                              ) : '-'}
+                            </td>
+
+                            <td className="p-2.5 text-right font-bold text-white leading-tight align-top">
+                              <div>{formatMoney(toplamKdvli, txCurrency).formatted}</div>
+                              {txCurrency !== 'TRY' && (
+                                <div className="text-[9px] text-slate-400 font-normal mt-0.5">{formatMoney(tryToplamKdvli, 'TRY').formatted}</div>
+                              )}
+                            </td>
+
+                            <td className="p-2.5 text-center align-top">
+                              {(() => {
+                                const desc = t.description || ''
+                                const isExternal = desc.includes('/ Alım') || desc.includes('/ Satış') || desc.includes('POS-') || desc.includes('Z-Raporu') || desc.includes('Servis Parça Çıkışı') || desc.includes('SRV-') || desc.includes('[TRF-')
+                                return (
+                                  <div className="flex items-center justify-center gap-2">
+                                    {isExternal ? (
+                                      <button onClick={() => handleEditTx(t)} className="text-slate-600 hover:text-amber-400 transition" title="Harici modülden yönetilir (Kilitli)"><Lock size={12} /></button>
+                                    ) : (
+                                      <button onClick={() => handleEditTx(t)} className="text-slate-500 hover:text-indigo-400 transition" title="Düzenle"><Edit3 size={12} /></button>
+                                    )}
+                                    <button onClick={() => handleDeleteTransaction(t.id, t.quantity, t.tx_type, t.description)} className="text-slate-600 hover:text-rose-400 transition" title={isExternal ? "Kaynağa Bağlı / Yetim Sil" : "Sil"}><Trash2 size={12} /></button>
+                                  </div>
+                                )
+                              })()}
+                            </td>
+                          </tr>
+                        )
                       })}
                     </tbody>
                   </table>
@@ -3415,11 +3429,10 @@ export default function StocksPage() {
                   <button
                     type="button"
                     onClick={() => setAnalyticsTab('summary')}
-                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 whitespace-nowrap transition-all ${
-                      analyticsTab === 'summary'
-                        ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/40'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 whitespace-nowrap transition-all ${analyticsTab === 'summary'
+                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/40'
+                      : 'text-slate-400 hover:text-slate-200'
+                      }`}
                   >
                     <PieChart size={13} className={analyticsTab === 'summary' ? 'text-white' : 'text-indigo-400'} />
                     <span>Sermaye & Dağılım</span>
@@ -3428,17 +3441,15 @@ export default function StocksPage() {
                   <button
                     type="button"
                     onClick={() => setAnalyticsTab('critical')}
-                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 whitespace-nowrap transition-all ${
-                      analyticsTab === 'critical'
-                        ? 'bg-amber-600 text-white shadow-sm shadow-amber-900/40'
-                        : 'text-slate-400 hover:text-amber-300'
-                    }`}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 whitespace-nowrap transition-all ${analyticsTab === 'critical'
+                      ? 'bg-amber-600 text-white shadow-sm shadow-amber-900/40'
+                      : 'text-slate-400 hover:text-amber-300'
+                      }`}
                   >
                     <AlertTriangle size={13} className={analyticsTab === 'critical' ? 'text-white' : 'text-amber-400'} />
                     <span>Kritik & Tükenen</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                      analyticsTab === 'critical' ? 'bg-amber-950/60 text-amber-200' : 'bg-slate-800 text-amber-400'
-                    }`}>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${analyticsTab === 'critical' ? 'bg-amber-950/60 text-amber-200' : 'bg-slate-800 text-amber-400'
+                      }`}>
                       {categoryAnalytics.totalCriticalCount + categoryAnalytics.totalOutOfStockCount}
                     </span>
                   </button>
@@ -3446,17 +3457,15 @@ export default function StocksPage() {
                   <button
                     type="button"
                     onClick={() => setAnalyticsTab('dead')}
-                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 whitespace-nowrap transition-all ${
-                      analyticsTab === 'dead'
-                        ? 'bg-purple-600 text-white shadow-sm shadow-purple-900/40'
-                        : 'text-slate-400 hover:text-purple-300'
-                    }`}
+                    className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 whitespace-nowrap transition-all ${analyticsTab === 'dead'
+                      ? 'bg-purple-600 text-white shadow-sm shadow-purple-900/40'
+                      : 'text-slate-400 hover:text-purple-300'
+                      }`}
                   >
                     <Moon size={13} className={analyticsTab === 'dead' ? 'text-white' : 'text-purple-400'} />
                     <span>Hareketsiz / Ölü Stok</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                      analyticsTab === 'dead' ? 'bg-purple-950/60 text-purple-200' : 'bg-slate-800 text-purple-400'
-                    }`}>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${analyticsTab === 'dead' ? 'bg-purple-950/60 text-purple-200' : 'bg-slate-800 text-purple-400'
+                      }`}>
                       {categoryAnalytics.totalDeadCount}
                     </span>
                   </button>
@@ -3482,7 +3491,7 @@ export default function StocksPage() {
 
               {/* ANALİZ İÇERİK ALANI (Scrollable) */}
               <div className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-3.5">
-                
+
                 {/* 4'LÜ KPI ÖZET KARTLARI */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
                   {/* Kart 1: Toplam Bağlı Sermaye */}
@@ -3501,9 +3510,8 @@ export default function StocksPage() {
                   </div>
 
                   {/* Kart 2: Hareketsiz / Uyuyan Sermaye */}
-                  <div className={`p-3 rounded-xl border flex flex-col justify-between shadow-sm transition-all ${
-                    categoryAnalytics.totalDeadValTry > 0 ? 'bg-gradient-to-br from-purple-950/20 to-[#0b101b] border-purple-500/30' : 'bg-[#0f172a]/50 border-slate-800'
-                  }`}>
+                  <div className={`p-3 rounded-xl border flex flex-col justify-between shadow-sm transition-all ${categoryAnalytics.totalDeadValTry > 0 ? 'bg-gradient-to-br from-purple-950/20 to-[#0b101b] border-purple-500/30' : 'bg-[#0f172a]/50 border-slate-800'
+                    }`}>
                     <div className="flex items-center justify-between text-[10px] mb-1">
                       <span className="font-semibold uppercase tracking-wider text-purple-400 flex items-center gap-1">
                         <Moon size={11} /> Ölü / Uyuyan Stok
@@ -3522,9 +3530,8 @@ export default function StocksPage() {
                   </div>
 
                   {/* Kart 3: Kritik & Tükenen Ürünler */}
-                  <div className={`p-3 rounded-xl border flex flex-col justify-between shadow-sm transition-all ${
-                    categoryAnalytics.totalCriticalCount + categoryAnalytics.totalOutOfStockCount > 0 ? 'bg-gradient-to-br from-amber-950/20 to-[#0b101b] border-amber-500/30' : 'bg-[#0f172a]/50 border-slate-800'
-                  }`}>
+                  <div className={`p-3 rounded-xl border flex flex-col justify-between shadow-sm transition-all ${categoryAnalytics.totalCriticalCount + categoryAnalytics.totalOutOfStockCount > 0 ? 'bg-gradient-to-br from-amber-950/20 to-[#0b101b] border-amber-500/30' : 'bg-[#0f172a]/50 border-slate-800'
+                    }`}>
                     <div className="flex items-center justify-between text-[10px] mb-1">
                       <span className="font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-1">
                         <AlertTriangle size={11} /> Kritik Seviyeler
@@ -3627,7 +3634,7 @@ export default function StocksPage() {
                             <div key={cat.name} className="flex flex-col transition-colors">
                               {/* Kategori Satırı */}
                               <div className="p-3 hover:bg-slate-800/30 flex items-center justify-between gap-3 group">
-                                <div 
+                                <div
                                   onClick={() => toggleAnalyticsCat(cat.name)}
                                   className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer select-none"
                                 >
@@ -3760,27 +3767,24 @@ export default function StocksPage() {
                         <button
                           type="button"
                           onClick={() => setCriticalSubFilter('all')}
-                          className={`px-2 py-0.5 rounded font-bold transition-all ${
-                            criticalSubFilter === 'all' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'
-                          }`}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${criticalSubFilter === 'all' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'
+                            }`}
                         >
                           Tümü ({categoryAnalytics.totalCriticalCount + categoryAnalytics.totalOutOfStockCount})
                         </button>
                         <button
                           type="button"
                           onClick={() => setCriticalSubFilter('out_of_stock')}
-                          className={`px-2 py-0.5 rounded font-bold transition-all ${
-                            criticalSubFilter === 'out_of_stock' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-rose-400'
-                          }`}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${criticalSubFilter === 'out_of_stock' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-rose-400'
+                            }`}
                         >
                           🔴 Tükendi ({categoryAnalytics.totalOutOfStockCount})
                         </button>
                         <button
                           type="button"
                           onClick={() => setCriticalSubFilter('critical')}
-                          className={`px-2 py-0.5 rounded font-bold transition-all ${
-                            criticalSubFilter === 'critical' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-amber-300'
-                          }`}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${criticalSubFilter === 'critical' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-amber-300'
+                            }`}
                         >
                           🟡 Kritik 1-2 ({categoryAnalytics.totalCriticalCount})
                         </button>
@@ -3817,8 +3821,8 @@ export default function StocksPage() {
                               )
                             })
                             .map((it) => (
-                              <tr 
-                                key={it.stock.id} 
+                              <tr
+                                key={it.stock.id}
                                 onMouseEnter={() => setHoveredStockId(it.stock.id)}
                                 onMouseLeave={() => setHoveredStockId(prev => (prev === it.stock.id ? null : prev))}
                                 className="hover:bg-slate-800/30 transition-colors"
@@ -3896,36 +3900,32 @@ export default function StocksPage() {
                         <button
                           type="button"
                           onClick={() => setDeadStockDays(30)}
-                          className={`px-2 py-0.5 rounded font-bold transition-all ${
-                            deadStockDays === 30 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
-                          }`}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${deadStockDays === 30 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+                            }`}
                         >
                           30+ Gün
                         </button>
                         <button
                           type="button"
                           onClick={() => setDeadStockDays(60)}
-                          className={`px-2 py-0.5 rounded font-bold transition-all ${
-                            deadStockDays === 60 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
-                          }`}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${deadStockDays === 60 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+                            }`}
                         >
                           60+ Gün
                         </button>
                         <button
                           type="button"
                           onClick={() => setDeadStockDays(90)}
-                          className={`px-2 py-0.5 rounded font-bold transition-all ${
-                            deadStockDays === 90 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
-                          }`}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${deadStockDays === 90 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+                            }`}
                         >
                           90+ Gün
                         </button>
                         <button
                           type="button"
                           onClick={() => setDeadStockDays(-1)}
-                          className={`px-2 py-0.5 rounded font-bold transition-all ${
-                            deadStockDays === -1 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
-                          }`}
+                          className={`px-2 py-0.5 rounded font-bold transition-all ${deadStockDays === -1 ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+                            }`}
                           title="Yalnızca açılış stoğundan beri hiç satış/çıkış yapılmamış ürünler"
                         >
                           Hiç Çıkış Yok
@@ -3958,8 +3958,8 @@ export default function StocksPage() {
                               )
                             })
                             .map((it) => (
-                              <tr 
-                                key={it.stock.id} 
+                              <tr
+                                key={it.stock.id}
                                 onMouseEnter={() => setHoveredStockId(it.stock.id)}
                                 onMouseLeave={() => setHoveredStockId(prev => (prev === it.stock.id ? null : prev))}
                                 className="hover:bg-slate-800/30 transition-colors"
@@ -4046,7 +4046,7 @@ export default function StocksPage() {
       )}
 
       {/* --- MODALLAR --- */}
-      
+
       {/* KATEGORİ & ALT KATEGORİ YÖNETİM MODALI */}
       {isCategoryManageModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 10000 }}>
@@ -4065,33 +4065,33 @@ export default function StocksPage() {
                   </div>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => {
                   setIsCategoryManageModalOpen(false)
                   setInlineEditingCatId(null)
                   setInlineEditingSubKey(null)
-                }} 
+                }}
                 className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800/80 transition-colors"
               >
                 <X size={18} />
               </button>
             </div>
-            
+
             {/* Yeni Kategori Yaratma Bölümü */}
             <div className="p-3.5 bg-[#090d18] border-b border-slate-800/80 shrink-0">
               <form onSubmit={handleCreateCategory} className="flex gap-2">
                 <div className="relative flex-1">
                   <FolderPlus size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input 
-                    type="text" 
-                    placeholder="Yeni ana kategori adı (örn: Monitör, Yazıcı)..." 
-                    value={newCatNameInput} 
-                    onChange={(e) => setNewCatNameInput(e.target.value)} 
+                  <input
+                    type="text"
+                    placeholder="Yeni ana kategori adı (örn: Monitör, Yazıcı)..."
+                    value={newCatNameInput}
+                    onChange={(e) => setNewCatNameInput(e.target.value)}
                     className="w-full bg-[#070b14] border border-slate-700/80 rounded-lg pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
                   />
                 </div>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   disabled={!newCatNameInput.trim()}
                   className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-md shadow-indigo-950/40 shrink-0 cursor-pointer"
                 >
@@ -4104,7 +4104,7 @@ export default function StocksPage() {
             <div className="px-4 py-2 bg-[#0c1222] border-b border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400 shrink-0">
               <span className="font-semibold text-slate-300">Kategoriler ({categories.length})</span>
               {categories.length > 0 && (
-                <button 
+                <button
                   type="button"
                   onClick={() => {
                     const allOpen = categories.every(c => manageCatExpanded[c.id])
@@ -4137,28 +4137,28 @@ export default function StocksPage() {
                     <div className={`p-2.5 flex items-center justify-between gap-2 transition-colors ${isExpanded ? 'bg-slate-800/40 border-b border-slate-800/60' : 'hover:bg-slate-800/20'}`}>
                       {isEditingThisCat ? (
                         <div className="flex items-center gap-2 flex-1">
-                          <input 
-                            type="text" 
+                          <input
+                            type="text"
                             autoFocus
-                            value={inlineEditingCatName} 
-                            onChange={(e) => setInlineEditingCatName(e.target.value)} 
+                            value={inlineEditingCatName}
+                            onChange={(e) => setInlineEditingCatName(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') handleSaveInlineCategory(c.id)
                               if (e.key === 'Escape') setInlineEditingCatId(null)
                             }}
                             className="flex-1 bg-[#050811] border border-indigo-500 rounded px-2.5 py-1 text-xs text-white focus:outline-none"
                           />
-                          <button 
-                            type="button" 
-                            onClick={() => handleSaveInlineCategory(c.id)} 
+                          <button
+                            type="button"
+                            onClick={() => handleSaveInlineCategory(c.id)}
                             className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
                             title="Kaydet"
                           >
                             <Check size={13} />
                           </button>
-                          <button 
-                            type="button" 
-                            onClick={() => setInlineEditingCatId(null)} 
+                          <button
+                            type="button"
+                            onClick={() => setInlineEditingCatId(null)}
                             className="p-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
                             title="İptal"
                           >
@@ -4167,7 +4167,7 @@ export default function StocksPage() {
                         </div>
                       ) : (
                         <>
-                          <div 
+                          <div
                             onClick={() => setManageCatExpanded(prev => ({ ...prev, [c.id]: !prev[c.id] }))}
                             className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer select-none"
                           >
@@ -4185,21 +4185,21 @@ export default function StocksPage() {
                           </div>
 
                           <div className="flex items-center gap-1.5 shrink-0">
-                            <button 
+                            <button
                               type="button"
-                              onClick={() => { 
-                                setInlineEditingCatId(c.id); 
-                                setInlineEditingCatName(c.name); 
-                              }} 
-                              className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-indigo-300 transition-colors cursor-pointer" 
+                              onClick={() => {
+                                setInlineEditingCatId(c.id);
+                                setInlineEditingCatName(c.name);
+                              }}
+                              className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-indigo-300 transition-colors cursor-pointer"
                               title="Kategori Adını Düzenle"
                             >
                               <Edit3 size={13} />
                             </button>
-                            <button 
+                            <button
                               type="button"
-                              onClick={() => handleDeleteCategory(c.id, c.name)} 
-                              className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer" 
+                              onClick={() => handleDeleteCategory(c.id, c.name)}
+                              className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
                               title="Kategoriyi Sil"
                             >
                               <Trash2 size={13} />
@@ -4232,28 +4232,28 @@ export default function StocksPage() {
                                 <div key={subKey} className="flex items-center justify-between bg-[#0a0f1d] border border-slate-800/80 rounded-lg px-2.5 py-1.5 text-xs group/sub">
                                   {isEditingThisSub ? (
                                     <div className="flex items-center gap-2 flex-1">
-                                      <input 
-                                        type="text" 
+                                      <input
+                                        type="text"
                                         autoFocus
-                                        value={inlineEditingSubName} 
-                                        onChange={(e) => setInlineEditingSubName(e.target.value)} 
+                                        value={inlineEditingSubName}
+                                        onChange={(e) => setInlineEditingSubName(e.target.value)}
                                         onKeyDown={(e) => {
                                           if (e.key === 'Enter') handleSaveInlineSubCategory(c.name, sub.name, sub.id)
                                           if (e.key === 'Escape') setInlineEditingSubKey(null)
                                         }}
                                         className="flex-1 bg-[#070b14] border border-teal-500 rounded px-2 py-0.5 text-xs text-white focus:outline-none"
                                       />
-                                      <button 
-                                        type="button" 
-                                        onClick={() => handleSaveInlineSubCategory(c.name, sub.name, sub.id)} 
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveInlineSubCategory(c.name, sub.name, sub.id)}
                                         className="p-1 rounded bg-teal-600 hover:bg-teal-500 text-white transition-colors"
                                         title="Kaydet"
                                       >
                                         <Check size={12} />
                                       </button>
-                                      <button 
-                                        type="button" 
-                                        onClick={() => setInlineEditingSubKey(null)} 
+                                      <button
+                                        type="button"
+                                        onClick={() => setInlineEditingSubKey(null)}
                                         className="p-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
                                         title="İptal"
                                       >
@@ -4270,7 +4270,7 @@ export default function StocksPage() {
                                         </span>
                                       </div>
                                       <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover/sub:opacity-100 transition-opacity">
-                                        <button 
+                                        <button
                                           type="button"
                                           onClick={() => {
                                             setInlineEditingSubKey(subKey)
@@ -4281,7 +4281,7 @@ export default function StocksPage() {
                                         >
                                           <Edit3 size={12} />
                                         </button>
-                                        <button 
+                                        <button
                                           type="button"
                                           onClick={() => handleDeleteSubCategory(c.name, sub.name, sub.id, sub.count)}
                                           className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors"
@@ -4299,22 +4299,22 @@ export default function StocksPage() {
                         )}
 
                         {/* Yeni Alt Kategori Ekleme Formu */}
-                        <form 
+                        <form
                           onSubmit={(e) => {
                             e.preventDefault()
                             handleCreateSubCategory(c.name, c.id)
                           }}
                           className="flex gap-2 pt-1 border-t border-slate-800/60"
                         >
-                          <input 
-                            type="text" 
+                          <input
+                            type="text"
                             placeholder={`${c.name} için yeni alt kategori adı (örn: USB 3.0)...`}
                             value={newSubCatInputs[c.id] || ''}
                             onChange={(e) => setNewSubCatInputs(prev => ({ ...prev, [c.id]: e.target.value }))}
                             className="flex-1 bg-[#080d19] border border-slate-700/60 rounded px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
                           />
-                          <button 
-                            type="submit" 
+                          <button
+                            type="submit"
                             disabled={!(newSubCatInputs[c.id] || '').trim()}
                             className="bg-teal-600/80 hover:bg-teal-600 disabled:opacity-40 text-white px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1 transition-all active:scale-95 shrink-0 cursor-pointer"
                           >
@@ -4336,7 +4336,7 @@ export default function StocksPage() {
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 10000 }}>
           <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-sm p-5 shadow-2xl animate-in zoom-in-95 duration-200">
-            <h3 className="text-sm font-bold text-white mb-3">{editingStockCatId ? 'Kategoriyi Düzenle' : `Kategori Ekle (${warehouses.find(w=>w.id===selectedWarehouseId)?.name})`}</h3>
+            <h3 className="text-sm font-bold text-white mb-3">{editingStockCatId ? 'Kategoriyi Düzenle' : `Kategori Ekle (${warehouses.find(w => w.id === selectedWarehouseId)?.name})`}</h3>
             <form onSubmit={handleSaveCategory} className="space-y-3 text-xs">
               <input type="text" required placeholder="Kategori Adı" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors" />
               <div className="flex justify-end gap-2 pt-2">
@@ -4353,16 +4353,16 @@ export default function StocksPage() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 9999 }}>
           <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-sm p-5 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2"><Package size={16} className="text-indigo-400"/> {editingWhId ? 'Depoyu Düzenle' : 'Yeni Depo Ekle'}</h3>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2"><Package size={16} className="text-indigo-400" /> {editingWhId ? 'Depoyu Düzenle' : 'Yeni Depo Ekle'}</h3>
               <button onClick={() => setIsWarehouseModalOpen(false)} className="text-slate-400 hover:text-white transition-colors"><X size={18} /></button>
             </div>
             <form onSubmit={handleSaveWarehouse} className="space-y-4 text-xs">
               <div>
                 <label className="block text-slate-400 mb-1 font-bold">Depo Sahibi / Merkez</label>
                 <select value={whCompanyId} onChange={(e) => setWhCompanyId(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors">
-                   <option value="common">🌍 Ortak / Bağımsız Depo</option>
-                   <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
-                   <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                  <option value="common">🌍 Ortak / Bağımsız Depo</option>
+                  <optgroup label="Ticari Şirketler">{companies.filter(c => !c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+                  <optgroup label="Şahsi Merkezler">{companies.filter(c => c.is_personal).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
                 </select>
               </div>
               <div>
@@ -4382,7 +4382,7 @@ export default function StocksPage() {
                     )
                   })()}
                 </div>
-                
+
                 {/* 16 Renkli Görsel Swatch Grid */}
                 <div className="grid grid-cols-8 gap-2 p-2.5 bg-[#070b14] border border-slate-800 rounded-lg">
                   {WAREHOUSE_THEMES.map((col) => {
@@ -4393,11 +4393,10 @@ export default function StocksPage() {
                         type="button"
                         onClick={() => setWhColor(col.value)}
                         title={col.label}
-                        className={`w-7 h-7 rounded-full flex items-center justify-center transition-all relative ${
-                          isColSelected 
-                            ? 'scale-110 ring-2 ring-white ring-offset-2 ring-offset-[#070b14] shadow-lg shadow-black/50 z-10' 
-                            : 'hover:scale-105 opacity-75 hover:opacity-100'
-                        }`}
+                        className={`w-7 h-7 rounded-full flex items-center justify-center transition-all relative ${isColSelected
+                          ? 'scale-110 ring-2 ring-white ring-offset-2 ring-offset-[#070b14] shadow-lg shadow-black/50 z-10'
+                          : 'hover:scale-105 opacity-75 hover:opacity-100'
+                          }`}
                         style={{ backgroundColor: col.hex }}
                       >
                         {isColSelected && <Check size={13} className="text-white drop-shadow stroke-[3]" />}
@@ -4435,39 +4434,39 @@ export default function StocksPage() {
       {isStockModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 9999 }}>
           <div className="bg-[#0f172a] border border-slate-800 rounded-xl w-full max-w-md p-5 shadow-2xl animate-in zoom-in-95 duration-200">
-            <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2"><Package size={16} className="text-indigo-400"/> {editingStockId ? 'Stok Kartını Düzenle' : 'Yeni Stok Kartı Ekle'}</h3>
+            <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2"><Package size={16} className="text-indigo-400" /> {editingStockId ? 'Stok Kartını Düzenle' : 'Yeni Stok Kartı Ekle'}</h3>
             <form onSubmit={handleSaveStock} className="grid grid-cols-2 gap-3 text-[11px]">
               <div className="col-span-2">
                 <label className="block text-slate-400 mb-1">Ürün Adı *</label>
                 <input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors" />
               </div>
-              
+
               <div className="flex items-end gap-1">
                 <div className="flex-1">
                   <label className="block text-slate-400 mb-1">Kategori</label>
-                  <select 
-                    value={category} 
-                    onChange={(e) => { 
-                      setCategory(e.target.value); 
-                      setSubCategory(''); 
-                      setIsCustomSubCat(false); 
-                    }} 
+                  <select
+                    value={category}
+                    onChange={(e) => {
+                      setCategory(e.target.value);
+                      setSubCategory('');
+                      setIsCustomSubCat(false);
+                    }}
                     className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors text-xs"
                   >
                     <option value="">Seçiniz</option>
                     {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </div>
-                <button 
-                  type="button" 
-                  onClick={() => setIsCategoryManageModalOpen(true)} 
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryManageModalOpen(true)}
                   className="bg-slate-800 hover:bg-slate-700 p-2 rounded text-indigo-400 hover:text-indigo-300 transition-colors active:scale-95 shrink-0"
                   title="Kategorileri ve Alt Kategorileri Yönet"
                 >
-                  <Settings size={14}/>
+                  <Settings size={14} />
                 </button>
               </div>
-              
+
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-slate-400">Alt Kategori</label>
@@ -4489,16 +4488,16 @@ export default function StocksPage() {
                 </div>
 
                 {isCustomSubCat ? (
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     placeholder="Yeni alt kategori adı yazın..."
-                    value={subCategory} 
-                    onChange={(e) => setSubCategory(e.target.value)} 
-                    className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors text-xs" 
+                    value={subCategory}
+                    onChange={(e) => setSubCategory(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors text-xs"
                   />
                 ) : (
-                  <select 
-                    value={subCategory} 
+                  <select
+                    value={subCategory}
                     onChange={(e) => {
                       if (e.target.value === '__NEW__') {
                         setIsCustomSubCat(true);
@@ -4506,7 +4505,7 @@ export default function StocksPage() {
                       } else {
                         setSubCategory(e.target.value);
                       }
-                    }} 
+                    }}
                     disabled={!category}
                     className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
@@ -4525,19 +4524,19 @@ export default function StocksPage() {
                   </select>
                 )}
               </div>
-              
+
               <div>
                 <label className="block text-slate-400 mb-1">SKU / Barkod</label>
                 <input type="text" value={sku} onChange={(e) => setSku(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white font-mono focus:outline-none focus:border-indigo-500 transition-colors" />
               </div>
-              
+
               <div>
                 <label className="block text-slate-400 mb-1">Birim</label>
                 <select value={unit} onChange={(e) => setUnit(e.target.value)} className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors">
                   <option>Adet</option><option>Kg</option><option>Metre</option><option>Lt</option><option>Paket</option><option>Kutu</option>
                 </select>
               </div>
-              
+
               <div className="col-span-2 mt-2 pt-3 border-t border-slate-800">
                 <label className="block text-slate-400 font-bold mb-2">Açılış Stoğu & Maliyet Tanımlaması</label>
                 <div className="flex flex-col gap-2 bg-[#0a0f1d] p-3 rounded border border-slate-800/80">
@@ -4563,7 +4562,7 @@ export default function StocksPage() {
                       </select>
                     </div>
                   </div>
-                  
+
                   {unitPrice && parseFloat(vatRate) >= 0 && (
                     <div className="flex justify-between items-center bg-indigo-900/20 border border-indigo-500/30 rounded px-3 py-2 mt-1">
                       <span className="text-indigo-200">KDV Dahil Satış / Maliyet Fiyatı:</span>
@@ -4587,18 +4586,18 @@ export default function StocksPage() {
                       E-Ticaret
                     </span>
                   </div>
-                  
+
                   {/* Web Visible Toggle Switch */}
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <span className={`text-xs font-medium ${webVisible ? 'text-sky-400 font-bold' : 'text-slate-400'}`}>
                       {webVisible ? "Web'de Yayında" : "Web'de Gizli"}
                     </span>
                     <div className="relative">
-                      <input 
-                        type="checkbox" 
-                        checked={webVisible} 
-                        onChange={(e) => setWebVisible(e.target.checked)} 
-                        className="sr-only" 
+                      <input
+                        type="checkbox"
+                        checked={webVisible}
+                        onChange={(e) => setWebVisible(e.target.checked)}
+                        className="sr-only"
                       />
                       <div className={`w-9 h-5 rounded-full transition-colors ${webVisible ? 'bg-sky-500' : 'bg-slate-700'}`}></div>
                       <div className={`absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${webVisible ? 'transform translate-x-4' : ''}`}></div>
@@ -4614,8 +4613,8 @@ export default function StocksPage() {
                         <label className="block text-slate-400 mb-1 text-xs">
                           Web Ana Kategori {webVisible && <span className="text-rose-400">*</span>}
                         </label>
-                        <select 
-                          value={webCategory} 
+                        <select
+                          value={webCategory}
                           onChange={(e) => {
                             setWebCategory(e.target.value)
                             setWebSubCategory('')
@@ -4631,8 +4630,8 @@ export default function StocksPage() {
 
                       <div>
                         <label className="block text-slate-400 mb-1 text-xs">Web Alt Kategori</label>
-                        <select 
-                          value={webSubCategory} 
+                        <select
+                          value={webSubCategory}
                           onChange={(e) => setWebSubCategory(e.target.value)}
                           disabled={!webCategory}
                           className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors disabled:opacity-40"
@@ -4651,19 +4650,19 @@ export default function StocksPage() {
                         <label className="block text-slate-400 mb-1 text-xs">
                           Web Satış Fiyatı (KDV Dahil) {webVisible && <span className="text-rose-400">*</span>}
                         </label>
-                        <input 
-                          type="number" 
-                          step="0.01" 
-                          placeholder="0.00" 
-                          value={webPrice} 
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={webPrice}
                           onChange={(e) => setWebPrice(e.target.value)}
-                          className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs font-mono focus:outline-none focus:border-sky-500 transition-colors" 
+                          className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white text-xs font-mono focus:outline-none focus:border-sky-500 transition-colors"
                         />
                       </div>
                       <div className="w-20">
                         <label className="block text-slate-400 mb-1 text-xs">Kur</label>
-                        <select 
-                          value={webCurrency} 
+                        <select
+                          value={webCurrency}
                           onChange={(e) => setWebCurrency(e.target.value as any)}
                           className="w-full bg-[#070b14] border border-slate-700 rounded px-1.5 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
                         >
@@ -4699,7 +4698,7 @@ export default function StocksPage() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="col-span-2 flex justify-end gap-2 mt-3 pt-3 border-t border-slate-800">
                 <button type="button" onClick={() => setIsStockModalOpen(false)} className="px-4 py-1.5 rounded text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
                 <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-1.5 rounded font-medium transition-all active:scale-95 shadow-lg shadow-indigo-900/20">Kaydet</button>
@@ -4718,8 +4717,8 @@ export default function StocksPage() {
                 <Globe size={18} className="text-sky-400" />
                 <h3 className="text-white font-bold text-sm">Toplu Web Kategorisi Ata</h3>
               </div>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setIsBatchCategoryModalOpen(false)}
                 className="text-slate-400 hover:text-white transition-colors"
               >
@@ -4795,8 +4794,8 @@ export default function StocksPage() {
                 <Globe size={18} className="text-emerald-400" />
                 <h3 className="text-white font-bold text-sm">Toplu Web Fiyatı Güncelle (% Kâr Marjı)</h3>
               </div>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setIsBatchPriceModalOpen(false)}
                 className="text-slate-400 hover:text-white transition-colors"
               >
@@ -4890,9 +4889,9 @@ export default function StocksPage() {
                   <p className="text-[11px] text-slate-400">Depolar arasında ürün aktarın, transfer maliyeti ve kâr farkını yönetin.</p>
                 </div>
               </div>
-              <button 
+              <button
                 type="button"
-                onClick={() => setIsTransferModalOpen(false)} 
+                onClick={() => setIsTransferModalOpen(false)}
                 className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-800"
               >
                 <X size={18} />
@@ -4940,36 +4939,168 @@ export default function StocksPage() {
                 </div>
               </div>
 
-              {/* Ürün Seçimi */}
-              <div>
+              {/* Ürün Seçimi & Arama */}
+              <div className="relative">
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-slate-400 font-semibold text-[11px]">
-                    Transfer Edilecek Ürün (Kaynak Depodan) *
+                  <label className="text-slate-400 font-semibold text-[11px] flex items-center gap-1.5">
+                    <span>Transfer Edilecek Ürün (Kaynak Depodan) *</span>
+                    {filteredTransferStocks.length > 0 && trfSearchTerm && (
+                      <span className="text-[10px] text-cyan-400 font-mono">({filteredTransferStocks.length} ürün bulundu)</span>
+                    )}
                   </label>
                   {sourceStock && (
-                    <span className="text-[10px] text-emerald-400 font-medium">
+                    <span className="text-[10px] text-emerald-400 font-medium font-mono">
                       Mevcut Stok: {sourceStock.quantity} {sourceStock.unit || 'Adet'}
                     </span>
                   )}
                 </div>
-                <select
-                  value={trfStockId}
-                  onChange={(e) => handleTrfStockChange(e.target.value)}
-                  required
-                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 transition-colors font-medium"
-                >
-                  <option value="" disabled>-- Kaynak Depodan Ürün Seçin --</option>
-                  {allStocks
-                    .filter(s => s.warehouse_id === trfSourceWarehouseId)
-                    .map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} {s.sku ? `[${s.sku}]` : ''} - Stok: {s.quantity} {s.unit || 'Adet'} | Maliyet: {formatMoney(s.unit_price, s.currency || 'TRY').formatted}
-                      </option>
-                    ))}
-                </select>
+
+                {/* Canlı Arama Inputu ve Dropdown Tetikleyici */}
+                <div className="relative">
+                  <div className="relative flex items-center">
+                    <Search size={14} className="absolute left-3 text-cyan-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Kaynak depoda ürün adı, barkod / SKU veya kategori ara..."
+                      value={trfSearchTerm}
+                      onChange={(e) => {
+                        setTrfSearchTerm(e.target.value)
+                        setIsTrfDropdownOpen(true)
+                      }}
+                      onFocus={() => setIsTrfDropdownOpen(true)}
+                      className="w-full bg-[#070b14] border border-slate-700 focus:border-cyan-500 rounded-lg pl-9 pr-16 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none transition-colors"
+                    />
+                    <div className="absolute right-2 flex items-center gap-1">
+                      {trfSearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTrfSearchTerm('')
+                            setIsTrfDropdownOpen(true)
+                          }}
+                          className="text-slate-500 hover:text-white p-1 transition"
+                          title="Aramayı Temizle"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setIsTrfDropdownOpen(!isTrfDropdownOpen)}
+                        className="text-slate-400 hover:text-cyan-400 p-1 transition"
+                        title={isTrfDropdownOpen ? "Listeyi Kapat" : "Tüm Listeyi Göster"}
+                      >
+                        <ChevronDown size={14} className={`transition-transform duration-200 ${isTrfDropdownOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Arama Sonuçları Açılır Menüsü */}
+                  {isTrfDropdownOpen && (
+                    <>
+                      {/* Dışarı tıklama kapatıcı */}
+                      <div 
+                        className="fixed inset-0 z-30" 
+                        onClick={() => setIsTrfDropdownOpen(false)} 
+                      />
+                      <div className="absolute top-full left-0 right-0 mt-1.5 bg-[#0b1222] border border-cyan-500/40 rounded-xl shadow-2xl z-40 max-h-52 overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-top-1 duration-150 divide-y divide-slate-800/60">
+                        {filteredTransferStocks.length === 0 ? (
+                          <div className="p-3 text-center text-xs text-slate-400">
+                            Eşleşen ürün bulunamadı.
+                          </div>
+                        ) : (
+                          filteredTransferStocks.map(s => {
+                            const isSelected = s.id === trfStockId
+                            const isOutOfStock = (s.quantity || 0) <= 0
+                            return (
+                              <div
+                                key={s.id}
+                                onClick={() => {
+                                  handleTrfStockChange(s.id)
+                                  setTrfSearchTerm(s.name)
+                                  setIsTrfDropdownOpen(false)
+                                }}
+                                className={`p-2.5 px-3 cursor-pointer transition-colors flex items-center justify-between gap-3 text-xs ${
+                                  isSelected 
+                                    ? 'bg-cyan-950/70 text-cyan-200 font-semibold' 
+                                    : 'hover:bg-cyan-900/30 text-slate-200'
+                                } ${isOutOfStock ? 'opacity-60' : ''}`}
+                              >
+                                <div className="flex flex-col min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-bold text-white truncate">{s.name}</span>
+                                    {s.sku && (
+                                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                                        {s.sku}
+                                      </span>
+                                    )}
+                                    {s.category && (
+                                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800/80 text-cyan-300">
+                                        {s.category}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 mt-0.5">
+                                    Birim Maliyet: <strong className="text-slate-300">{formatMoney(s.unit_price, s.currency || 'TRY').formatted}</strong>
+                                  </div>
+                                </div>
+
+                                <div className="text-right shrink-0">
+                                  <span className={`text-[11px] font-mono font-bold ${
+                                    (s.quantity || 0) > 0 ? 'text-emerald-400' : 'text-rose-400'
+                                  }`}>
+                                    {s.quantity} {s.unit || 'Adet'}
+                                  </span>
+                                  {isOutOfStock && (
+                                    <div className="text-[9px] text-rose-400/80">Stokta Yok</div>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Seçili Ürün Kartı */}
+                {sourceStock ? (
+                  <div className="mt-2 p-2.5 px-3 rounded-lg bg-cyan-950/20 border border-cyan-500/30 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-2 h-2 rounded-full bg-cyan-400 shrink-0 animate-pulse" />
+                      <div className="truncate">
+                        <span className="font-bold text-white">{sourceStock.name}</span>
+                        {sourceStock.sku && (
+                          <span className="text-[10px] font-mono text-cyan-300 ml-1.5">[{sourceStock.sku}]</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] font-mono text-emerald-400 font-semibold">
+                        Stok: {sourceStock.quantity} {sourceStock.unit || 'Adet'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTrfSearchTerm('')
+                          setIsTrfDropdownOpen(true)
+                        }}
+                        className="text-[10px] text-cyan-300 hover:text-white underline ml-1"
+                      >
+                        Değiştir
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    * Yukarıdaki arama kutusuna yazarak veya listeyi açarak kaynak depodan aktarılacak ürünü seçin.
+                  </p>
+                )}
+
                 {allStocks.filter(s => s.warehouse_id === trfSourceWarehouseId).length === 0 && (
                   <p className="text-[11px] text-amber-400 mt-1 flex items-center gap-1">
-                    <AlertTriangle size={12} /> Bu kaynak depoda tanımlı ürün bulunamadı.
+                    <AlertTriangle size={12} /> Bu kaynak depoda kayıtlı ürün bulunamadı.
                   </p>
                 )}
               </div>
@@ -5048,13 +5179,12 @@ export default function StocksPage() {
 
                 {/* Fark / Kâr Bilgilendirme Rozeti */}
                 {sourceStock && (
-                  <div className={`p-2.5 rounded-lg border text-[11px] flex items-center justify-between gap-2 ${
-                    priceDiff > 0 
-                      ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
-                      : priceDiff < 0 
-                        ? 'bg-rose-950/30 border-rose-500/30 text-rose-300'
-                        : 'bg-slate-800/40 border-slate-700/60 text-slate-400'
-                  }`}>
+                  <div className={`p-2.5 rounded-lg border text-[11px] flex items-center justify-between gap-2 ${priceDiff > 0
+                    ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+                    : priceDiff < 0
+                      ? 'bg-rose-950/30 border-rose-500/30 text-rose-300'
+                      : 'bg-slate-800/40 border-slate-700/60 text-slate-400'
+                    }`}>
                     <span>
                       {priceDiff > 0 ? (
                         <>Birim Fark: <strong className="font-mono text-emerald-400">+{formatMoney(priceDiff, trfCurrency).formatted}</strong> (+%{profitMarginPercent.toFixed(1)} Kâr)</>
