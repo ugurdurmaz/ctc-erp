@@ -960,18 +960,53 @@ export default function Home() {
     stockTxs.filter(t => isMatch(t.company_id) && t.tx_type === 'out').forEach((tx, idx) => {
       const pt = findPoint(tx.tx_date)
       if (pt) {
+        const desc = tx.description || ''
+        const isTransfer = desc.includes('[TRF-')
+        const isProfitTransfer = isTransfer && (desc.includes('Depo Transfer Satışı') || desc.includes('Kâr:'))
+
+        // Standart dahili transferlerde merkezler arası fiziki yer değişimi olduğundan operasyonel P&L gideri/zararı yazılmaz
+        if (isTransfer && !isProfitTransfer) {
+          return
+        }
+
         const costVal = getTryEquivalent(tx.quantity * tx.unit_price, tx.currency || 'TRY')
         pt.cost += costVal
         if (costVal > 0) {
           const stkName = rawStocks.find(s => s.id === tx.stock_id)?.name || 'Stok / Yedek Parça'
           pt.costDetails.push({
             id: `stx_${tx.id || idx}`,
-            category: 'Stok / Parça Çıkışı',
+            category: isProfitTransfer ? 'İç Transfer Satış Maliyeti' : 'Stok / Parça Çıkışı',
             title: `${stkName} (${tx.quantity} Adet)`,
             subtitle: tx.description || (tx.tx_date ? formatDateTR(tx.tx_date) : undefined),
             companyName: getCompLabel(tx.company_id),
             amount: costVal
           })
+        }
+
+        // Model 3: Kârlı iç transfer satışı ise, kaynak merkezin hasılatına transfer satış gelirini ekle
+        if (isProfitTransfer) {
+          const trfPriceMatch = desc.match(/B\.Transfer:\s*([0-9.,]+)\s*([A-Z]+)/)
+          let trfRevenueTRY = 0
+          if (trfPriceMatch) {
+            const trfPrice = parseFloat(trfPriceMatch[1].replace(',', '.')) || 0
+            const trfCurr = trfPriceMatch[2] || tx.currency || 'TRY'
+            trfRevenueTRY = getTryEquivalent(tx.quantity * trfPrice, trfCurr)
+          } else {
+            trfRevenueTRY = costVal
+          }
+
+          if (trfRevenueTRY > 0) {
+            pt.revenue += trfRevenueTRY
+            const stkName = rawStocks.find(s => s.id === tx.stock_id)?.name || 'Stok / Yedek Parça'
+            pt.revenueDetails.push({
+              id: `trf_rev_${tx.id || idx}`,
+              category: 'İç Transfer Satış Hasılatı',
+              title: `${stkName} (${tx.quantity} Adet)`,
+              subtitle: tx.description || (tx.tx_date ? formatDateTR(tx.tx_date) : undefined),
+              companyName: getCompLabel(tx.company_id),
+              amount: trfRevenueTRY
+            })
+          }
         }
       }
     })

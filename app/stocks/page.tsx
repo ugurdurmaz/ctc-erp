@@ -10,7 +10,7 @@ import {
   AlertTriangle, RefreshCw, Filter, Settings, Tags, ChevronLeft, ChevronRight, 
   ChevronDown, ChevronUp, ChevronsUpDown, Tag, ArrowUpDown, Check, Folder, FolderPlus,
   BarChart3, PieChart, Clock, Zap, CheckCircle2, TrendingDown, ExternalLink,
-  ShieldAlert, Moon, Eye, ArrowRight, AlertCircle, ShoppingCart, Lock
+  ShieldAlert, Moon, Eye, ArrowRight, AlertCircle, ShoppingCart, Lock, ArrowRightLeft
 } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
@@ -310,6 +310,19 @@ export default function StocksPage() {
   const [batchProfitPercent, setBatchProfitPercent] = useState('30')
   const [batchLoading, setBatchLoading] = useState(false)
 
+  // Model 3: Depolar Arası Transfer Modal Durumları
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false)
+  const [trfSourceWarehouseId, setTrfSourceWarehouseId] = useState<string>('')
+  const [trfTargetWarehouseId, setTrfTargetWarehouseId] = useState<string>('')
+  const [trfStockId, setTrfStockId] = useState<string>('')
+  const [trfQuantity, setTrfQuantity] = useState<string>('')
+  const [trfUnitPrice, setTrfUnitPrice] = useState<string>('')
+  const [trfCurrency, setTrfCurrency] = useState<'TRY' | 'USD' | 'EUR'>('TRY')
+  const [trfDate, setTrfDate] = useState<string>(getLocalTodayISO())
+  const [trfNote, setTrfNote] = useState<string>('')
+  const [trfRecordProfit, setTrfRecordProfit] = useState<boolean>(true)
+  const [trfLoading, setTrfLoading] = useState<boolean>(false)
+
   const [allStocks, setAllStocks] = useState<StockItem[]>([])
   const [selectedStockId, setSelectedStockId] = useState<string | null>(null)
   const [hoveredStockId, setHoveredStockId] = useState<string | null>(null)
@@ -432,7 +445,7 @@ export default function StocksPage() {
   allStocksRef.current = allStocks
 
   const isAnyModalOpenRef = useRef<boolean>(false)
-  isAnyModalOpenRef.current = isStockModalOpen || isWarehouseModalOpen || isCategoryModalOpen || isCategoryManageModalOpen
+  isAnyModalOpenRef.current = isStockModalOpen || isWarehouseModalOpen || isCategoryModalOpen || isCategoryManageModalOpen || isTransferModalOpen
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -448,7 +461,8 @@ export default function StocksPage() {
           openEditStock(targetStock)
         }
       } else if (e.key === 'Escape') {
-        if (isStockModalOpen) setIsStockModalOpen(false)
+        if (isTransferModalOpen) setIsTransferModalOpen(false)
+        else if (isStockModalOpen) setIsStockModalOpen(false)
         else if (isCategoryManageModalOpen) setIsCategoryManageModalOpen(false)
         else if (isCategoryModalOpen) setIsCategoryModalOpen(false)
         else if (isWarehouseModalOpen) setIsWarehouseModalOpen(false)
@@ -457,7 +471,7 @@ export default function StocksPage() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isStockModalOpen, isCategoryManageModalOpen, isCategoryModalOpen, isWarehouseModalOpen])
+  }, [isStockModalOpen, isCategoryManageModalOpen, isCategoryModalOpen, isWarehouseModalOpen, isTransferModalOpen])
 
   async function fetchExchangeRates() {
     try {
@@ -1588,6 +1602,10 @@ export default function StocksPage() {
       toast.error('Bu hareket Teknik Servis fişi kaynaklıdır. Düzenlemeyi Teknik Servis sayfasından ilgili fiş üzerinden yapınız.')
       return
     }
+    if (desc.includes('[TRF-')) {
+      toast.error('Bu hareket depolar arası transfere bağlıdır. Tek taraflı düzenlenemez; gerekirse hareketi silip transferi yeniden oluşturabilirsiniz.')
+      return
+    }
 
     setEditingTxId(t.id)
     setTxDate(t.tx_date)
@@ -1727,6 +1745,64 @@ export default function StocksPage() {
         }
       }
     }
+    // 5. Depolar Arası Transfer Kontrolü
+    const trfMatch = txDesc.match(/\[(TRF-[A-Z0-9]+)\]/)
+    if (trfMatch) {
+      const trfTag = trfMatch[1]
+      setConfirmDialog({
+        isOpen: true,
+        title: 'Depolar Arası Transferi İptal Et',
+        message: `Bu hareket [${trfTag}] transferine aittir. Silindiğinde hem kaynak depodaki çıkış hem de hedef depodaki giriş hareketi silinecek ve her iki depodaki stok miktarları eski haline getirilecektir. Devam etmek istiyor musunuz?`,
+        confirmText: 'Evet, Transferi İptal Et',
+        cancelText: 'Vazgeç',
+        isDanger: true,
+        onConfirm: async () => {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+          try {
+            const { data: matchedTxs, error: findErr } = await supabase
+              .from('stock_transactions')
+              .select('id, stock_id, description, unit_price, currency, company_id')
+              .ilike('description', `%[${trfTag}]%`)
+
+            if (findErr) throw findErr
+
+            if (matchedTxs && matchedTxs.length > 0) {
+              const stockIdsToRecalc = Array.from(new Set(matchedTxs.map(t => t.stock_id)))
+              
+              const { error: delErr } = await supabase
+                .from('stock_transactions')
+                .delete()
+                .in('id', matchedTxs.map(t => t.id))
+
+              if (delErr) throw delErr
+
+              for (const sId of stockIdsToRecalc) {
+                await recalculateAbsoluteStock(sId)
+              }
+
+              await logActivity(
+                'stock_tx',
+                'DELETE',
+                `Depolar arası transfer iptal edildi: [${trfTag}]`,
+                txId,
+                undefined,
+                undefined,
+                { deletedTxs: matchedTxs },
+                null
+              )
+
+              toast.success(`Transfer [${trfTag}] başarıyla iptal edildi ve stoklar eski haline getirildi.`)
+              if (selectedStockId) fetchTransactions(selectedStockId)
+              fetchAllStocks()
+              fetchAllTransactions()
+            }
+          } catch (err: any) {
+            toast.error('Transfer silme başarısız: ' + (err.message || 'Bilinmeyen hata'))
+          }
+        }
+      })
+      return
+    }
 
     if (isExternal && isOrphan) {
       setConfirmDialog({
@@ -1763,6 +1839,241 @@ export default function StocksPage() {
   function openEditWh(wh: Warehouse, e: React.MouseEvent) {
     e.stopPropagation()
     setEditingWhId(wh.id); setWhName(wh.name); setWhColor(wh.color ? getWarehouseTheme(wh.color).value : WAREHOUSE_THEMES[0].value); setWhCompanyId(wh.company_id || 'common'); setIsWarehouseModalOpen(true)
+  }
+
+  // Model 3: Depolar Arası Transfer Yardımcı Değerleri
+  const sourceStock = useMemo(() => allStocks.find(s => s.id === trfStockId), [allStocks, trfStockId])
+  const sourceWarehouse = useMemo(() => warehouses.find(w => w.id === trfSourceWarehouseId), [warehouses, trfSourceWarehouseId])
+  const targetWarehouse = useMemo(() => warehouses.find(w => w.id === trfTargetWarehouseId), [warehouses, trfTargetWarehouseId])
+  const sourceCost = sourceStock?.unit_price || 0
+  const inputTransferPrice = parseFloat(trfUnitPrice.replace(',', '.')) || 0
+  const priceDiff = inputTransferPrice - sourceCost
+  const profitMarginPercent = sourceCost > 0 ? ((inputTransferPrice - sourceCost) / sourceCost) * 100 : 0
+
+  function openTransferModal(preselectedStock?: StockItem) {
+    const srcWhId = preselectedStock?.warehouse_id || selectedWarehouseId || (warehouses[0]?.id || '')
+    setTrfSourceWarehouseId(srcWhId)
+
+    const targetCandidate = warehouses.find(w => w.id !== srcWhId)?.id || ''
+    setTrfTargetWarehouseId(targetCandidate)
+
+    if (preselectedStock) {
+      setTrfStockId(preselectedStock.id)
+      setTrfQuantity('1')
+      setTrfUnitPrice(preselectedStock.unit_price?.toString() || '0')
+      setTrfCurrency(preselectedStock.currency || 'TRY')
+    } else {
+      const availableStocksInWh = allStocks.filter(s => s.warehouse_id === srcWhId && s.quantity > 0)
+      const firstStk = availableStocksInWh[0] || allStocks.find(s => s.warehouse_id === srcWhId)
+      if (firstStk) {
+        setTrfStockId(firstStk.id)
+        setTrfQuantity('1')
+        setTrfUnitPrice(firstStk.unit_price?.toString() || '0')
+        setTrfCurrency(firstStk.currency || 'TRY')
+      } else {
+        setTrfStockId('')
+        setTrfQuantity('')
+        setTrfUnitPrice('')
+        setTrfCurrency('TRY')
+      }
+    }
+
+    setTrfDate(getLocalTodayISO())
+    setTrfNote('')
+    setTrfRecordProfit(true)
+    setIsTransferModalOpen(true)
+  }
+
+  function handleTrfSourceWarehouseChange(newWhId: string) {
+    setTrfSourceWarehouseId(newWhId)
+    if (trfTargetWarehouseId === newWhId) {
+      const otherWh = warehouses.find(w => w.id !== newWhId)?.id || ''
+      setTrfTargetWarehouseId(otherWh)
+    }
+    const firstStk = allStocks.find(s => s.warehouse_id === newWhId && s.quantity > 0) || allStocks.find(s => s.warehouse_id === newWhId)
+    if (firstStk) {
+      setTrfStockId(firstStk.id)
+      setTrfUnitPrice(firstStk.unit_price?.toString() || '0')
+      setTrfCurrency(firstStk.currency || 'TRY')
+    } else {
+      setTrfStockId('')
+      setTrfUnitPrice('')
+    }
+  }
+
+  function handleTrfStockChange(stockId: string) {
+    setTrfStockId(stockId)
+    const stk = allStocks.find(s => s.id === stockId)
+    if (stk) {
+      setTrfUnitPrice(stk.unit_price?.toString() || '0')
+      setTrfCurrency(stk.currency || 'TRY')
+    }
+  }
+
+  async function handleExecuteTransfer(e: React.FormEvent) {
+    e.preventDefault()
+    if (!trfSourceWarehouseId || !trfTargetWarehouseId) {
+      toast.error('Lütfen kaynak ve hedef depoyu seçin.')
+      return
+    }
+    if (trfSourceWarehouseId === trfTargetWarehouseId) {
+      toast.error('Kaynak ve hedef depo aynı olamaz.')
+      return
+    }
+    if (!sourceStock) {
+      toast.error('Lütfen transfer edilecek ürünü seçin.')
+      return
+    }
+    const transferQty = parseFloat(trfQuantity.replace(',', '.'))
+    if (isNaN(transferQty) || transferQty <= 0) {
+      toast.error('Geçerli bir transfer miktarı girin.')
+      return
+    }
+    if (transferQty > (sourceStock.quantity || 0)) {
+      toast.error(`Yetersiz stok! Kaynak depoda mevcut: ${sourceStock.quantity} ${sourceStock.unit || 'Adet'}`)
+      return
+    }
+    const unitPriceNum = parseFloat(trfUnitPrice.replace(',', '.'))
+    if (isNaN(unitPriceNum) || unitPriceNum < 0) {
+      toast.error('Geçerli bir birim fiyat girin.')
+      return
+    }
+
+    setTrfLoading(true)
+    try {
+      const transferTag = `TRF-${Date.now().toString().slice(-6)}`
+      const srcWhName = sourceWarehouse?.name || 'Kaynak Depo'
+      const tgtWhName = targetWarehouse?.name || 'Hedef Depo'
+
+      // Hedef depoda aynı ürün var mı kontrol et (SKU veya İsim eşleşmesi)
+      let targetStockId: string | null = null
+      const targetExisting = allStocks.find(s => 
+        s.warehouse_id === trfTargetWarehouseId && (
+          (sourceStock.sku && s.sku && s.sku.trim().toLowerCase() === sourceStock.sku.trim().toLowerCase()) ||
+          (s.name.trim().toLowerCase() === sourceStock.name.trim().toLowerCase())
+        )
+      )
+
+      if (targetExisting) {
+        targetStockId = targetExisting.id
+      } else {
+        const newStockPayload = {
+          warehouse_id: trfTargetWarehouseId,
+          name: sourceStock.name,
+          sku: sourceStock.sku || '',
+          category: sourceStock.category || '',
+          sub_category: sourceStock.sub_category || '',
+          unit: sourceStock.unit || 'Adet',
+          currency: trfCurrency,
+          unit_price: unitPriceNum,
+          vat_rate: sourceStock.vat_rate || 0,
+          stock_color: sourceStock.stock_color || THEME_COLORS[0].value,
+          quantity: 0,
+          web_visible: false,
+          web_price: null,
+          web_currency: 'TRY'
+        }
+        const { data: createdStk, error: createStkErr } = await supabase
+          .from('stocks')
+          .insert(newStockPayload)
+          .select('id')
+          .single()
+
+        if (createStkErr) throw createStkErr
+        targetStockId = createdStk.id
+      }
+
+      if (!targetStockId) {
+        throw new Error('Hedef stok kartı oluşturulamadı veya bulunamadı.')
+      }
+
+      const userNoteStr = trfNote.trim() ? ` - Not: ${trfNote.trim()}` : ''
+      const hasMarkup = unitPriceNum !== sourceCost
+      const profitPercentFormatted = profitMarginPercent.toFixed(1)
+
+      let srcDescription = ''
+      if (hasMarkup && trfRecordProfit) {
+        srcDescription = `[${transferTag}] Depo Transfer Satışı -> ${tgtWhName} (B.Mlyt: ${sourceCost} ${sourceStock.currency || 'TRY'}, B.Transfer: ${unitPriceNum} ${trfCurrency}, Kâr: %${profitPercentFormatted})${userNoteStr}`
+      } else {
+        srcDescription = `[${transferTag}] Depo Transferi -> ${tgtWhName}${userNoteStr}`
+      }
+
+      const tgtDescription = `[${transferTag}] Depo Transfer Girişi <- ${srcWhName} (Transfer B.Fiyat: ${unitPriceNum} ${trfCurrency})${userNoteStr}`
+
+      // Kaynak depodan OUT çıkışı (kaynak birim maliyetiyle)
+      const { error: outTxErr } = await supabase
+        .from('stock_transactions')
+        .insert({
+          stock_id: sourceStock.id,
+          tx_date: trfDate,
+          description: srcDescription,
+          tx_type: 'out',
+          quantity: transferQty,
+          unit_price: sourceCost,
+          currency: sourceStock.currency || 'TRY',
+          vat_rate: sourceStock.vat_rate || 0,
+          company_id: sourceWarehouse?.company_id || null
+        })
+
+      if (outTxErr) throw outTxErr
+
+      // Hedef depoya IN girişi (yeni transfer birim fiyatıyla)
+      const { error: inTxErr } = await supabase
+        .from('stock_transactions')
+        .insert({
+          stock_id: targetStockId,
+          tx_date: trfDate,
+          description: tgtDescription,
+          tx_type: 'in',
+          quantity: transferQty,
+          unit_price: unitPriceNum,
+          currency: trfCurrency,
+          vat_rate: sourceStock.vat_rate || 0,
+          company_id: targetWarehouse?.company_id || null
+        })
+
+      if (inTxErr) throw inTxErr
+
+      // Her iki depodaki stok kartının mutlak stoğunu yeniden hesapla
+      await recalculateAbsoluteStock(sourceStock.id)
+      await recalculateAbsoluteStock(targetStockId)
+
+      // Audit Log
+      await logActivity(
+        'stock_tx',
+        'INSERT',
+        `Depolar arası ürün transferi yapıldı: [${transferTag}] ${sourceStock.name} (${transferQty} ${sourceStock.unit || 'Adet'}) | ${srcWhName} -> ${tgtWhName}`,
+        undefined,
+        unitPriceNum * transferQty,
+        trfCurrency,
+        null,
+        {
+          transferTag,
+          sourceWarehouse: srcWhName,
+          targetWarehouse: tgtWhName,
+          stockName: sourceStock.name,
+          quantity: transferQty,
+          sourceCost,
+          transferUnitPrice: unitPriceNum,
+          recordProfit: trfRecordProfit
+        },
+        sourceWarehouse?.company_id || null
+      )
+
+      toast.success(`Transfer [${transferTag}] başarıyla gerçekleştirildi!`)
+      setIsTransferModalOpen(false)
+
+      await fetchAllStocks()
+      await fetchAllTransactions()
+      if (selectedStockId) {
+        await fetchTransactions(selectedStockId)
+      }
+    } catch (err: any) {
+      console.error('Transfer hatası:', err)
+      toast.error('Transfer gerçekleştirilemedi: ' + (err.message || 'Bilinmeyen hata'))
+    } finally {
+      setTrfLoading(false)
+    }
   }
 
   function openAddStock() {
@@ -2099,6 +2410,18 @@ export default function StocksPage() {
             >
               <Plus size={13} />
               <span className="text-[10px]">Depo Ekle</span>
+            </button>
+
+            {/* MODEL 3: DEPOLAR ARASI TRANSFER BUTONU */}
+            <button 
+              type="button"
+              style={{ animation: 'fadeInUp 0.3s both 0.25s' }} 
+              onClick={() => openTransferModal()} 
+              className="p-1.5 px-2.5 rounded-lg border border-cyan-500/50 text-cyan-400 bg-cyan-950/20 hover:text-white hover:border-cyan-400 hover:bg-cyan-900/30 shrink-0 transition-all active:scale-95 flex items-center gap-1.5 text-[11px] font-medium shadow-sm shadow-cyan-950/30"
+              title="Depolar Arası Ürün Transferi Yap (Model 3)"
+            >
+              <ArrowRightLeft size={13} className="text-cyan-400" />
+              <span className="text-[10px] font-semibold">⇄ Transfer Yap</span>
             </button>
           </div>
         </div>
@@ -2905,6 +3228,15 @@ export default function StocksPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800 shrink-0">
+                  <button 
+                    type="button"
+                    onClick={() => openTransferModal(selectedStock)} 
+                    className="text-slate-400 hover:text-cyan-400 p-1.5 transition flex items-center gap-1 rounded hover:bg-cyan-950/30" 
+                    title="Bu Ürünü Başka Depoya Transfer Et (Model 3)"
+                  >
+                    <ArrowRightLeft size={13} className="text-cyan-400" />
+                    <span className="text-[10px] font-semibold text-cyan-300">Transfer</span>
+                  </button>
                   <button onClick={(e) => openEditStock(selectedStock, e)} className="text-slate-400 hover:text-indigo-400 p-1.5 transition flex items-center gap-1" title="Stok Kartını Düzenle (F2)">
                     <Edit3 size={14} />
                     <span className="text-[10px] font-mono font-bold bg-indigo-950/80 px-1 py-0.2 rounded border border-indigo-500/30 text-indigo-300">F2</span>
@@ -3006,6 +3338,9 @@ export default function StocksPage() {
                                      if (desc.includes('Servis Parça Çıkışı') || desc.includes('SRV-')) {
                                        return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-bold">Teknik Servis</span>
                                      }
+                                     if (desc.includes('[TRF-')) {
+                                       return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-500/40 font-bold">⇄ Transfer</span>
+                                     }
                                      if (desc === 'Açılış Stoğu') {
                                        return <span className="text-[8px] font-sans px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-300 border border-slate-600/40 font-bold">Açılış Stoğu</span>
                                      }
@@ -3048,7 +3383,7 @@ export default function StocksPage() {
                               <td className="p-2.5 text-center align-top">
                                 {(() => {
                                   const desc = t.description || ''
-                                  const isExternal = desc.includes('/ Alım') || desc.includes('/ Satış') || desc.includes('POS-') || desc.includes('Z-Raporu') || desc.includes('Servis Parça Çıkışı') || desc.includes('SRV-')
+                                  const isExternal = desc.includes('/ Alım') || desc.includes('/ Satış') || desc.includes('POS-') || desc.includes('Z-Raporu') || desc.includes('Servis Parça Çıkışı') || desc.includes('SRV-') || desc.includes('[TRF-')
                                   return (
                                     <div className="flex items-center justify-center gap-2">
                                       {isExternal ? (
@@ -4533,6 +4868,262 @@ export default function StocksPage() {
                 {batchLoading ? 'Hesaplanıyor...' : 'Fiyatları Güncelle'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODEL 3: DEPOLAR ARASI TRANSFER MODALI */}
+      {isTransferModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 9999 }}>
+          <div className="bg-[#0f172a] border border-cyan-500/30 rounded-2xl w-full max-w-lg p-6 shadow-2xl shadow-cyan-950/40 animate-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center pb-3 border-b border-slate-800 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-cyan-950/60 border border-cyan-500/40 text-cyan-400">
+                  <ArrowRightLeft size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    Depolar Arası Ürün Transferi
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 font-mono font-medium">Model 3</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">Depolar arasında ürün aktarın, transfer maliyeti ve kâr farkını yönetin.</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsTransferModalOpen(false)} 
+                className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-800"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleExecuteTransfer} className="space-y-4 pt-4 overflow-y-auto pr-1 text-xs flex-1">
+              {/* Kaynak ve Hedef Depo Seçimi */}
+              <div className="grid grid-cols-2 gap-3 bg-[#070b14] p-3 rounded-xl border border-slate-800/80">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold text-[11px]">
+                    Kaynak Depo (Çıkış) *
+                  </label>
+                  <select
+                    value={trfSourceWarehouseId}
+                    onChange={(e) => handleTrfSourceWarehouseChange(e.target.value)}
+                    required
+                    className="w-full bg-[#0a0f1d] border border-slate-700 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 transition-colors"
+                  >
+                    {warehouses.map(w => (
+                      <option key={w.id} value={w.id} disabled={w.id === trfTargetWarehouseId}>
+                        {w.name} {w.company?.name ? `(${w.company.name})` : '(Ortak)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-cyan-400 mb-1 font-semibold text-[11px]">
+                    Hedef Depo (Giriş) *
+                  </label>
+                  <select
+                    value={trfTargetWarehouseId}
+                    onChange={(e) => setTrfTargetWarehouseId(e.target.value)}
+                    required
+                    className="w-full bg-[#0a0f1d] border border-cyan-700/60 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-cyan-400 transition-colors"
+                  >
+                    {warehouses.filter(w => w.id !== trfSourceWarehouseId).map(w => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} {w.company?.name ? `(${w.company.name})` : '(Ortak)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Ürün Seçimi */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-400 font-semibold text-[11px]">
+                    Transfer Edilecek Ürün (Kaynak Depodan) *
+                  </label>
+                  {sourceStock && (
+                    <span className="text-[10px] text-emerald-400 font-medium">
+                      Mevcut Stok: {sourceStock.quantity} {sourceStock.unit || 'Adet'}
+                    </span>
+                  )}
+                </div>
+                <select
+                  value={trfStockId}
+                  onChange={(e) => handleTrfStockChange(e.target.value)}
+                  required
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 transition-colors font-medium"
+                >
+                  <option value="" disabled>-- Kaynak Depodan Ürün Seçin --</option>
+                  {allStocks
+                    .filter(s => s.warehouse_id === trfSourceWarehouseId)
+                    .map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} {s.sku ? `[${s.sku}]` : ''} - Stok: {s.quantity} {s.unit || 'Adet'} | Maliyet: {formatMoney(s.unit_price, s.currency || 'TRY').formatted}
+                      </option>
+                    ))}
+                </select>
+                {allStocks.filter(s => s.warehouse_id === trfSourceWarehouseId).length === 0 && (
+                  <p className="text-[11px] text-amber-400 mt-1 flex items-center gap-1">
+                    <AlertTriangle size={12} /> Bu kaynak depoda tanımlı ürün bulunamadı.
+                  </p>
+                )}
+              </div>
+
+              {/* Miktar ve Tarih */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold text-[11px]">
+                    Transfer Miktarı ({sourceStock?.unit || 'Adet'}) *
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0.01"
+                    max={sourceStock?.quantity || undefined}
+                    required
+                    placeholder="1"
+                    value={trfQuantity}
+                    onChange={(e) => setTrfQuantity(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold text-[11px]">
+                    Transfer Tarihi *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={trfDate}
+                    onChange={(e) => setTrfDate(e.target.value)}
+                    className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Fiyatlandırma ve Model 3 Kâr Ayarı */}
+              <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-300">Fiyatlandırma & Kâr Ayarı</span>
+                  {sourceStock && (
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Kaynak Maliyeti: <strong className="text-white">{formatMoney(sourceCost, sourceStock.currency || 'TRY').formatted}</strong>
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-2">
+                    <label className="block text-[10px] text-slate-400 mb-1">
+                      Transfer Birim Fiyatı (Hedef Giriş Maliyeti) *
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      required
+                      value={trfUnitPrice}
+                      onChange={(e) => setTrfUnitPrice(e.target.value)}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono font-bold focus:outline-none focus:border-cyan-500 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">Para Birimi</label>
+                    <select
+                      value={trfCurrency}
+                      onChange={(e) => setTrfCurrency(e.target.value as any)}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono focus:outline-none focus:border-cyan-500 transition-colors"
+                    >
+                      <option value="TRY">TRY (₺)</option>
+                      <option value="USD">USD ($)</option>
+                      <option value="EUR">EUR (€)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Fark / Kâr Bilgilendirme Rozeti */}
+                {sourceStock && (
+                  <div className={`p-2.5 rounded-lg border text-[11px] flex items-center justify-between gap-2 ${
+                    priceDiff > 0 
+                      ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+                      : priceDiff < 0 
+                        ? 'bg-rose-950/30 border-rose-500/30 text-rose-300'
+                        : 'bg-slate-800/40 border-slate-700/60 text-slate-400'
+                  }`}>
+                    <span>
+                      {priceDiff > 0 ? (
+                        <>Birim Fark: <strong className="font-mono text-emerald-400">+{formatMoney(priceDiff, trfCurrency).formatted}</strong> (+%{profitMarginPercent.toFixed(1)} Kâr)</>
+                      ) : priceDiff < 0 ? (
+                        <>Birim Fark: <strong className="font-mono text-rose-400">{formatMoney(priceDiff, trfCurrency).formatted}</strong> (%{profitMarginPercent.toFixed(1)} İndirimli/Zararlı)</>
+                      ) : (
+                        <>Birebir Maliyetten Transfer (Fiyat Farkı Yok)</>
+                      )}
+                    </span>
+                    {priceDiff !== 0 && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-black/40 border border-current">
+                        Toplam Fark: {formatMoney(priceDiff * (parseFloat(trfQuantity) || 1), trfCurrency).formatted}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Model 3: Kâr Kaydı Onay Kutusu */}
+                {priceDiff > 0 && (
+                  <label className="flex items-start gap-2.5 p-2 rounded-lg bg-cyan-950/20 border border-cyan-500/30 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={trfRecordProfit}
+                      onChange={(e) => setTrfRecordProfit(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-700 text-cyan-600 focus:ring-cyan-500 w-4 h-4 bg-[#070b14]"
+                    />
+                    <div className="text-[11px] leading-tight text-slate-300">
+                      <span className="font-semibold text-cyan-300">Fiyat farkını kaynak merkeze kâr / iç satış hasılatı olarak kaydet (Model 3)</span>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        İşaretlendiğinde, kaynak merkez için iç satış kârı tahakkuk eder; hedef depo ise yeni fiyattan envanterine alır.
+                      </p>
+                    </div>
+                  </label>
+                )}
+              </div>
+
+              {/* Transfer Notu */}
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold text-[11px]">
+                  Transfer Notu / Açıklama (İsteğe Bağlı)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Örn: Şube açılış sevkiyatı, acil parça ihtiyacı..."
+                  value={trfNote}
+                  onChange={(e) => setTrfNote(e.target.value)}
+                  className="w-full bg-[#070b14] border border-slate-700 rounded-lg px-3 py-2 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 transition-colors"
+                />
+              </div>
+
+              {/* Modal Buttons */}
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsTransferModalOpen(false)}
+                  className="px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 text-xs transition-colors"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={trfLoading || !trfStockId || !trfQuantity}
+                  className="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold px-5 py-2 rounded-lg text-xs transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1.5 shadow-lg shadow-cyan-950/50"
+                >
+                  <ArrowRightLeft size={14} />
+                  {trfLoading ? 'Transfer Ediliyor...' : 'Transferi Tamamla'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

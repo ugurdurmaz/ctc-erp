@@ -527,6 +527,18 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
   - Filtreleme: Stok listesi üstünde hızlı e-ticaret filtreleri (Hepsi, Yayında, Gizli, Kategorisi Eksik, Fiyatı Eksik).
   - Toplu İşlemler (Batch Operations): Çoklu seçim checkbox'ları ile seçilen ürünlerde tek tıkla toplu web yayınına alma / gizleme, toplu web kategori atama modalı ve ERP alış maliyeti üzerine hedef kâr marjı ekleyerek toplu web fiyatı hesaplama modalı.
   - Veritabanı Trigger'ı: `supabase/stocks_web_updated_at_trigger.sql` dosyası ile `stocks` tablosunda web kolonları değiştikçe `web_updated_at` kolonu otomatik güncellenir.
+- **Depolar Arası Ürün Transferi & Fiyatlandırma / Kâr Dağıtımı (Model 3):**
+  - Depo çubuğunda `⇄ Transfer Yap` butonu ve ürün detay panelinde `⇄ Transfer` hızlı aksiyon butonu ile açılır.
+  - Kaynak ve hedef depo seçimi, aktarılacak ürün seçimi, transfer miktarı ve transfer tarihi girilir.
+  - **Fiyatlandırma & Kâr Marjı:** Transfer birim fiyatı varsayılan olarak kaynak depodaki birim maliyetle doldurulur ve serbestçe düzenlenebilir (örn. şubeye kârlı veya indirimli çıkış).
+  - Canlı kâr marjı rozeti birim fiyat farkını ve kâr oranını hesaplar.
+  - **Model 3 Kâr Kaydı:** `"Fiyat farkını kaynak merkeze kâr / iç satış hasılatı olarak kaydet"` seçeneği işaretlendiğinde, kaynak merkez için transfer kârı ve iç satış hasılatı P&L tablosuna yansıtılır.
+  - **İki Taraflı Stok Güncellemesi:**
+    - Hedef depoda aynı ürün (SKU veya ad ile) taranır; yoksa hedef depoda otomatik yeni stok kartı açılır.
+    - Kaynak depoda `tx_type = 'out'` (kaynak maliyetinden), hedef depoda `tx_type = 'in'` (yeni transfer birim fiyatından) hareket kaydedilir. Her iki işlem `[TRF-XXXXXX]` etiketiyle çapraz bağlanır.
+    - Her iki depodaki stok kartlarında `recalculateAbsoluteStock` çalıştırılarak mutlak stok ve son maliyet anında güncellenir.
+  - **Çift Taraflı Koruma & Silme:** `[TRF-` etiketli bir hareket silinmek istendiğinde, sistem her iki depodaki transfer bacaklarını (`in` ve `out`) birlikte bularak siler ve her iki depodaki stok miktarlarını eski haline döndürür. Doğrudan düzenleme ise tutarlılık amacıyla kilitlenmiştir (`🔒`).
+  - **Dashboard P&L Uyumu:** Standart dahili transferler şirketler arası sahte gider/zarar oluşturmaması için operasyonel maliyetten hariç tutulur; kârlı Model 3 transferlerinde ise kaynak merkeze maliyet ve transfer satış hasılatı tahakkuk ettirilerek net kâr tam olarak yansıtılır.
 
 ### 7.7 Hizmet Yönetimi `/services`
 - Kart ızgarası: ad, sahip merkez, net fiyat, KDV, KDV dahil fiyat. Arama, ekle/düzenle/sil.
