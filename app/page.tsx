@@ -58,6 +58,7 @@ type RecurringTemplate = {
   default_source_id?: string
   note?: string
   start_month?: string
+  skipped_months?: string[]
   created_at?: string
 }
 
@@ -271,6 +272,7 @@ export default function Home() {
               default_source_id: parsed.default_source_id,
               note: parsed.note || '',
               start_month: parsed.start_month,
+              skipped_months: Array.isArray(parsed.skipped_months) ? parsed.skipped_months : [],
               created_at: c.created_at
             })
           } catch (e) {
@@ -1684,6 +1686,9 @@ export default function Home() {
       const createdMonth = tmpl.created_at ? tmpl.created_at.substring(0, 7) : currentYearMonth
       if (!startMonthKey && createdMonth > currentYearMonth) return
 
+      // Kullanıcı tarafından silinmiş / yok sayılmış ay ise atla
+      if (tmpl.skipped_months?.includes(currentYearMonth)) return
+
       const matchedExpense = expenses.find(e => {
         const txD = e.tx_date || e.created_at?.substring(0, 10)
         if (!txD || !txD.startsWith(currentYearMonth)) return false
@@ -1841,6 +1846,9 @@ export default function Home() {
         if (startMonthKey && mKey < startMonthKey) return
         const createdMonth = tmpl.created_at ? tmpl.created_at.substring(0, 7) : currentYearMonth
         if (!startMonthKey && mKey < createdMonth) return
+
+        // Kullanıcı tarafından silinmiş / yok sayılmış ay ise atla
+        if (tmpl.skipped_months?.includes(mKey)) return
 
         const isPaidInPastMonth = expenses.some(e => {
           const txD = e.tx_date || e.created_at?.substring(0, 10)

@@ -34,6 +34,7 @@ export type RecurringTemplate = {
   default_source_id?: string
   note?: string
   start_month?: string
+  skipped_months?: string[]
   created_at?: string
 }
 
@@ -142,7 +143,8 @@ function parseCategoryRow(id: string, rawName: string): { category: Category | n
           default_source_type: parsed.default_source_type || undefined,
           default_source_id: parsed.default_source_id || undefined,
           note: parsed.note || '',
-          start_month: parsed.start_month || undefined
+          start_month: parsed.start_month || undefined,
+          skipped_months: Array.isArray(parsed.skipped_months) ? parsed.skipped_months : []
         }
       }
     } catch (e) {
@@ -255,6 +257,7 @@ export default function ExpensesPage() {
   const [tmplSourceId, setTmplSourceId] = useState('')
   const [tmplNote, setTmplNote] = useState('')
   const [tmplStartMonth, setTmplStartMonth] = useState('')
+  const [tmplSkippedMonths, setTmplSkippedMonths] = useState<string[]>([])
 
   // Hızlı Öde Modalı State (Kredi Kartı Destekli)
   const [isQuickPayModalOpen, setIsQuickPayModalOpen] = useState(false)
@@ -676,6 +679,7 @@ export default function ExpensesPage() {
     setTmplSourceId(initCards[0]?.id || '')
     setTmplNote('')
     setTmplStartMonth('')
+    setTmplSkippedMonths([])
     setIsTemplateModalOpen(true)
   }
 
@@ -691,6 +695,7 @@ export default function ExpensesPage() {
     setTmplSourceId(tmpl.default_source_id || '')
     setTmplNote(tmpl.note || '')
     setTmplStartMonth(tmpl.start_month || '')
+    setTmplSkippedMonths(tmpl.skipped_months || [])
     setIsTemplateModalOpen(true)
   }
 
@@ -714,7 +719,8 @@ export default function ExpensesPage() {
       default_source_type: tmplSourceType || null,
       default_source_id: tmplSourceId || null,
       note: tmplNote.trim(),
-      start_month: tmplStartMonth ? tmplStartMonth : null
+      start_month: tmplStartMonth ? tmplStartMonth : null,
+      skipped_months: tmplSkippedMonths
     }
 
     const rawName = `REC_TEMPLATE::${JSON.stringify(tmplObj)}`
@@ -756,6 +762,67 @@ export default function ExpensesPage() {
           fetchCategories()
         } catch (err: any) {
           toast.error("Silme hatası: " + err.message)
+        }
+      }
+    })
+  }
+
+  function handleDismissOccurrence(tmpl: RecurringTemplate, monthKey: string, monthLabel: string) {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Bu Ayki Tekrarı Sil (0 TL Fatura)',
+      message: `"${tmpl.title}" giderinin ${monthLabel} dönemine ait tekrarını silmek istediğinize emin misiniz?\n\n(Bu işlem yalnızca ${monthLabel} dönemini takipten kaldırır; şablonun genel tanımı ve diğer aylardaki tekrarları korunur.)`,
+      confirmText: 'Evet, Bu Tekrarı Sil',
+      cancelText: 'Vazgeç',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+        try {
+          const { data: catData, error: catFetchErr } = await supabase
+            .from('expense_categories')
+            .select('name')
+            .eq('id', tmpl.id)
+            .single()
+
+          if (catFetchErr || !catData) throw new Error('Şablon kaydı bulunamadı')
+
+          let tmplObj: any = {}
+          if (catData.name.startsWith('REC_TEMPLATE::')) {
+            tmplObj = JSON.parse(catData.name.slice('REC_TEMPLATE::'.length))
+          } else {
+            throw new Error('Geçersiz şablon verisi')
+          }
+
+          const existingSkipped: string[] = Array.isArray(tmplObj.skipped_months) ? tmplObj.skipped_months : []
+          if (!existingSkipped.includes(monthKey)) {
+            existingSkipped.push(monthKey)
+          }
+          tmplObj.skipped_months = existingSkipped
+
+          const newRawName = `REC_TEMPLATE::${JSON.stringify(tmplObj)}`
+          const { error: updErr } = await supabase
+            .from('expense_categories')
+            .update({ name: newRawName })
+            .eq('id', tmpl.id)
+
+          if (updErr) throw updErr
+
+          await logActivity(
+            'expense_category',
+            'UPDATE',
+            `Sabit gider tekrarı silindi (${monthLabel} - 0 TL Fatura): ${tmpl.title}`,
+            tmpl.id,
+            0,
+            tmpl.currency,
+            null,
+            { skipped_month: monthKey },
+            tmpl.company_id || null
+          )
+
+          toast.success(`"${tmpl.title}" için ${monthLabel} tekrarı silindi.`)
+          fetchCategories()
+        } catch (err: any) {
+          toast.error('İşlem başarısız: ' + err.message)
         }
       }
     })
@@ -1548,6 +1615,8 @@ export default function ExpensesPage() {
       if (startMonthKey && startMonthKey > currentYearMonth) return false
       const createdMonth = t.created_at ? t.created_at.substring(0, 7) : currentYearMonth
       if (!startMonthKey && createdMonth > currentYearMonth) return false
+      // Eğer bu ay kullanıcı tarafından silinmişse (0 TL fatura / yok sayılmışsa) takipten çıkar
+      if (t.skipped_months?.includes(currentYearMonth)) return false
       return selectedCompanyFilter === 'all' || t.company_id === selectedCompanyFilter
     })
 
@@ -1608,6 +1677,9 @@ export default function ExpensesPage() {
         // Eğer başlangıç ayı tanımlı değilse, şablonun oluşturulma ayından öncesini atla
         const createdMonth = tmpl.created_at ? tmpl.created_at.substring(0, 7) : currentYearMonth
         if (!startMonthKey && mKey < createdMonth) return
+
+        // Eğer bu ay kullanıcı tarafından silinmişse (0 TL fatura / yok sayılmışsa) atla
+        if (tmpl.skipped_months?.includes(mKey)) return
 
         // Bu geçmiş ay için ödeme var mı?
         const isPaid = expenses.some(e => {
@@ -2284,13 +2356,23 @@ export default function ExpensesPage() {
                                 <Check size={11} /> Ödendi
                               </span>
                             ) : (
-                              <button
-                                onClick={() => openQuickPayModal(tmpl, pastMonthKey, pastMonthLabel)}
-                                className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-md transition-all active:scale-95 inline-flex items-center gap-1 shadow-sm shadow-indigo-950/40 cursor-pointer"
-                                title={isPastUnpaid ? `${pastMonthLabel} Borcunu Öde` : "Kredi Kartı veya Bankadan Hızlı Öde"}
-                              >
-                                <Zap size={10} className="text-amber-300" /> Hızlı Öde
-                              </button>
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  onClick={() => openQuickPayModal(tmpl, pastMonthKey, pastMonthLabel)}
+                                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-md transition-all active:scale-95 inline-flex items-center gap-1 shadow-sm shadow-indigo-950/40 cursor-pointer"
+                                  title={isPastUnpaid ? `${pastMonthLabel} Borcunu Öde` : "Kredi Kartı veya Bankadan Hızlı Öde"}
+                                >
+                                  <Zap size={10} className="text-amber-300" /> Hızlı Öde
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDismissOccurrence(tmpl, pastMonthKey || currentYearMonth, pastMonthLabel || currentMonthName)}
+                                  className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition-all cursor-pointer"
+                                  title={`Bu Tekrarı Sil (${isPastUnpaid ? pastMonthLabel : currentMonthName} - 0 TL Fatura / Yok Say)`}
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -2397,13 +2479,23 @@ export default function ExpensesPage() {
                               {tmpl.default_source_type === 'cash' && <Wallet size={10} className="text-emerald-400" />}
                               <span className="truncate">{tmpl.default_source_id ? getPaymentSourceName(tmpl.default_source_type || '', tmpl.default_source_id) : 'Ödeme Seç'}</span>
                             </div>
-                            <button
-                              onClick={() => openQuickPayModal(tmpl, pastMonthKey, pastMonthLabel)}
-                              className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 rounded-md transition-all active:scale-95 flex items-center gap-1 shadow-md shadow-indigo-950/40 shrink-0 cursor-pointer"
-                              title={isPastUnpaid ? `${pastMonthLabel} Borcunu Öde` : "Kredi Kartı veya Bankadan Hızlı Öde"}
-                            >
-                              <Zap size={10} className="text-amber-300" /> Hızlı Öde
-                            </button>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => openQuickPayModal(tmpl, pastMonthKey, pastMonthLabel)}
+                                className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 rounded-md transition-all active:scale-95 flex items-center gap-1 shadow-md shadow-indigo-950/40 shrink-0 cursor-pointer"
+                                title={isPastUnpaid ? `${pastMonthLabel} Borcunu Öde` : "Kredi Kartı veya Bankadan Hızlı Öde"}
+                              >
+                                <Zap size={10} className="text-amber-300" /> Hızlı Öde
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDismissOccurrence(tmpl, pastMonthKey || currentYearMonth, pastMonthLabel || currentMonthName)}
+                                className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition-all cursor-pointer"
+                                title={`Bu Tekrarı Sil (${isPastUnpaid ? pastMonthLabel : currentMonthName} - 0 TL Fatura / Yok Say)`}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
                           </>
                         )}
                       </div>
@@ -3423,6 +3515,36 @@ export default function ExpensesPage() {
                   />
                 </div>
               </div>
+
+              {/* Silinen / Yok Sayılan Tekrarlar (Varsa) */}
+              {tmplSkippedMonths.length > 0 && (
+                <div className="pt-2 border-t border-slate-800">
+                  <label className="block text-[10px] text-slate-400 mb-1">
+                    Silinmiş / Yok Sayılan Tekrarlar ({tmplSkippedMonths.length})
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 p-2 bg-[#070b14] rounded-lg border border-slate-800">
+                    {tmplSkippedMonths.map(m => {
+                      const [yr, mo] = m.split('-')
+                      const d = new Date(Number(yr), Number(mo) - 1, 1)
+                      const label = d.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })
+                      return (
+                        <span key={m} className="inline-flex items-center gap-1.5 text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">
+                          <span>{label} (0 TL)</span>
+                          <button
+                            type="button"
+                            onClick={() => setTmplSkippedMonths(prev => prev.filter(x => x !== m))}
+                            className="text-slate-400 hover:text-rose-400 font-bold"
+                            title="Geri Yükle (Takipten çıkarma iptal)"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      )
+                    })}
+                  </div>
+                  <span className="text-[9px] text-slate-500 mt-1 block">✕ butonuna basarak silinen ayı tekrar takibe alabilirsiniz.</span>
+                </div>
+              )}
 
               <div className="flex justify-end gap-2.5 mt-4 pt-3 border-t border-slate-800">
                 <button type="button" onClick={() => setIsTemplateModalOpen(false)} className="px-4 py-2 rounded-xl text-slate-400 hover:bg-slate-800 transition-colors">İptal</button>
