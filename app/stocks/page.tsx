@@ -4874,7 +4874,7 @@ export default function StocksPage() {
       {/* MODEL 3: DEPOLAR ARASI TRANSFER MODALI */}
       {isTransferModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 9999 }}>
-          <div className="bg-[#0f172a] border border-cyan-500/30 rounded-2xl w-full max-w-lg p-6 shadow-2xl shadow-cyan-950/40 animate-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
+          <div className="bg-[#0f172a] border border-cyan-500/30 rounded-2xl w-full max-w-xl p-6 shadow-2xl shadow-cyan-950/40 animate-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
             {/* Modal Header */}
             <div className="flex justify-between items-center pb-3 border-b border-slate-800 shrink-0">
               <div className="flex items-center gap-2.5">
@@ -5020,40 +5020,50 @@ export default function StocksPage() {
                                   setTrfSearchTerm(s.name)
                                   setIsTrfDropdownOpen(false)
                                 }}
-                                className={`p-2.5 px-3 cursor-pointer transition-colors flex items-center justify-between gap-3 text-xs ${
+                                className={`p-2 px-3 cursor-pointer transition-colors text-xs ${
                                   isSelected 
-                                    ? 'bg-cyan-950/70 text-cyan-200 font-semibold' 
+                                    ? 'bg-cyan-950/70 text-cyan-200' 
                                     : 'hover:bg-cyan-900/30 text-slate-200'
                                 } ${isOutOfStock ? 'opacity-60' : ''}`}
                               >
-                                <div className="flex flex-col min-w-0">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-bold text-white truncate">{s.name}</span>
-                                    {s.sku && (
-                                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                                        {s.sku}
+                                {/* 1. Satır: Ürün İsmi (Normal Ağırlıkta, Geniş Alan) ve Stok Adedi */}
+                                <div className="flex items-center justify-between gap-3">
+                                  <span 
+                                    className="font-normal text-slate-100 text-[12px] leading-tight truncate flex-1 tracking-tight"
+                                    title={s.name}
+                                  >
+                                    {s.name}
+                                  </span>
+                                  <div className="text-right shrink-0 flex items-center gap-1.5 font-mono">
+                                    <span className={`text-[11px] font-medium ${
+                                      (s.quantity || 0) > 0 ? 'text-emerald-400' : 'text-rose-400'
+                                    }`}>
+                                      {s.quantity} {s.unit || 'Adet'}
+                                    </span>
+                                    {isOutOfStock && (
+                                      <span className="text-[9px] px-1 py-0.2 rounded bg-rose-950/60 text-rose-400 border border-rose-800/60 font-sans">
+                                        Tükendi
                                       </span>
                                     )}
-                                    {s.category && (
-                                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800/80 text-cyan-300">
-                                        {s.category}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-[10px] text-slate-400 mt-0.5">
-                                    Birim Maliyet: <strong className="text-slate-300">{formatMoney(s.unit_price, s.currency || 'TRY').formatted}</strong>
                                   </div>
                                 </div>
 
-                                <div className="text-right shrink-0">
-                                  <span className={`text-[11px] font-mono font-bold ${
-                                    (s.quantity || 0) > 0 ? 'text-emerald-400' : 'text-rose-400'
-                                  }`}>
-                                    {s.quantity} {s.unit || 'Adet'}
-                                  </span>
-                                  {isOutOfStock && (
-                                    <div className="text-[9px] text-rose-400/80">Stokta Yok</div>
+                                {/* 2. Satır: SKU, Kategori ve Birim Maliyet */}
+                                <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1 flex-wrap">
+                                  {s.sku && (
+                                    <span className="font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700/80">
+                                      {s.sku}
+                                    </span>
                                   )}
+                                  {s.category && (
+                                    <span className="px-1.5 py-0.2 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800/40">
+                                      {s.category}
+                                    </span>
+                                  )}
+                                  <span className="text-slate-600">•</span>
+                                  <span>
+                                    Birim Maliyet: <strong className="text-slate-300 font-normal">{formatMoney(s.unit_price, s.currency || 'TRY').formatted}</strong>
+                                  </span>
                                 </div>
                               </div>
                             )
@@ -5066,18 +5076,18 @@ export default function StocksPage() {
 
                 {/* Seçili Ürün Kartı */}
                 {sourceStock ? (
-                  <div className="mt-2 p-2.5 px-3 rounded-lg bg-cyan-950/20 border border-cyan-500/30 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2 min-w-0">
+                  <div className="mt-2 p-2 px-3 rounded-lg bg-cyan-950/20 border border-cyan-500/30 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
                       <div className="w-2 h-2 rounded-full bg-cyan-400 shrink-0 animate-pulse" />
-                      <div className="truncate">
-                        <span className="font-bold text-white">{sourceStock.name}</span>
-                        {sourceStock.sku && (
-                          <span className="text-[10px] font-mono text-cyan-300 ml-1.5">[{sourceStock.sku}]</span>
-                        )}
-                      </div>
+                      <span className="font-normal text-slate-100 truncate text-[12px] tracking-tight" title={sourceStock.name}>
+                        {sourceStock.name}
+                      </span>
+                      {sourceStock.sku && (
+                        <span className="text-[10px] font-mono text-cyan-300 shrink-0">[{sourceStock.sku}]</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[11px] font-mono text-emerald-400 font-semibold">
+                      <span className="text-[11px] font-mono text-emerald-400 font-medium">
                         Stok: {sourceStock.quantity} {sourceStock.unit || 'Adet'}
                       </span>
                       <button
