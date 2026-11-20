@@ -47,6 +47,7 @@ type WebCategory = {
 
 type StockTransaction = {
   id: string
+  created_at?: string
   stock_id: string
   company_id?: string | null
   tx_date: string
@@ -57,6 +58,10 @@ type StockTransaction = {
   currency: 'TRY' | 'USD' | 'EUR'
   vat_rate: number
   company?: { name: string; is_personal: boolean }
+  sale_price?: number | null
+  sale_currency?: string | null
+  sale_source?: string | null
+  profit_percent?: number | null
 }
 
 type ExchangeRates = { USD: number; EUR: number }
@@ -687,8 +692,116 @@ export default function StocksPage() {
         .order('created_at', { ascending: false })
       if (error) throw error
 
+      const rawTxs = data || []
+      const hasOutTxs = rawTxs.some(t => t.tx_type === 'out')
+
+      let custInvoices: any[] = []
+      let posTxs: any[] = []
+      let techTickets: any[] = []
+
+      if (hasOutTxs) {
+        // Çıkış hareketlerinin gerçek satış fiyatlarını bulmak için ilgili kaynak modülleri paralel sorgula
+        const [custRes, posRes, techRes] = await Promise.all([
+          supabase
+            .from('customer_transactions')
+            .select('id, description, tx_date, invoice_lines')
+            .eq('is_detailed', true),
+          supabase
+            .from('pos_transactions')
+            .select('id, date, stock_id, quantity, cost, cash, card, description')
+            .eq('stock_id', stockId),
+          supabase
+            .from('technical_service_tickets')
+            .select('id, ticket_no, total_cost, parts_cost, used_parts')
+        ])
+
+        custInvoices = custRes.data || []
+        posTxs = posRes.data || []
+        techTickets = techRes.data || []
+      }
+
+      // Her hareketi satış fiyatı, kâr oranı ve satış kaynağı ile zenginleştir
+      const enriched: StockTransaction[] = rawTxs.map(t => {
+        let salePrice: number | null = null
+        let saleCurrency: 'TRY' | 'USD' | 'EUR' = (t.currency as any) || 'TRY'
+        let saleSource: string | null = null
+
+        if (t.tx_type === 'out') {
+          const desc = t.description || ''
+
+          // 1. Müşteri Satış Faturası Eşleşmesi
+          if (custInvoices.length > 0) {
+            for (const inv of custInvoices) {
+              if (Array.isArray(inv.invoice_lines)) {
+                const line = inv.invoice_lines.find((l: any) => 
+                  l.stockTxId === t.id || 
+                  (l.targetStockId === stockId && inv.tx_date === t.tx_date && Math.abs(parseFloat(l.quantity || '0') - t.quantity) < 0.001)
+                )
+                if (line) {
+                  salePrice = parseFloat(line.unitPrice) || null
+                  saleCurrency = (line.currency || t.currency || 'TRY') as any
+                  saleSource = `Müşteri Faturası (${inv.description || ''})`
+                  break
+                }
+              }
+            }
+          }
+
+          // 2. Mağaza POS Satışı (Z-Raporu) Eşleşmesi
+          if (salePrice === null && (desc.includes('POS-') || desc.includes('Mağaza Satışı') || desc.includes('Z-Raporu'))) {
+            const matchPos = posTxs.find(p => p.date === t.tx_date)
+            if (matchPos) {
+              const rev = Number(matchPos.cash || 0) + Number(matchPos.card || 0)
+              const q = Number(matchPos.quantity || t.quantity || 1)
+              salePrice = q > 0 ? (rev / q) : rev
+              saleCurrency = 'TRY'
+              saleSource = `Mağaza Satışı (POS${matchPos.description ? `: ${matchPos.description}` : ''})`
+            }
+          }
+
+          // 3. Depolar Arası Transfer (Model 3) Eşleşmesi
+          if (salePrice === null && desc.includes('[TRF-')) {
+            const m = desc.match(/(?:B\.Transfer|Transfer B\.Fiyat):\s*([0-9.,]+)\s*([A-Z]+)/)
+            if (m) {
+              salePrice = parseFloat(m[1].replace(',', '.'))
+              saleCurrency = (m[2] || t.currency || 'TRY') as any
+              saleSource = 'Depo Transfer Çıkışı'
+            }
+          }
+
+          // 4. Teknik Servis Parça Çıkışı Eşleşmesi
+          if (salePrice === null && (desc.includes('SRV-') || desc.includes('Servis Parça Çıkışı'))) {
+            const srvMatch = desc.match(/SRV-\d{2}-\d+/)
+            const ticketNo = srvMatch ? srvMatch[0] : null
+            if (ticketNo) {
+              const matchedTicket = techTickets.find(tk => tk.ticket_no === ticketNo)
+              if (matchedTicket && Array.isArray(matchedTicket.used_parts)) {
+                const part = matchedTicket.used_parts.find((p: any) => p.stock_id === stockId)
+                if (part && part.unit_price) {
+                  salePrice = Number(part.unit_price)
+                  saleCurrency = 'TRY'
+                  saleSource = `Teknik Servis (${ticketNo})`
+                }
+              }
+            }
+          }
+        }
+
+        const profitPercent = (salePrice !== null && t.unit_price > 0)
+          ? ((salePrice - t.unit_price) / t.unit_price) * 100
+          : null
+
+        return {
+          ...t,
+          sale_price: salePrice,
+          sale_currency: saleCurrency,
+          sale_source: saleSource,
+          profit_percent: profitPercent
+        }
+      })
+
       // Kronolojik sıralama: Aynı günde açılış stoğu daima tabanda (en eski) yer almalıdır
-      const sorted = [...(data || [])].sort((a, b) => {
+      const sorted = enriched.sort((a, b) => {
         if (a.tx_date !== b.tx_date) {
           return b.tx_date.localeCompare(a.tx_date)
         }
@@ -3303,9 +3416,9 @@ export default function StocksPage() {
                         <th className="p-2.5 font-medium bg-[#0a0f1d]">Açıklama & Merkez</th>
                         <th className="p-2.5 font-medium text-right text-emerald-400 bg-[#0a0f1d]">Giriş</th>
                         <th className="p-2.5 font-medium text-right text-rose-400 bg-[#0a0f1d]">Çıkış</th>
-                        <th className="p-2.5 font-medium text-right bg-[#0a0f1d]">Net B.Fiyat</th>
+                        <th className="p-2.5 font-medium text-right bg-[#0a0f1d]" title="Girişlerde alış maliyeti, satış çıkışlarında satılan birim fiyat ve kâr marjı gösterilir">Birim Fiyat / Satış</th>
                         <th className="p-2.5 font-medium text-right bg-[#0a0f1d]">KDV'li B.Fiyat</th>
-                        <th className="p-2.5 font-medium text-right bg-[#0a0f1d]">Toplam Değer (KDV'li)</th>
+                        <th className="p-2.5 font-medium text-right bg-[#0a0f1d]">Toplam Tutar</th>
                         <th className="p-2.5 font-medium text-center w-12 bg-[#0a0f1d]">İşlem</th>
                       </tr>
                     </thead>
@@ -3321,12 +3434,24 @@ export default function StocksPage() {
                         </tr>
                       ) : transactions.map((t, index) => {
                         const txCurrency = t.currency || 'TRY'
+                        const isOut = t.tx_type === 'out'
+                        const hasSalePrice = isOut && t.sale_price !== null && t.sale_price !== undefined
+
+                        // Maliyet / Baz değerler
                         const kdvliBirim = t.unit_price * (1 + (t.vat_rate || 0) / 100)
                         const toplamKdvli = t.quantity * kdvliBirim
-
                         const tryUnitPrice = getTryEquivalent(t.unit_price, txCurrency)
                         const tryKdvliBirim = getTryEquivalent(kdvliBirim, txCurrency)
                         const tryToplamKdvli = getTryEquivalent(toplamKdvli, txCurrency)
+
+                        // Satış değerleri (Çıkış ve satış fiyatı biliniyorsa)
+                        const saleUnitPrice = hasSalePrice ? t.sale_price! : null
+                        const saleCurrency = t.sale_currency || txCurrency
+                        const saleKdvliBirim = saleUnitPrice !== null ? saleUnitPrice * (1 + (t.vat_rate || 0) / 100) : null
+                        const toplamSaleKdvli = (saleUnitPrice !== null && t.quantity) ? t.quantity * saleKdvliBirim! : null
+                        const trySaleUnitPrice = saleUnitPrice !== null ? getTryEquivalent(saleUnitPrice, saleCurrency) : null
+                        const trySaleKdvliBirim = saleKdvliBirim !== null ? getTryEquivalent(saleKdvliBirim, saleCurrency) : null
+                        const tryToplamSaleKdvli = toplamSaleKdvli !== null ? getTryEquivalent(toplamSaleKdvli, saleCurrency) : null
 
                         return (
                           <tr
@@ -3365,32 +3490,94 @@ export default function StocksPage() {
                                 {t.company ? (t.company.is_personal ? <Home size={10} className="text-slate-400" /> : <Building size={10} className="text-indigo-400" />) : <Globe size={10} className="text-emerald-500/70" />}
                                 {t.company ? t.company.name : 'Ortak İşlem'}
                               </div>
+                              {t.sale_source && (
+                                <div className="text-[9px] text-emerald-400/90 flex items-center gap-1 font-sans mt-0.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+                                  <span className="truncate">{t.sale_source}</span>
+                                </div>
+                              )}
                             </td>
                             <td className="p-2.5 text-right text-emerald-400 align-top">{t.tx_type === 'in' ? t.quantity : '-'}</td>
                             <td className="p-2.5 text-right text-rose-400 align-top">{t.tx_type === 'out' ? t.quantity : '-'}</td>
 
-                            <td className="p-2.5 text-right text-slate-300 leading-tight align-top">
-                              <div>{formatMoney(t.unit_price, txCurrency).formatted}</div>
-                              {txCurrency !== 'TRY' && (
-                                <div className="text-[9px] text-slate-500 mt-0.5">{formatMoney(tryUnitPrice, 'TRY').formatted}</div>
+                            {/* BİRİM FİYAT / SATIŞ SÜTUNU */}
+                            <td className="p-2.5 text-right leading-tight align-top">
+                              {hasSalePrice ? (
+                                <div className="flex flex-col items-end">
+                                  <div className="text-emerald-400 font-bold flex items-center gap-1">
+                                    <span className="text-[8px] font-sans px-1 py-0.2 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 font-medium">Satış</span>
+                                    <span>{formatMoney(saleUnitPrice!, saleCurrency).formatted}</span>
+                                  </div>
+                                  {saleCurrency !== 'TRY' && (
+                                    <div className="text-[9px] text-emerald-500/70 mt-0.5">{formatMoney(trySaleUnitPrice!, 'TRY').formatted}</div>
+                                  )}
+                                  <div className="text-[9px] text-slate-400 mt-1 flex items-center gap-1 font-sans">
+                                    <span>Mlyt: {formatMoney(t.unit_price, txCurrency).formatted}</span>
+                                    {t.profit_percent !== null && t.profit_percent !== undefined && (
+                                      <span className={`font-mono text-[9px] font-semibold ${t.profit_percent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                        ({t.profit_percent >= 0 ? '+' : ''}%{t.profit_percent.toFixed(0)})
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div>
+                                  <div className="text-slate-300">{formatMoney(t.unit_price, txCurrency).formatted}</div>
+                                  {txCurrency !== 'TRY' && (
+                                    <div className="text-[9px] text-slate-500 mt-0.5">{formatMoney(tryUnitPrice, 'TRY').formatted}</div>
+                                  )}
+                                  <span className="text-[8px] text-slate-500 font-sans block mt-0.5">{isOut ? 'Çıkış Maliyeti' : 'Alış Maliyeti'}</span>
+                                </div>
                               )}
                             </td>
 
-                            <td className="p-2.5 text-right text-indigo-300 leading-tight align-top">
-                              {t.vat_rate > 0 ? (
-                                <>
-                                  <div>{formatMoney(kdvliBirim, txCurrency).formatted}</div>
-                                  {txCurrency !== 'TRY' && (
-                                    <div className="text-[9px] text-indigo-500/70 mt-0.5">{formatMoney(tryKdvliBirim, 'TRY').formatted}</div>
+                            {/* KDV'Lİ BİRİM FİYAT SÜTUNU */}
+                            <td className="p-2.5 text-right leading-tight align-top">
+                              {hasSalePrice ? (
+                                <div className="flex flex-col items-end">
+                                  <div className="text-indigo-300 font-medium">
+                                    {formatMoney(saleKdvliBirim!, saleCurrency).formatted}
+                                  </div>
+                                  {saleCurrency !== 'TRY' && (
+                                    <div className="text-[9px] text-indigo-500/70 mt-0.5">{formatMoney(trySaleKdvliBirim!, 'TRY').formatted}</div>
                                   )}
-                                </>
-                              ) : '-'}
+                                  <div className="text-[9px] text-slate-500 mt-1 font-sans">
+                                    Mlyt KDV: {formatMoney(kdvliBirim, txCurrency).formatted}
+                                  </div>
+                                </div>
+                              ) : (
+                                t.vat_rate > 0 ? (
+                                  <>
+                                    <div className="text-indigo-300">{formatMoney(kdvliBirim, txCurrency).formatted}</div>
+                                    {txCurrency !== 'TRY' && (
+                                      <div className="text-[9px] text-indigo-500/70 mt-0.5">{formatMoney(tryKdvliBirim, 'TRY').formatted}</div>
+                                    )}
+                                  </>
+                                ) : '-'
+                              )}
                             </td>
 
-                            <td className="p-2.5 text-right font-bold text-white leading-tight align-top">
-                              <div>{formatMoney(toplamKdvli, txCurrency).formatted}</div>
-                              {txCurrency !== 'TRY' && (
-                                <div className="text-[9px] text-slate-400 font-normal mt-0.5">{formatMoney(tryToplamKdvli, 'TRY').formatted}</div>
+                            {/* TOPLAM TUTAR SÜTUNU */}
+                            <td className="p-2.5 text-right font-bold leading-tight align-top">
+                              {hasSalePrice ? (
+                                <div className="flex flex-col items-end">
+                                  <div className="text-emerald-300 font-bold">
+                                    {formatMoney(toplamSaleKdvli!, saleCurrency).formatted}
+                                  </div>
+                                  {saleCurrency !== 'TRY' && (
+                                    <div className="text-[9px] text-slate-400 font-normal mt-0.5">{formatMoney(tryToplamSaleKdvli!, 'TRY').formatted}</div>
+                                  )}
+                                  <div className="text-[9px] text-slate-400 font-normal mt-1 font-sans">
+                                    Mlyt: {formatMoney(toplamKdvli, txCurrency).formatted}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div>
+                                  <div className="text-white">{formatMoney(toplamKdvli, txCurrency).formatted}</div>
+                                  {txCurrency !== 'TRY' && (
+                                    <div className="text-[9px] text-slate-400 font-normal mt-0.5">{formatMoney(tryToplamKdvli, 'TRY').formatted}</div>
+                                  )}
+                                </div>
                               )}
                             </td>
 

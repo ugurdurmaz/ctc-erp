@@ -519,6 +519,10 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
   - Harici modüllerden yansıyan stok hareketleri (`Alım Faturası`, `Satış Faturası`, `Mağaza POS`, `Teknik Servis`) tabloda renkli modül rozetleri ve kilit simgesi (`🔒`) ile gösterilir.
   - Bu hareketlerin stok ekranından doğrudan düzenlenmesi (fiyat/miktar) cari ve bilet tutarlılığını bozmamak için engellenir; kullanıcı ilgili modüle yönlendirilir.
   - Silme anında: Bağlı kaynak fatura/servis fişi sistemde aktifse silme reddedilir ve kaynak modül adı gösterilir. Ancak kaynak fiş/fatura sistemde bulunamazsa (yetim kayıt), ekran kullanıcıya **"Yetim Stok Hareketini Sil"** onayı sunarak kaydın güvenle temizlenmesine ve stok bakiyesi/son alış maliyetinin onarılmasına izin verir.
+- **Hareket Tablosunda Gerçekleşen Satış Fiyatları ve Kâr Gösterimi:**
+  - Bir ürün seçildiğinde sağ paneldeki hareketler tablosunda çıkış (`tx_type = 'out'`) hareketleri için ilgili kaynak modüllerle (Müşteri Satış Faturası `invoice_lines`, Mağaza POS Z-Raporu `pos_transactions`, Model 3 Depo Transferi ve Teknik Servis fişleri) akıllı çapraz eşleştirme yapılır.
+  - Satış hareketlerinde yalnızca stok çıkış maliyeti değil, müşteriye/mağazaya **gerçekte satıldığı birim satış fiyatı**, **satış cirosu**, **alış maliyeti kıyaslaması** ve **yüzde kâr marjı (+%X)** doğrudan gösterilir.
+  - Açıklama altında satışın gerçekleştiği kaynak fiş/fatura rozeti (`Satış Kaynağı: ...`) açıkça listelenir.
 - **ctcmarket.com E-Ticaret Entegrasyonu & Toplu İşlemler:**
   - `stocks` tablosundaki e-ticaret alanları (`web_visible`, `web_category`, `web_sub_category`, `web_price`, `web_currency`, `web_updated_at`) ERP üzerinden yönetilir.
   - `web_categories` tablosu ERP tarafından salt okunur (read-only) kullanılır; ana kategoriler (`parent_slug IS NULL`) ve alt kategoriler dinamik hiyerarşiyle sunulur.
