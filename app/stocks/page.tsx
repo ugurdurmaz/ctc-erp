@@ -400,6 +400,13 @@ export default function StocksPage() {
   // Reçeteli / Montaj Ürünleri ve Dinamik Maliyet (Model C)
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false)
   const [recipeStock, setRecipeStock] = useState<StockItem | null>(null)
+  const [recipeProductName, setRecipeProductName] = useState<string>('')
+  const [recipeProductWarehouseId, setRecipeProductWarehouseId] = useState<string>('')
+  const [recipeProductCategory, setRecipeProductCategory] = useState<string>('Tabela & Montaj')
+  const [recipeProductSubCategory, setRecipeProductSubCategory] = useState<string>('')
+  const [recipeProductSku, setRecipeProductSku] = useState<string>('')
+  const [recipeProductCurrency, setRecipeProductCurrency] = useState<'TRY' | 'USD' | 'EUR'>('TRY')
+  const [recipeProductUnit, setRecipeProductUnit] = useState<string>('Adet')
   const [recipeIsComposite, setRecipeIsComposite] = useState(true)
   const [recipeComponents, setRecipeComponents] = useState<RecipeComponent[]>([])
   const [recipeAdditionalCost, setRecipeAdditionalCost] = useState<string>('0')
@@ -410,6 +417,7 @@ export default function StocksPage() {
 
   const [isAssemblyModalOpen, setIsAssemblyModalOpen] = useState(false)
   const [assemblyStock, setAssemblyStock] = useState<StockItem | null>(null)
+  const [assemblyCustomName, setAssemblyCustomName] = useState<string>('')
   const [assemblyQuantity, setAssemblyQuantity] = useState<string>('1')
   const [assemblyDate, setAssemblyDate] = useState<string>(getLocalTodayISO())
   const [isSubmittingAssembly, setIsSubmittingAssembly] = useState(false)
@@ -2404,11 +2412,32 @@ export default function StocksPage() {
   // =========================================================================
   // --- REÇETELİ ÜRÜN & MONTAJ İŞLEMLERİ (MODEL C) ---
   // =========================================================================
-  function openRecipeModal(stock: StockItem) {
-    setRecipeStock(stock)
-    setRecipeIsComposite(stock.is_composite ?? true)
-    setRecipeComponents(Array.isArray(stock.recipe_components) ? [...stock.recipe_components] : [])
-    setRecipeAdditionalCost((stock.recipe_additional_cost ?? 0).toString())
+  function openRecipeModal(stock?: StockItem) {
+    if (stock) {
+      setRecipeStock(stock)
+      setRecipeProductName(stock.name)
+      setRecipeProductWarehouseId(stock.warehouse_id)
+      setRecipeProductCategory(stock.category || 'Tabela & Montaj')
+      setRecipeProductSubCategory(stock.sub_category || '')
+      setRecipeProductSku(stock.sku || '')
+      setRecipeProductCurrency((stock.currency as any) || 'TRY')
+      setRecipeProductUnit(stock.unit || 'Adet')
+      setRecipeIsComposite(stock.is_composite ?? true)
+      setRecipeComponents(Array.isArray(stock.recipe_components) ? [...stock.recipe_components] : [])
+      setRecipeAdditionalCost((stock.recipe_additional_cost ?? 0).toString())
+    } else {
+      setRecipeStock(null)
+      setRecipeProductName('')
+      setRecipeProductWarehouseId(selectedWarehouseId || warehouses[0]?.id || '')
+      setRecipeProductCategory('Tabela & Montaj')
+      setRecipeProductSubCategory('')
+      setRecipeProductSku('')
+      setRecipeProductCurrency('TRY')
+      setRecipeProductUnit('Adet')
+      setRecipeIsComposite(true)
+      setRecipeComponents([])
+      setRecipeAdditionalCost('0')
+    }
     setRecipeSearchTerm('')
     setRecipeOpenCategories({})
     setRecipeCollapsedSubCategories({})
@@ -2442,9 +2471,9 @@ export default function StocksPage() {
   }
 
   const recipeCandidateStocks = useMemo(() => {
-    if (!recipeStock) return []
-    // Ürünün kendisini hariç tut, seçili depodaki stokları listele
-    const pool = allStocks.filter(s => s.id !== recipeStock.id && s.warehouse_id === recipeStock.warehouse_id)
+    const targetWhId = recipeStock ? recipeStock.warehouse_id : (recipeProductWarehouseId || selectedWarehouseId)
+    // Ürünün kendisini hariç tut (varsa), seçili depodaki stokları listele
+    const pool = allStocks.filter(s => (!recipeStock || s.id !== recipeStock.id) && s.warehouse_id === targetWhId)
     if (!recipeSearchTerm.trim()) return pool
     const term = recipeSearchTerm.toLocaleLowerCase('tr-TR').trim()
     return pool.filter(s =>
@@ -2453,7 +2482,7 @@ export default function StocksPage() {
       (s.category && s.category.toLocaleLowerCase('tr-TR').includes(term)) ||
       (s.sub_category && s.sub_category.toLocaleLowerCase('tr-TR').includes(term))
     )
-  }, [allStocks, recipeStock, recipeSearchTerm])
+  }, [allStocks, recipeStock, recipeProductWarehouseId, selectedWarehouseId, recipeSearchTerm])
 
   // Reçete Parça Seçiminde Açılır Kategorili Hiyerarşi (Stok Yönetimi ile Birebir Aynı)
   const recipeGroupedHierarchy = useMemo(() => {
@@ -2532,68 +2561,152 @@ export default function StocksPage() {
   }
 
   const currentRecipeCalculation = useMemo(() => {
-    if (!recipeStock) return { totalCost: 0, componentsCost: 0, itemsDetail: [] }
+    const curr = recipeStock ? (recipeStock.currency || 'TRY') : (recipeProductCurrency || 'TRY')
     return calculateCompositeCost(
       recipeComponents,
       parseFloat(recipeAdditionalCost) || 0,
       allStocks,
-      recipeStock.currency || 'TRY',
+      curr,
       rates
     )
-  }, [recipeStock, recipeComponents, recipeAdditionalCost, allStocks, rates])
+  }, [recipeStock, recipeProductCurrency, recipeComponents, recipeAdditionalCost, allStocks, rates])
 
   async function handleSaveRecipe() {
-    if (!recipeStock) return
+    const trimmedName = recipeProductName.trim()
+    if (!trimmedName) {
+      toast.error('Lütfen reçeteden oluşacak ürünün ismini girin.')
+      return
+    }
+    if (recipeComponents.length === 0) {
+      toast.error('Lütfen reçeteye en az bir parça ekleyin.')
+      return
+    }
 
     const addCost = parseFloat(recipeAdditionalCost) || 0
     const calculatedUnitPrice = currentRecipeCalculation.totalCost
+    const effectiveCurr = recipeStock ? (recipeStock.currency || 'TRY') : (recipeProductCurrency || 'TRY')
+    const targetWhId = recipeStock ? recipeStock.warehouse_id : (recipeProductWarehouseId || selectedWarehouseId || warehouses[0]?.id)
 
-    const payload: any = {
-      is_composite: recipeIsComposite,
-      recipe_components: recipeComponents,
-      recipe_additional_cost: addCost,
-      unit_price: calculatedUnitPrice
+    if (!targetWhId) {
+      toast.error('Lütfen geçerli bir depo seçin.')
+      return
     }
 
     try {
-      let { error } = await supabase.from('stocks').update(payload).eq('id', recipeStock.id)
-      if (error) {
-        if (error.code === '42703' || error.message?.includes('is_composite')) {
-          toast.error("Veritabanında reçete kolonları eksik. Lütfen Supabase SQL Editor'da 'supabase/migration_composite_stock_recipes.sql' dosyasını çalıştırın.")
-          return
+      if (recipeStock) {
+        // Mevcut stok kartını güncelle (ismi de güncellenebilir)
+        const payload: any = {
+          name: trimmedName,
+          category: recipeProductCategory.trim() || recipeStock.category || 'Tabela & Montaj',
+          sub_category: recipeProductSubCategory.trim() || recipeStock.sub_category || null,
+          sku: recipeProductSku.trim() || recipeStock.sku || null,
+          unit: recipeProductUnit || recipeStock.unit || 'Adet',
+          is_composite: recipeIsComposite,
+          recipe_components: recipeComponents,
+          recipe_additional_cost: addCost,
+          unit_price: calculatedUnitPrice
         }
-        throw error
-      }
 
-      await logActivity(
-        'stock',
-        'UPDATE',
-        `Reçete güncellendi: ${recipeStock.name} (Bileşen: ${recipeComponents.length} adet, Maliyet: ${formatMoney(calculatedUnitPrice, recipeStock.currency).formatted})`,
-        recipeStock.id,
-        calculatedUnitPrice,
-        recipeStock.currency || 'TRY',
-        { is_composite: recipeStock.is_composite, recipe_components: recipeStock.recipe_components, recipe_additional_cost: recipeStock.recipe_additional_cost },
-        payload,
-        null
-      )
+        let { error } = await supabase.from('stocks').update(payload).eq('id', recipeStock.id)
+        if (error) {
+          if (error.code === '42703' || error.message?.includes('is_composite')) {
+            toast.error("Veritabanında reçete kolonları eksik. Lütfen Supabase SQL Editor'da 'supabase/migration_composite_stock_recipes.sql' dosyasını çalıştırın.")
+            return
+          }
+          throw error
+        }
 
-      toast.success(`Reçete başarıyla kaydedildi! Birim maliyet: ${formatMoney(calculatedUnitPrice, recipeStock.currency).formatted}`)
-      setIsRecipeModalOpen(false)
-      await fetchAllStocks()
-      if (selectedStockId === recipeStock.id) {
-        fetchTransactions(recipeStock.id)
+        await logActivity(
+          'stock',
+          'UPDATE',
+          `Reçete güncellendi: ${trimmedName} (Bileşen: ${recipeComponents.length} adet, Maliyet: ${formatMoney(calculatedUnitPrice, effectiveCurr).formatted})`,
+          recipeStock.id,
+          calculatedUnitPrice,
+          effectiveCurr,
+          { is_composite: recipeStock.is_composite, recipe_components: recipeStock.recipe_components, recipe_additional_cost: recipeStock.recipe_additional_cost },
+          payload,
+          null
+        )
+
+        toast.success(`Reçete başarıyla kaydedildi! Birim maliyet: ${formatMoney(calculatedUnitPrice, effectiveCurr).formatted}`)
+        setIsRecipeModalOpen(false)
+        await fetchAllStocks()
+        if (selectedStockId === recipeStock.id) {
+          fetchTransactions(recipeStock.id)
+        }
+      } else {
+        // Yeni Reçeteli Stok Kartı Oluştur
+        const insertPayload: any = {
+          warehouse_id: targetWhId,
+          name: trimmedName,
+          sku: recipeProductSku.trim() || null,
+          category: recipeProductCategory.trim() || 'Tabela & Montaj',
+          sub_category: recipeProductSubCategory.trim() || null,
+          unit: recipeProductUnit || 'Adet',
+          unit_price: calculatedUnitPrice,
+          currency: effectiveCurr,
+          quantity: 0,
+          min_quantity: 0,
+          critical_quantity: 0,
+          vat_rate: 20,
+          is_composite: recipeIsComposite,
+          recipe_components: recipeComponents,
+          recipe_additional_cost: addCost
+        }
+
+        let { data: newStock, error } = await supabase.from('stocks').insert([insertPayload]).select().single()
+        if (error) {
+          if (error.code === '42703' || error.message?.includes('is_composite')) {
+            toast.error("Veritabanında reçete kolonları eksik. Lütfen Supabase SQL Editor'da 'supabase/migration_composite_stock_recipes.sql' dosyasını çalıştırın.")
+            return
+          }
+          throw error
+        }
+
+        await logActivity(
+          'stock',
+          'INSERT',
+          `Yeni Reçeteli Ürün Oluşturuldu: ${trimmedName} (Bileşen: ${recipeComponents.length} adet, Maliyet: ${formatMoney(calculatedUnitPrice, effectiveCurr).formatted})`,
+          newStock.id,
+          calculatedUnitPrice,
+          effectiveCurr,
+          null,
+          insertPayload,
+          null
+        )
+
+        toast.success(`"${trimmedName}" reçeteli ürünü başarıyla oluşturuldu! Birim maliyet: ${formatMoney(calculatedUnitPrice, effectiveCurr).formatted}`)
+        setIsRecipeModalOpen(false)
+        await fetchAllStocks()
+        if (newStock) {
+          setSelectedStockId(newStock.id)
+          setRightPanelMode('product')
+        }
       }
     } catch (err: any) {
       toast.error('Reçete kaydedilemedi: ' + (err.message || err))
     }
   }
 
-  function openAssemblyModal(stock: StockItem) {
-    if (!stock.recipe_components || stock.recipe_components.length === 0) {
-      toast.error('Bu ürünün tanımlı reçete bileşeni bulunmuyor. Önce reçeteyi düzenleyin.')
-      return
+  function openAssemblyModal(stock?: StockItem) {
+    if (stock) {
+      if (!stock.recipe_components || stock.recipe_components.length === 0) {
+        toast.error('Bu ürünün tanımlı reçete bileşeni bulunmuyor. Önce reçeteyi düzenleyin.')
+        return
+      }
+      setAssemblyStock(stock)
+      setAssemblyCustomName(stock.name)
+    } else {
+      const composites = allStocks.filter(s => s.is_composite && s.recipe_components && s.recipe_components.length > 0)
+      if (composites.length === 0) {
+        toast.error('Henüz tanımlı bir reçeteli ürün bulunmuyor. Önce "Reçete Oluştur" butonu ile bir ürün reçetesi oluşturun.')
+        return
+      }
+      const inCurrentWh = composites.filter(s => s.warehouse_id === selectedWarehouseId)
+      const target = inCurrentWh.length > 0 ? inCurrentWh[0] : composites[0]
+      setAssemblyStock(target)
+      setAssemblyCustomName(target.name)
     }
-    setAssemblyStock(stock)
     setAssemblyQuantity('1')
     setAssemblyDate(getLocalTodayISO())
     setIsAssemblyModalOpen(true)
@@ -2608,10 +2721,17 @@ export default function StocksPage() {
       return
     }
 
+    const finalProductName = assemblyCustomName.trim() || assemblyStock.name
+
     setIsSubmittingAssembly(true)
     const asmId = 'ASM-' + Math.floor(100000 + Math.random() * 900000)
 
     try {
+      // Eğer kullanıcı montaj ekranında ürün ismini değiştirdiyse stok kartını da senkronize güncelle
+      if (finalProductName !== assemblyStock.name) {
+        await supabase.from('stocks').update({ name: finalProductName }).eq('id', assemblyStock.id)
+      }
+
       // 1. Her bir bileşen için çıkış hareketi ekle
       const componentTxPayloads = assemblyStock.recipe_components.map(comp => {
         const partStock = allStocks.find(s => s.id === comp.stock_id)
@@ -2619,7 +2739,7 @@ export default function StocksPage() {
         return {
           stock_id: comp.stock_id,
           tx_date: assemblyDate,
-          description: `[${asmId}] Montaj Çıkışı: ${assemblyStock.name} (${qty} ${assemblyStock.unit || 'Adet'} montajı)`,
+          description: `[${asmId}] Montaj Çıkışı: ${finalProductName} (${qty} ${assemblyStock.unit || 'Adet'} montajı)`,
           tx_type: 'out',
           quantity: reqQty,
           unit_price: partStock?.unit_price || 0,
@@ -2633,7 +2753,7 @@ export default function StocksPage() {
       const finishedTxPayload = {
         stock_id: assemblyStock.id,
         tx_date: assemblyDate,
-        description: `[${asmId}] Montaj Girişi: Reçeteli Üretim (${qty} ${assemblyStock.unit || 'Adet'})`,
+        description: `[${asmId}] Montaj Girişi: ${finalProductName} (${qty} ${assemblyStock.unit || 'Adet'})`,
         tx_type: 'in',
         quantity: qty,
         unit_price: assemblyStock.unit_price || 0,
@@ -2658,16 +2778,16 @@ export default function StocksPage() {
       await logActivity(
         'stock',
         'INSERT',
-        `[${asmId}] Montaj Üretimi Yapıldı: ${qty} ${assemblyStock.unit || 'Adet'} ${assemblyStock.name}`,
+        `[${asmId}] Montaj Üretimi Yapıldı: ${qty} ${assemblyStock.unit || 'Adet'} ${finalProductName}`,
         assemblyStock.id,
         assemblyStock.unit_price,
         assemblyStock.currency || 'TRY',
         null,
-        { asmId, qty, components: componentTxPayloads },
+        { asmId, qty, finalProductName, components: componentTxPayloads },
         null
       )
 
-      toast.success(`[${asmId}] Montaj tamamlandı! ${qty} ${assemblyStock.unit || 'Adet'} stoğa eklendi, parçalar stoktan düşüldü.`)
+      toast.success(`[${asmId}] Montaj tamamlandı! ${qty} ${assemblyStock.unit || 'Adet'} "${finalProductName}" stoğa eklendi, parçalar stoktan düşüldü.`)
       setIsAssemblyModalOpen(false)
       await fetchAllStocks()
       if (selectedStockId === assemblyStock.id) {
@@ -3026,6 +3146,30 @@ export default function StocksPage() {
               <ArrowRightLeft size={13} className="text-cyan-400" />
               <span className="text-[10px] font-semibold">⇄ Transfer Yap</span>
             </button>
+
+            {/* MODEL C: REÇETE OLUŞTUR BUTONU (ANA SAYFADAN DOĞRUDAN ERİŞİM) */}
+            <button
+              type="button"
+              style={{ animation: 'fadeInUp 0.3s both 0.28s' }}
+              onClick={() => openRecipeModal()}
+              className="p-1.5 px-2.5 rounded-lg border border-amber-500/50 text-amber-400 bg-amber-950/20 hover:text-white hover:border-amber-400 hover:bg-amber-900/30 shrink-0 transition-all active:scale-95 flex items-center gap-1.5 text-[11px] font-medium shadow-sm shadow-amber-950/30"
+              title="Yeni Reçeteli Ürün Oluştur / Reçete Yönetimi (Model C)"
+            >
+              <Layers size={13} className="text-amber-400" />
+              <span className="text-[10px] font-semibold">🧩 Reçete Oluştur</span>
+            </button>
+
+            {/* MODEL C: MONTAJ / ÜRETİM YAP BUTONU (ANA SAYFADAN DOĞRUDAN ERİŞİM) */}
+            <button
+              type="button"
+              style={{ animation: 'fadeInUp 0.3s both 0.31s' }}
+              onClick={() => openAssemblyModal()}
+              className="p-1.5 px-2.5 rounded-lg border border-emerald-500/50 text-emerald-400 bg-emerald-950/20 hover:text-white hover:border-emerald-400 hover:bg-emerald-900/30 shrink-0 transition-all active:scale-95 flex items-center gap-1.5 text-[11px] font-medium shadow-sm shadow-emerald-950/30"
+              title="Reçeteli Üründen Montaj / Üretim Yap ve Stoğa Al (Model C)"
+            >
+              <Package size={13} className="text-emerald-400" />
+              <span className="text-[10px] font-semibold">🛠️ Montaj Yap</span>
+            </button>
           </div>
         </div>
 
@@ -3135,7 +3279,33 @@ export default function StocksPage() {
                   Sahiplik: {activeWarehouse?.company ? activeWarehouse.company.name : 'Ortak / Bağımsız Depo'}
                 </div>
               </div>
-              <button onClick={openAddStock} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95"><Plus size={14} /> Ürün Ekle</button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => openRecipeModal()}
+                  className="bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-500/40 px-2 py-1.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition-all active:scale-95 shadow-sm shadow-amber-950/30"
+                  title="Yeni Reçete Oluştur / Reçete Yönetimi"
+                >
+                  <Layers size={12} className="text-amber-400" />
+                  <span>Reçete</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openAssemblyModal()}
+                  className="bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-500/40 px-2 py-1.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition-all active:scale-95 shadow-sm shadow-emerald-950/30"
+                  title="Reçeteden Montaj / Üretim Yap"
+                >
+                  <Package size={12} className="text-emerald-400" />
+                  <span>Montaj</span>
+                </button>
+                <button
+                  onClick={openAddStock}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 shadow-sm shadow-indigo-950/40"
+                >
+                  <Plus size={13} />
+                  <span>Ürün Ekle</span>
+                </button>
+              </div>
             </div>
             <div className="relative">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -6082,7 +6252,7 @@ export default function StocksPage() {
       {/* ========================================================================= */}
       {/* --- REÇETE DÜZENLEME & BİLEŞEN YÖNETİMİ MODALI (MODEL C) --- */}
       {/* ========================================================================= */}
-      {isRecipeModalOpen && recipeStock && (
+      {isRecipeModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" style={{ zIndex: 9999 }}>
           <div className="bg-[#0f172a] border border-amber-500/40 rounded-2xl w-full max-w-2xl p-6 shadow-2xl shadow-amber-950/40 animate-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
             {/* Modal Header */}
@@ -6097,7 +6267,11 @@ export default function StocksPage() {
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-500/40 font-mono font-medium">Model C</span>
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    <strong className="text-amber-300">{recipeStock.name}</strong> için kullanılan parçaları ve ek masrafları belirleyin.
+                    {recipeStock ? (
+                      <>Reçeteli ürünü (<strong className="text-amber-300">{recipeProductName || recipeStock.name}</strong>), parçaları ve ek sarf masraflarını belirleyin.</>
+                    ) : (
+                      <>Yeni bir reçeteli ürün oluşturun, parçaları ve ek sarf masraflarını belirleyin.</>
+                    )}
                   </p>
                 </div>
               </div>
@@ -6112,6 +6286,91 @@ export default function StocksPage() {
 
             {/* Modal Body */}
             <div className="space-y-4 pt-4 overflow-y-auto pr-1 text-xs flex-1 custom-scrollbar">
+              {/* ÜRÜN TANIMLAMA KARTI: İsim, Depo, Para Birimi, Kategori */}
+              <div className="bg-[#070b14] p-3.5 rounded-xl border border-slate-800 space-y-3">
+                {/* 1. Satır: Reçeteden Oluşacak Ürün İsmi */}
+                <div>
+                  <label className="block text-amber-300 font-semibold text-[11px] mb-1 flex items-center justify-between">
+                    <span>Reçeteden Oluşacak Ürün İsmi *</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Montajda üretilecek nihai ürünün adı</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={recipeProductName}
+                    onChange={(e) => setRecipeProductName(e.target.value)}
+                    placeholder="Örn: P1.53 192x64 LED Tabela, Özel Kasa..."
+                    className="w-full bg-[#0a0f1d] border border-amber-500/40 rounded-lg px-3 py-2 text-white text-xs font-semibold focus:outline-none focus:border-amber-400 transition-colors"
+                  />
+                </div>
+
+                {/* 2. Satır: Depo, Para Birimi, Ölçü Birimi */}
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-slate-400 text-[10px] mb-1 font-semibold">Hedef Depo *</label>
+                    <select
+                      value={recipeStock ? recipeStock.warehouse_id : recipeProductWarehouseId}
+                      onChange={(e) => setRecipeProductWarehouseId(e.target.value)}
+                      disabled={!!recipeStock}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500 disabled:opacity-60"
+                    >
+                      {warehouses.map(w => (
+                        <option key={w.id} value={w.id}>{w.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 text-[10px] mb-1 font-semibold">Maliyet Para Birimi *</label>
+                    <select
+                      value={recipeStock ? (recipeStock.currency || 'TRY') : recipeProductCurrency}
+                      onChange={(e) => setRecipeProductCurrency(e.target.value as any)}
+                      disabled={!!recipeStock}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500 disabled:opacity-60 font-mono"
+                    >
+                      <option value="TRY">TRY (₺)</option>
+                      <option value="USD">USD ($)</option>
+                      <option value="EUR">EUR (€)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 text-[10px] mb-1 font-semibold">Ölçü Birimi</label>
+                    <input
+                      type="text"
+                      value={recipeProductUnit}
+                      onChange={(e) => setRecipeProductUnit(e.target.value)}
+                      placeholder="Adet, m², Set..."
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Satır: Kategori & SKU */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-slate-400 text-[10px] mb-1 font-semibold">Kategori</label>
+                    <input
+                      type="text"
+                      value={recipeProductCategory}
+                      onChange={(e) => setRecipeProductCategory(e.target.value)}
+                      placeholder="Örn: Tabela & Montaj"
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[10px] mb-1 font-semibold">SKU / Barkod (İsteğe Bağlı)</label>
+                    <input
+                      type="text"
+                      value={recipeProductSku}
+                      onChange={(e) => setRecipeProductSku(e.target.value)}
+                      placeholder="Örn: TBL-P153-01"
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs font-mono focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Reçeteli Ürün Durum Seçimi */}
               <div className="flex items-center justify-between p-3 rounded-xl bg-[#070b14] border border-slate-800">
                 <div>
@@ -6133,7 +6392,9 @@ export default function StocksPage() {
               <div className="bg-[#070b14] p-3 rounded-xl border border-slate-800 space-y-2">
                 <label className="block text-slate-300 font-semibold text-[11px] flex items-center justify-between">
                   <span>Reçeteye Parça Ekle (Seçili Depodan)</span>
-                  <span className="text-[10px] text-slate-400 font-normal">Depo: {warehouses.find(w => w.id === recipeStock.warehouse_id)?.name}</span>
+                  <span className="text-[10px] text-slate-400 font-normal">
+                    Depo: {warehouses.find(w => w.id === (recipeStock?.warehouse_id || recipeProductWarehouseId || selectedWarehouseId))?.name || 'Seçili Depo'}
+                  </span>
                 </label>
                 <div className="relative">
                   <div className="relative flex items-center">
@@ -6325,7 +6586,9 @@ export default function StocksPage() {
                     <Layers size={13} className="text-amber-400" />
                     Reçetedeki Bileşenler ({recipeComponents.length})
                   </span>
-                  <span className="text-[10px] text-slate-400">1 {recipeStock.unit || 'Adet'} ürün için gereken miktarlar</span>
+                  <span className="text-[10px] text-slate-400">
+                    1 {recipeProductUnit || recipeStock?.unit || 'Adet'} ürün için gereken miktarlar
+                  </span>
                 </div>
 
                 {recipeComponents.length === 0 ? (
@@ -6334,53 +6597,56 @@ export default function StocksPage() {
                   </div>
                 ) : (
                   <div className="border border-slate-800 rounded-lg overflow-hidden divide-y divide-slate-800/80">
-                    {currentRecipeCalculation.itemsDetail.map((item, idx) => (
-                      <div key={idx} className="p-2.5 flex items-center justify-between gap-3 hover:bg-slate-900/30 transition-colors">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-slate-200 text-xs truncate">{item.component.name}</span>
-                            {item.component.sku && (
-                              <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 font-mono">{item.component.sku}</span>
-                            )}
+                    {currentRecipeCalculation.itemsDetail.map((item, idx) => {
+                      const effectiveCurr = recipeStock?.currency || recipeProductCurrency
+                      return (
+                        <div key={idx} className="p-2.5 flex items-center justify-between gap-3 hover:bg-slate-900/30 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-slate-200 text-xs truncate">{item.component.name}</span>
+                              {item.component.sku && (
+                                <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 font-mono">{item.component.sku}</span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                              <span>Güncel Alış: <strong className="text-slate-300">{formatMoney(item.unitCost, effectiveCurr).formatted}</strong></span>
+                              <span className="text-slate-500">•</span>
+                              <span>Mevcut Depo Stoğu: <strong className={item.inStockQty > 0 ? 'text-emerald-400' : 'text-rose-400'}>{item.inStockQty} {item.component.unit || 'ad.'}</strong></span>
+                            </div>
                           </div>
-                          <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
-                            <span>Güncel Alış: <strong className="text-slate-300">{formatMoney(item.unitCost, recipeStock.currency).formatted}</strong></span>
-                            <span className="text-slate-500">•</span>
-                            <span>Mevcut Depo Stoğu: <strong className={item.inStockQty > 0 ? 'text-emerald-400' : 'text-rose-400'}>{item.inStockQty} {item.component.unit || 'ad.'}</strong></span>
+
+                          {/* Miktar Girişi ve Tutar */}
+                          <div className="flex items-center gap-3 shrink-0">
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min="0.001"
+                                step="any"
+                                value={item.component.quantity}
+                                onChange={(e) => updateComponentQuantity(item.component.stock_id, parseFloat(e.target.value) || 0)}
+                                className="w-16 bg-[#0a0f1d] border border-slate-700 rounded px-2 py-1 text-center font-mono text-xs text-white focus:outline-none focus:border-amber-500"
+                              />
+                              <span className="text-[10px] text-slate-400 w-8">{item.component.unit || 'ad.'}</span>
+                            </div>
+
+                            <div className="text-right w-24">
+                              <span className="text-xs font-mono font-bold text-amber-300 block">
+                                {formatMoney(item.totalCost, effectiveCurr).formatted}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => removeComponentFromRecipe(item.component.stock_id)}
+                              className="text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-slate-800 transition-colors"
+                              title="Bileşeni Kaldır"
+                            >
+                              <Trash2 size={13} />
+                            </button>
                           </div>
                         </div>
-
-                        {/* Miktar Girişi ve Tutar */}
-                        <div className="flex items-center gap-3 shrink-0">
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              min="0.001"
-                              step="any"
-                              value={item.component.quantity}
-                              onChange={(e) => updateComponentQuantity(item.component.stock_id, parseFloat(e.target.value) || 0)}
-                              className="w-16 bg-[#0a0f1d] border border-slate-700 rounded px-2 py-1 text-center font-mono text-xs text-white focus:outline-none focus:border-amber-500"
-                            />
-                            <span className="text-[10px] text-slate-400 w-8">{item.component.unit || 'ad.'}</span>
-                          </div>
-
-                          <div className="text-right w-24">
-                            <span className="text-xs font-mono font-bold text-amber-300 block">
-                              {formatMoney(item.totalCost, recipeStock.currency).formatted}
-                            </span>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => removeComponentFromRecipe(item.component.stock_id)}
-                            className="text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-slate-800 transition-colors"
-                            title="Bileşeni Kaldır"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -6389,7 +6655,7 @@ export default function StocksPage() {
               <div className="bg-[#070b14] p-3 rounded-xl border border-slate-800 flex items-center justify-between gap-4">
                 <div className="flex-1">
                   <label className="block text-slate-300 font-semibold text-[11px] mb-0.5">
-                    Stok Dışı İlave Masraflar ({recipeStock.currency || 'TRY'})
+                    Stok Dışı İlave Masraflar ({recipeStock?.currency || recipeProductCurrency || 'TRY'})
                   </label>
                   <p className="text-[10px] text-slate-400">
                     Vida, kablo, lehim teli, işçilik vb. stokta tutulmayan sarf giderleri.
@@ -6407,7 +6673,7 @@ export default function StocksPage() {
                       className="w-full bg-[#0a0f1d] border border-slate-700 rounded-lg px-3 py-1.5 text-right font-mono text-xs text-white focus:outline-none focus:border-amber-500"
                     />
                     <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 pointer-events-none">
-                      {recipeStock.currency === 'USD' ? '$' : recipeStock.currency === 'EUR' ? '€' : '₺'}
+                      {(recipeStock?.currency || recipeProductCurrency) === 'USD' ? '$' : (recipeStock?.currency || recipeProductCurrency) === 'EUR' ? '€' : '₺'}
                     </span>
                   </div>
                 </div>
@@ -6418,14 +6684,14 @@ export default function StocksPage() {
                 <div>
                   <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">Otomatik Hesaplanan Birim Maliyet</span>
                   <div className="text-[11px] text-slate-400 mt-0.5">
-                    Parçalar ({formatMoney(currentRecipeCalculation.componentsCost, recipeStock.currency).formatted}) + Ek Masraf ({formatMoney(parseFloat(recipeAdditionalCost) || 0, recipeStock.currency).formatted})
+                    Parçalar ({formatMoney(currentRecipeCalculation.componentsCost, recipeStock?.currency || recipeProductCurrency).formatted}) + Ek Masraf ({formatMoney(parseFloat(recipeAdditionalCost) || 0, recipeStock?.currency || recipeProductCurrency).formatted})
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="text-lg font-bold text-amber-200 font-mono">
-                    {formatMoney(currentRecipeCalculation.totalCost, recipeStock.currency).formatted}
+                    {formatMoney(currentRecipeCalculation.totalCost, recipeStock?.currency || recipeProductCurrency).formatted}
                   </div>
-                  <span className="text-[9px] text-slate-400">/ 1 {recipeStock.unit || 'Adet'}</span>
+                  <span className="text-[9px] text-slate-400">/ 1 {recipeProductUnit || recipeStock?.unit || 'Adet'}</span>
                 </div>
               </div>
             </div>
@@ -6485,19 +6751,57 @@ export default function StocksPage() {
 
             {/* Modal Form */}
             <form onSubmit={handleExecuteAssembly} className="space-y-4 pt-4 overflow-y-auto pr-1 text-xs flex-1 custom-scrollbar">
-              {/* Ürün & Depo Bilgisi */}
-              <div className="bg-[#070b14] p-3 rounded-xl border border-slate-800 grid grid-cols-2 gap-3">
+              {/* Reçeteli Ürün Şablonu & İsim Özelleştirme Kartı */}
+              <div className="bg-[#070b14] p-3.5 rounded-xl border border-slate-800 space-y-3">
+                {/* Reçeteli Ürün Şablonu Seçici */}
                 <div>
-                  <span className="text-slate-400 text-[10px] block">Üretilecek Ürün:</span>
-                  <strong className="text-white text-xs truncate block">{assemblyStock.name}</strong>
-                  <span className="text-[10px] font-mono text-slate-400">{assemblyStock.sku || 'SKU Yok'}</span>
+                  <label className="block text-slate-400 text-[10px] font-semibold mb-1 uppercase tracking-wide">
+                    Reçeteli Ürün Şablonu
+                  </label>
+                  <select
+                    value={assemblyStock.id}
+                    onChange={(e) => {
+                      const found = allStocks.find(s => s.id === e.target.value)
+                      if (found) {
+                        setAssemblyStock(found)
+                        setAssemblyCustomName(found.name)
+                      }
+                    }}
+                    className="w-full bg-[#0a0f1d] border border-slate-700 rounded-lg px-3 py-2 text-white text-xs font-semibold focus:outline-none focus:border-emerald-500 transition-colors"
+                  >
+                    {allStocks
+                      .filter(s => s.is_composite && s.recipe_components && s.recipe_components.length > 0)
+                      .map(cs => {
+                        const wh = warehouses.find(w => w.id === cs.warehouse_id)
+                        return (
+                          <option key={cs.id} value={cs.id}>
+                            {cs.name} ({wh?.name || 'Depo'}) - Maliyet: {formatMoney(cs.unit_price, cs.currency).formatted}
+                          </option>
+                        )
+                      })}
+                  </select>
                 </div>
-                <div className="text-right">
-                  <span className="text-slate-400 text-[10px] block">İlgili Depo:</span>
-                  <strong className="text-emerald-400 text-xs block">
-                    {warehouses.find(w => w.id === assemblyStock.warehouse_id)?.name}
-                  </strong>
-                  <span className="text-[10px] text-slate-400">Mevcut Stok: {assemblyStock.quantity} {assemblyStock.unit || 'Adet'}</span>
+
+                {/* Üretilecek Ürünün İsmi (Kullanıcı Talebi: Montaj ekranında ürüne yeni bir isim vermek istiyorum) */}
+                <div>
+                  <label className="block text-emerald-300 font-semibold text-[11px] mb-1 flex items-center justify-between">
+                    <span>Üretilen / Stoğa Alınacak Ürün İsmi *</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Bu montaj için özel ürün ismi belirleyebilirsiniz</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={assemblyCustomName}
+                    onChange={(e) => setAssemblyCustomName(e.target.value)}
+                    placeholder="Örn: P1.53 LED Panel GOB - Özel Kasa 192x64"
+                    className="w-full bg-[#0a0f1d] border border-emerald-500/40 rounded-lg px-3 py-2 text-emerald-200 text-xs font-semibold focus:outline-none focus:border-emerald-400 transition-colors"
+                  />
+                </div>
+
+                {/* Depo ve Mevcut Stok Bilgisi */}
+                <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400 border-t border-slate-800/80">
+                  <span>İlgili Depo: <strong className="text-emerald-400">{warehouses.find(w => w.id === assemblyStock.warehouse_id)?.name}</strong></span>
+                  <span>Mevcut Stok: <strong className="text-white font-mono">{assemblyStock.quantity} {assemblyStock.unit || 'Adet'}</strong></span>
                 </div>
               </div>
 
