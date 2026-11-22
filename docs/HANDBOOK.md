@@ -543,6 +543,27 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
     - Her iki depodaki stok kartlarında `recalculateAbsoluteStock` çalıştırılarak mutlak stok ve son maliyet anında güncellenir.
   - **Çift Taraflı Koruma & Silme:** `[TRF-` etiketli bir hareket silinmek istendiğinde, sistem her iki depodaki transfer bacaklarını (`in` ve `out`) birlikte bularak siler ve her iki depodaki stok miktarlarını eski haline döndürür. Doğrudan düzenleme ise tutarlılık amacıyla kilitlenmiştir (`🔒`).
   - **Dashboard P&L Uyumu:** Standart dahili transferler şirketler arası sahte gider/zarar oluşturmaması için operasyonel maliyetten hariç tutulur; kârlı Model 3 transferlerinde ise kaynak merkeze maliyet ve transfer satış hasılatı tahakkuk ettirilerek net kâr tam olarak yansıtılır.
+- **Reçeteli / Montaj Ürünleri & Dinamik Canlı Maliyet (Model C - Hibrit BOM):**
+  - **Bileşen & Reçete Yönetimi (BOM - Bill of Materials):**
+    - Depodaki ürünlerden (LED panel, trafo, kontrol kartı, alüminyum kasa vb.) birleştirilerek üretilen ürünler (LED kayan yazı tabela, bilgisayar kasası, montajlı hazır setler vb.) için dinamik reçete tanımlanır.
+    - Her bileşenin stok kartı referansı (`stock_id`), ürün başına gerekli miktarı (`quantity`) ve birimi tutulur.
+    - Stok dışı masraflar (`recipe_additional_cost`): vida, kablo, lehim teli, silikon, montaj işçiliği gibi depoda adetli tutulmayan genel giderler ek masraf olarak reçeteye eklenir.
+  - **Dinamik Canlı Maliyet Senkronizasyonu (Otomatik Güncelleme):**
+    - Ürün maliyeti: `Σ(Parça Miktarı × Parça Güncel Alış Maliyeti) + Ek Masraflar` formülü ile anlık hesaplanır.
+    - Farklı para birimlerindeki parçalar (örn. Trafo $ cinsinden, montaj kablosu ₺ cinsinden) kurlar üzerinden hedef ürünün para birimine otomatik dönüştürülür.
+    - Tedarikçi firma fiyat listesini güncellediğinde, alım faturası girildiğinde veya stok kartında bir parçanın birim alış maliyeti değiştirildiğinde; bu parçanın kullanıldığı tüm reçeteli ürünlerin maliyeti (`stocks.unit_price`) hiçbir manuel müdahale gerekmeksizin otomatik olarak yeniden hesaplanır ve veritabanında güncellenir.
+  - **Reçete Görüntüleme & Değiştirme:**
+    - Ürün detay panelinde "🧩 Reçete Bileşenleri & Dinamik Canlı Maliyet" kartı her zaman görünür. Tüm parçalar, birim maliyetleri, toplam tutarları ve depodaki anlık stok miktarları canlı olarak listelenir.
+    - Kullanıcı istediği zaman "✏️ Reçeteyi Düzenle" butonuyla reçeteye yeni parça ekleyebilir, parça çıkarabilir, miktar değiştirebilir veya ek masrafı güncelleyebilir.
+  - **Fiziksel Montaj / Üretim (`[ASM-XXXXXX]`):**
+    - "🛠️ Montaj / Üretim Yap" butonu ile seçilen ürün için montaj ekranı açılır.
+    - Depodaki parçaların stok yeterliliği anlık kontrol edilir (yeterli / yetersiz rozetleri).
+    - Montaj tamamlandığında: Kullanılan parçalar depodan otomatik çıkış (`tx_type = 'out'`, `[ASM-XXXXXX] Montaj Çıkışı: ...`), üretilen nihai ürün ise depoya otomatik giriş (`tx_type = 'in'`, `[ASM-XXXXXX] Montaj Girişi: ...`) yapılır.
+    - Tüm stokların mutlak bakiyeleri (`recalculateAbsoluteStock`) atomik olarak senkronize edilir.
+  - **Montaj İptali & Parça İade Koruması:**
+    - `[ASM-XXXXXX]` etiketli bir montaj hareketi silindiğinde sistem montajı algılar; onay sonrasında üretilen ürünü stoktan düşer ve kullanılan tüm parçaları depoya geri iade eder.
+  - **Veritabanı Migrasyonu:**
+    - `supabase/migration_composite_stock_recipes.sql` dosyası ile `stocks` tablosuna geriye dönük uyumlu `is_composite`, `recipe_components`, `recipe_additional_cost` kolonları eklenir.
 
 ### 7.7 Hizmet Yönetimi `/services`
 - Kart ızgarası: ad, sahip merkez, net fiyat, KDV, KDV dahil fiyat. Arama, ekle/düzenle/sil.
