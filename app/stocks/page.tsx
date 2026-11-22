@@ -405,6 +405,8 @@ export default function StocksPage() {
   const [recipeAdditionalCost, setRecipeAdditionalCost] = useState<string>('0')
   const [recipeSearchTerm, setRecipeSearchTerm] = useState<string>('')
   const [isRecipeDropdownOpen, setIsRecipeDropdownOpen] = useState<boolean>(false)
+  const [recipeOpenCategories, setRecipeOpenCategories] = useState<Record<string, boolean>>({})
+  const [recipeCollapsedSubCategories, setRecipeCollapsedSubCategories] = useState<Record<string, boolean>>({})
 
   const [isAssemblyModalOpen, setIsAssemblyModalOpen] = useState(false)
   const [assemblyStock, setAssemblyStock] = useState<StockItem | null>(null)
@@ -2408,6 +2410,8 @@ export default function StocksPage() {
     setRecipeComponents(Array.isArray(stock.recipe_components) ? [...stock.recipe_components] : [])
     setRecipeAdditionalCost((stock.recipe_additional_cost ?? 0).toString())
     setRecipeSearchTerm('')
+    setRecipeOpenCategories({})
+    setRecipeCollapsedSubCategories({})
     setIsRecipeDropdownOpen(false)
     setIsRecipeModalOpen(true)
   }
@@ -2446,9 +2450,86 @@ export default function StocksPage() {
     return pool.filter(s =>
       s.name.toLocaleLowerCase('tr-TR').includes(term) ||
       (s.sku && s.sku.toLocaleLowerCase('tr-TR').includes(term)) ||
-      (s.category && s.category.toLocaleLowerCase('tr-TR').includes(term))
+      (s.category && s.category.toLocaleLowerCase('tr-TR').includes(term)) ||
+      (s.sub_category && s.sub_category.toLocaleLowerCase('tr-TR').includes(term))
     )
   }, [allStocks, recipeStock, recipeSearchTerm])
+
+  // Reçete Parça Seçiminde Açılır Kategorili Hiyerarşi (Stok Yönetimi ile Birebir Aynı)
+  const recipeGroupedHierarchy = useMemo(() => {
+    const catMap = new Map<string, Map<string, StockItem[]>>()
+
+    recipeCandidateStocks.forEach(item => {
+      const cat = (item.category || 'Kategorisiz').trim()
+      const subCat = (item.sub_category || '').trim()
+
+      if (!catMap.has(cat)) catMap.set(cat, new Map())
+      const subMap = catMap.get(cat)!
+      const subKey = subCat || '__NONE__'
+      if (!subMap.has(subKey)) subMap.set(subKey, [])
+      subMap.get(subKey)!.push(item)
+    })
+
+    const result: {
+      name: string
+      totalCount: number
+      totalQuantity: number
+      subGroups: { name: string; items: StockItem[] }[]
+    }[] = []
+
+    catMap.forEach((subMap, catName) => {
+      let catTotalCount = 0
+      let catTotalQty = 0
+      const subGroups: { name: string; items: StockItem[] }[] = []
+
+      subMap.forEach((items, subKey) => {
+        catTotalCount += items.length
+        catTotalQty += items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0)
+        subGroups.push({
+          name: subKey === '__NONE__' ? (subMap.size > 1 ? 'Diğer / Genel' : '') : subKey,
+          items: items.sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'))
+        })
+      })
+
+      subGroups.sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'))
+
+      result.push({
+        name: catName,
+        totalCount: catTotalCount,
+        totalQuantity: catTotalQty,
+        subGroups
+      })
+    })
+
+    return result.sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'))
+  }, [recipeCandidateStocks])
+
+  const toggleRecipeCategory = (catName: string) => {
+    setRecipeOpenCategories(prev => {
+      const currentState = prev[catName] !== undefined ? prev[catName] : true
+      return { ...prev, [catName]: !currentState }
+    })
+  }
+
+  const toggleRecipeSubCategory = (subKey: string) => {
+    setRecipeCollapsedSubCategories(prev => ({
+      ...prev,
+      [subKey]: !prev[subKey]
+    }))
+  }
+
+  const toggleAllRecipeCategories = () => {
+    const isAllOpen = recipeGroupedHierarchy.length > 0 && recipeGroupedHierarchy.every(g => recipeOpenCategories[g.name] !== false)
+    if (isAllOpen) {
+      const closed: Record<string, boolean> = {}
+      recipeGroupedHierarchy.forEach(g => { closed[g.name] = false })
+      setRecipeOpenCategories(closed)
+    } else {
+      const opened: Record<string, boolean> = {}
+      recipeGroupedHierarchy.forEach(g => { opened[g.name] = true })
+      setRecipeOpenCategories(opened)
+    }
+  }
 
   const currentRecipeCalculation = useMemo(() => {
     if (!recipeStock) return { totalCost: 0, componentsCost: 0, itemsDetail: [] }
@@ -6082,46 +6163,154 @@ export default function StocksPage() {
                     )}
                   </div>
 
-                  {/* Dropdown Sonuçları */}
+                  {/* Dropdown Sonuçları - Açılır Kategorili Görünüm */}
                   {isRecipeDropdownOpen && (
                     <>
                       <div className="fixed inset-0 z-30" onClick={() => setIsRecipeDropdownOpen(false)} />
-                      <div className="absolute top-full left-0 right-0 mt-1.5 bg-[#0b1222] border border-amber-500/40 rounded-xl shadow-2xl z-40 max-h-48 overflow-y-auto custom-scrollbar divide-y divide-slate-800/60">
-                        {recipeCandidateStocks.length === 0 ? (
-                          <div className="p-3 text-center text-slate-400 text-xs">Uygun ürün bulunamadı.</div>
+                      <div className="absolute top-full left-0 right-0 mt-1.5 bg-[#0b1222] border border-amber-500/50 rounded-xl shadow-2xl z-40 max-h-72 overflow-y-auto custom-scrollbar flex flex-col divide-y divide-slate-800/60">
+                        {/* Üst Bar: Bilgi & Tümünü Genişlet/Daralt */}
+                        <div className="sticky top-0 z-30 bg-[#080d19] px-3 py-1.5 border-b border-slate-800 flex items-center justify-between text-[10px] shrink-0">
+                          <span className="text-slate-400 font-medium">
+                            Kategorili Depo Stoğu ({recipeCandidateStocks.length} parça)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleAllRecipeCategories()
+                            }}
+                            className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <ChevronsUpDown size={11} />
+                            <span>Tümünü Aç / Kapat</span>
+                          </button>
+                        </div>
+
+                        {recipeGroupedHierarchy.length === 0 ? (
+                          <div className="p-4 text-center text-slate-400 text-xs">Aramaya uygun parça bulunamadı.</div>
                         ) : (
-                          recipeCandidateStocks.map(stock => {
-                            const isAlreadyInRecipe = recipeComponents.some(c => c.stock_id === stock.id)
-                            return (
-                              <div
-                                key={stock.id}
-                                onClick={() => {
-                                  if (!isAlreadyInRecipe) addComponentToRecipe(stock)
-                                }}
-                                className={`p-2 px-3 text-xs flex items-center justify-between transition-colors ${
-                                  isAlreadyInRecipe
-                                    ? 'opacity-40 cursor-not-allowed bg-slate-900/40'
-                                    : 'hover:bg-amber-950/40 text-slate-200 cursor-pointer'
-                                }`}
-                              >
-                                <div className="flex-1 min-w-0 pr-3">
-                                  <div className="font-medium text-slate-200 truncate">{stock.name}</div>
-                                  <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
-                                    {stock.sku && <span className="font-mono bg-slate-800 px-1 rounded">{stock.sku}</span>}
-                                    <span>Birim: {formatMoney(stock.unit_price, stock.currency).formatted}</span>
+                          <div>
+                            {recipeGroupedHierarchy.map(catGroup => {
+                              const isSearchActive = recipeSearchTerm.trim().length > 0
+                              const isCatOpen = isSearchActive ? true : (recipeOpenCategories[catGroup.name] !== false)
+
+                              return (
+                                <div key={catGroup.name} className="border-b border-slate-800/60 last:border-b-0">
+                                  {/* Kategori Başlığı (Akordeon) */}
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      toggleRecipeCategory(catGroup.name)
+                                    }}
+                                    className="sticky top-[29px] z-20 bg-[#0a0f1d]/95 backdrop-blur-md px-3 py-1.5 border-b border-amber-500/20 flex items-center justify-between cursor-pointer hover:bg-amber-950/40 transition-colors select-none group"
+                                  >
+                                    <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                                      <span className="text-amber-400/80 group-hover:text-amber-300 transition-transform">
+                                        {isCatOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                                      </span>
+                                      <Layers size={11} className="text-amber-400 shrink-0" />
+                                      <span className="text-[11px] font-bold text-amber-200 uppercase tracking-wide truncate">
+                                        {catGroup.name}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0 text-[10px] font-mono">
+                                      <span className="px-1.5 py-0.2 rounded bg-amber-950/80 border border-amber-500/30 text-amber-300">
+                                        {catGroup.totalCount} ürün
+                                      </span>
+                                      <span className="px-1.5 py-0.2 rounded bg-slate-800/90 text-emerald-400 font-medium border border-slate-700">
+                                        {catGroup.totalQuantity} ad.
+                                      </span>
+                                    </div>
                                   </div>
-                                </div>
-                                <div className="text-right shrink-0">
-                                  <span className={`text-[11px] font-mono font-medium ${stock.quantity > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                    {stock.quantity} {stock.unit || 'Adet'}
-                                  </span>
-                                  {isAlreadyInRecipe && (
-                                    <span className="block text-[9px] text-amber-400">Ekli</span>
+
+                                  {/* Kategori İçeriği */}
+                                  {isCatOpen && (
+                                    <div className="bg-[#070b14]/50">
+                                      {catGroup.subGroups.map(subGroup => {
+                                        const subKey = `${catGroup.name}__${subGroup.name}`
+                                        const isSubCollapsed = isSearchActive ? false : !!recipeCollapsedSubCategories[subKey]
+                                        const hasSubHeader = !!subGroup.name
+
+                                        return (
+                                          <div key={subKey} className="border-b border-slate-800/40 last:border-b-0">
+                                            {/* Alt Kategori Başlığı (Tanımlıysa) */}
+                                            {hasSubHeader && (
+                                              <div
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  toggleRecipeSubCategory(subKey)
+                                                }}
+                                                className="bg-[#090f1d] px-3 py-1 border-b border-slate-800/30 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition-colors select-none group/sub"
+                                              >
+                                                <div className="flex items-center gap-1.5 pl-3 min-w-0 pr-2">
+                                                  <span className="text-slate-500 group-hover/sub:text-teal-400 transition-transform">
+                                                    {isSubCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+                                                  </span>
+                                                  <Tag size={10} className="text-teal-400/80 shrink-0" />
+                                                  <span className="text-[10px] font-semibold text-teal-300 truncate">
+                                                    {subGroup.name}
+                                                  </span>
+                                                </div>
+                                                <span className="text-[9px] text-slate-400 font-mono pr-1">
+                                                  {subGroup.items.length} ürün
+                                                </span>
+                                              </div>
+                                            )}
+
+                                            {/* Ürün Satırları */}
+                                            {!isSubCollapsed && (
+                                              <div className="divide-y divide-slate-800/40">
+                                                {subGroup.items.map(stock => {
+                                                  const isAlreadyInRecipe = recipeComponents.some(c => c.stock_id === stock.id)
+                                                  return (
+                                                    <div
+                                                      key={stock.id}
+                                                      onClick={() => {
+                                                        if (!isAlreadyInRecipe) addComponentToRecipe(stock)
+                                                      }}
+                                                      className={`p-2 ${hasSubHeader ? 'pl-7' : 'pl-4'} pr-3 text-xs flex items-center justify-between transition-colors ${
+                                                        isAlreadyInRecipe
+                                                          ? 'opacity-40 cursor-not-allowed bg-slate-900/40'
+                                                          : 'hover:bg-amber-950/40 text-slate-200 cursor-pointer'
+                                                      } ${stock.quantity <= 0 ? 'opacity-60 bg-rose-950/5' : ''}`}
+                                                    >
+                                                      <div className="flex-1 min-w-0 pr-3">
+                                                        <div className="flex items-center gap-1.5">
+                                                          <span className={`font-normal truncate ${stock.quantity <= 0 ? 'text-slate-400 line-through decoration-slate-600' : 'text-slate-100'}`}>
+                                                            {stock.name}
+                                                          </span>
+                                                          {stock.sku && (
+                                                            <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 font-mono shrink-0">
+                                                              {stock.sku}
+                                                            </span>
+                                                          )}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                                                          <span>Birim Alış: <strong className="text-slate-300 font-mono">{formatMoney(stock.unit_price, stock.currency).formatted}</strong></span>
+                                                        </div>
+                                                      </div>
+                                                      <div className="text-right shrink-0">
+                                                        <span className={`text-[11px] font-mono font-medium ${stock.quantity > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                          {stock.quantity} {stock.unit || 'Adet'}
+                                                        </span>
+                                                        {isAlreadyInRecipe && (
+                                                          <span className="block text-[9px] text-amber-400 font-medium">✓ Ekli</span>
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  )
+                                                })}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
                                   )}
                                 </div>
-                              </div>
-                            )
-                          })
+                              )
+                            })}
+                          </div>
                         )}
                       </div>
                     </>
