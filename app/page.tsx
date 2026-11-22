@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { useCompany } from '@/lib/company-context'
 import { formatMoney } from '@/lib/utils'
 import { LayoutDashboard, CreditCard, Landmark, Wallet, ArrowUpRight, ArrowDownLeft, Package, TrendingUp, TrendingDown, ChevronDown, ChevronUp, Building, Home as HomeIcon, Filter, BarChart4, ArrowUpRightFromSquare, ArrowDownRightFromSquare, Sparkles, Activity, FileText, Scale, Users, User, Building2, Search, X, Lock, Wrench, Calendar, Clock, AlertTriangle, CheckCircle2, Zap, BadgePercent, ArrowRightLeft } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
@@ -73,7 +74,27 @@ function formatDateTR(dateStr: string) {
 
 export default function Home() {
   const { profile, isAdmin } = useAuth()
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('all')
+  const {
+    selectedCompanyId: globalCompanyId,
+    setSelectedCompanyId: setGlobalCompanyId,
+    matchesCompany,
+    selectedCompanyIds
+  } = useCompany()
+
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>(
+    globalCompanyId && globalCompanyId !== 'multiple' ? globalCompanyId : 'all'
+  )
+
+  // Üst bardaki küresel merkez seçimi (TopBar) değiştiğinde Genel Durum sayfasını senkronize et
+  useEffect(() => {
+    if (globalCompanyId && globalCompanyId !== 'multiple') {
+      setSelectedCompanyId(globalCompanyId)
+    } else if (globalCompanyId === 'all') {
+      setSelectedCompanyId('all')
+    } else if (globalCompanyId === 'multiple') {
+      setSelectedCompanyId('multiple')
+    }
+  }, [globalCompanyId])
 
   // Şirket kısıtlaması olan personel için otomatik şirket kilidi
   useEffect(() => {
@@ -512,6 +533,9 @@ export default function Home() {
       return compId === effectiveCompanyId;
     }
 
+    if (effectiveCompanyId === 'multiple') {
+      return matchesCompany(compId, true);
+    }
     if (effectiveCompanyId === 'all') return true;
     if (effectiveCompanyId === 'common') return compId === null;
     return compId === effectiveCompanyId;
@@ -2046,12 +2070,25 @@ export default function Home() {
                 </span>
               </span>
             ) : (
-              <select value={selectedCompanyId} onChange={(e) => setSelectedCompanyId(e.target.value)} className="bg-transparent text-white text-xs font-bold focus:outline-none cursor-pointer pr-2">
+              <select
+                value={selectedCompanyId}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setSelectedCompanyId(val)
+                  setGlobalCompanyId(val)
+                }}
+                className="bg-transparent text-white text-xs font-bold focus:outline-none cursor-pointer pr-2"
+              >
                 {isAdmin && (
                   <>
                     <option value="all" className="bg-[#0f172a] text-white">🌍 Holding (Tüm Sistem Özeti)</option>
                     <option value="common" className="bg-[#0f172a] text-white">🌐 Ortak / Bağımsız Varlıklar</option>
                   </>
+                )}
+                {selectedCompanyIds && selectedCompanyIds.length > 1 && (
+                  <option value="multiple" className="bg-[#0f172a] text-cyan-300 font-bold">
+                    ✨ Çoklu Merkez ({selectedCompanyIds.length} Merkez Seçili)
+                  </option>
                 )}
                 {visibleCompanies.filter(c => !c.is_personal).length > 0 && (
                   <optgroup label="Ticari Şirketler" className="bg-[#070b14] text-slate-400 font-bold">
