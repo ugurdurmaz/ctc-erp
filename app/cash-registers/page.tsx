@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useCompany } from '@/lib/company-context'
 import { formatMoney, sortBankAccounts } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { Wallet, Plus, Trash2, X, Edit3, Search, ArrowRightLeft, Landmark, Building, Home, Globe, AlertTriangle, RefreshCw } from 'lucide-react'
@@ -17,6 +18,7 @@ function formatDateTR(dateStr: string) { if (!dateStr) return ''; const parts = 
 import { logActivity } from '@/lib/audit'
 
 export default function CashRegistersPage() {
+  const { matchesCompany, selectedCompanyId } = useCompany()
   const [companies, setCompanies] = useState<Company[]>([])
   const [cashes, setCashes] = useState<CashRegister[]>([])
   const [banks, setBanks] = useState<BankAccount[]>([])
@@ -80,7 +82,9 @@ export default function CashRegistersPage() {
   }
 
   function openAddModal() { 
-    setEditingId(null); setCashName(''); setCurrency('TRY'); setCashCompanyId('common'); setOpeningBalance(''); setIsModalOpen(true) 
+    setEditingId(null); setCashName(''); setCurrency('TRY'); 
+    const defaultComp = (selectedCompanyId !== 'all' && selectedCompanyId !== 'multiple') ? selectedCompanyId : 'common';
+    setCashCompanyId(defaultComp); setOpeningBalance(''); setIsModalOpen(true) 
   }
   
   async function openEditModal(cash: CashRegister, e: React.MouseEvent) { 
@@ -429,17 +433,33 @@ export default function CashRegistersPage() {
     fetchTransactions(selectedCashId!); fetchCashes(); fetchBanks()
   }
 
-  const filteredCashes = cashes.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  const companyMatchedCashes = useMemo(() => {
+    return cashes.filter(c => matchesCompany(c.company_id))
+  }, [cashes, matchesCompany])
+
+  const filteredCashes = companyMatchedCashes.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()))
   const selectedCash = cashes.find(c => c.id === selectedCashId)
+
+  useEffect(() => {
+    if (selectedCashId && !companyMatchedCashes.some(c => c.id === selectedCashId)) {
+      if (companyMatchedCashes.length > 0) {
+        setSelectedCashId(companyMatchedCashes[0].id)
+      } else {
+        setSelectedCashId(null)
+      }
+    } else if (!selectedCashId && companyMatchedCashes.length > 0) {
+      setSelectedCashId(companyMatchedCashes[0].id)
+    }
+  }, [companyMatchedCashes, selectedCashId])
 
   let currentRunningBalance = selectedCash ? selectedCash.balance : 0
   const displayTransactions = transactions.map((t) => {
     const rowBalance = currentRunningBalance; if (t.tx_type === 'in') currentRunningBalance -= t.amount; else currentRunningBalance += t.amount; return { ...t, running_balance: rowBalance }
   })
 
-  const totalTry = cashes.filter(c => c.currency === 'TRY').reduce((acc, c) => acc + c.balance, 0)
-  const totalUsd = cashes.filter(c => c.currency === 'USD').reduce((acc, c) => acc + c.balance, 0)
-  const totalEur = cashes.filter(c => c.currency === 'EUR').reduce((acc, c) => acc + c.balance, 0)
+  const totalTry = companyMatchedCashes.filter(c => c.currency === 'TRY').reduce((acc, c) => acc + c.balance, 0)
+  const totalUsd = companyMatchedCashes.filter(c => c.currency === 'USD').reduce((acc, c) => acc + c.balance, 0)
+  const totalEur = companyMatchedCashes.filter(c => c.currency === 'EUR').reduce((acc, c) => acc + c.balance, 0)
 
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] relative">

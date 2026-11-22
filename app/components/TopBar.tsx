@@ -5,8 +5,9 @@ import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { useCompany } from '@/lib/company-context'
 import { ROLE_LABELS } from '@/types/auth'
-import { Bell, Search, User, TrendingUp, DollarSign, Euro, AlertCircle, Clock, CheckCircle2, X, LogOut, Users, Shield, ChevronDown, BookOpen } from 'lucide-react'
+import { Bell, Search, User, TrendingUp, DollarSign, Euro, AlertCircle, Clock, CheckCircle2, X, LogOut, Users, Shield, ChevronDown, BookOpen, Building2, Building, Home, Check } from 'lucide-react'
 import ContextualHelpDrawer from './ContextualHelpDrawer'
 import PersonalStickyNotesPopover from './PersonalStickyNotesPopover'
 
@@ -57,6 +58,20 @@ export default function TopBar() {
   // Profil Menüsü State'leri
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
+
+  // Global Merkez / Şirket Seçici State'leri
+  const {
+    companies,
+    selectedCompanyIds,
+    selectedCompanyId,
+    setSelectedCompanyId,
+    toggleCompanyId,
+    selectOnlyCompany,
+    clearFilter,
+    activeCompany
+  } = useCompany()
+  const [isCompanyMenuOpen, setIsCompanyMenuOpen] = useState(false)
+  const companyMenuRef = useRef<HTMLDivElement>(null)
 
   // Canlı kur çekme işlemi
   useEffect(() => {
@@ -150,6 +165,9 @@ export default function TopBar() {
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
         setIsProfileOpen(false)
       }
+      if (companyMenuRef.current && !companyMenuRef.current.contains(event.target as Node)) {
+        setIsCompanyMenuOpen(false)
+      }
     }
     document.addEventListener("mousedown", handleClickOutside)
     return () => document.removeEventListener("mousedown", handleClickOutside)
@@ -176,9 +194,181 @@ export default function TopBar() {
         </h2>
       </div>
 
-      {/* SAĞ: CANLI DÖVİZ, BİLDİRİM VE PROFİL */}
-      <div className="flex items-center gap-6">
+      {/* SAĞ: MERKEZ SEÇİCİ, CANLI DÖVİZ, BİLDİRİM VE PROFİL */}
+      <div className="flex items-center gap-3 sm:gap-4">
         
+        {/* MERKEZ / ŞİRKET SEÇİCİ (GLOBAL ÇALIŞMA ALANI FİLTRESİ) */}
+        <div className="relative" ref={companyMenuRef}>
+          <button
+            type="button"
+            onClick={() => setIsCompanyMenuOpen(!isCompanyMenuOpen)}
+            className={`flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 rounded-xl border text-xs transition-all cursor-pointer ${
+              selectedCompanyIds.length > 0
+                ? 'bg-indigo-950/60 border-indigo-500/60 text-indigo-200 shadow-sm shadow-indigo-950/50 hover:bg-indigo-900/60 hover:border-indigo-400'
+                : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800/80 hover:text-white hover:border-slate-700'
+            }`}
+            title="Aktif Merkez / Şirket Seçici (Modüller arası kalıcı filtre)"
+          >
+            <Building2 size={13} className={selectedCompanyIds.length > 0 ? 'text-indigo-400 shrink-0' : 'text-slate-400 shrink-0'} />
+            
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="font-semibold truncate max-w-[120px] sm:max-w-[170px]">
+                {selectedCompanyIds.length === 0
+                  ? 'Tüm Merkezler'
+                  : selectedCompanyIds.length === 1
+                  ? (activeCompany?.name || 'Seçili Merkez')
+                  : `${selectedCompanyIds.length} Merkez Seçili`}
+              </span>
+              
+              {selectedCompanyIds.length > 0 && (
+                <span className="hidden sm:inline-block text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/25 text-indigo-300 border border-indigo-500/40 font-bold shrink-0">
+                  Aktif
+                </span>
+              )}
+            </div>
+
+            {selectedCompanyIds.length > 0 ? (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  clearFilter()
+                }}
+                className="text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 p-0.5 rounded transition-colors ml-0.5"
+                title="Filtreyi Temizle (Tüm Merkezler)"
+              >
+                <X size={12} />
+              </span>
+            ) : (
+              <ChevronDown size={13} className={`text-slate-400 transition-transform ${isCompanyMenuOpen ? 'rotate-180' : ''}`} />
+            )}
+          </button>
+
+          {/* AÇILIR MERKEZ SEÇİM MENÜSÜ */}
+          {isCompanyMenuOpen && (
+            <div className="absolute top-11 left-0 sm:left-auto sm:right-0 w-72 bg-[#0f172a] border border-slate-700/90 rounded-2xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-150 flex flex-col">
+              {/* Başlık ve Bilgi */}
+              <div className="bg-slate-900/90 px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <Building2 size={13} className="text-indigo-400" />
+                    Çalışma Alanı (Merkez)
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Seçili merkezin hesap, müşteri, depo ve kartları listelenir.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCompanyMenuOpen(false)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+
+              {/* Menü Seçenekleri */}
+              <div className="p-2 space-y-1 max-h-72 overflow-y-auto custom-scrollbar">
+                {/* 1. Tüm Merkezler (Konsolide) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearFilter()
+                    setIsCompanyMenuOpen(false)
+                  }}
+                  className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-colors cursor-pointer ${
+                    selectedCompanyIds.length === 0
+                      ? 'bg-indigo-600/20 border border-indigo-500/40 text-indigo-200 font-bold'
+                      : 'hover:bg-slate-800/60 text-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="p-1 rounded-lg bg-slate-800 text-slate-300">🌍</span>
+                    <span>Tüm Merkezler (Konsolide)</span>
+                  </div>
+                  {selectedCompanyIds.length === 0 && <Check size={14} className="text-indigo-400" />}
+                </button>
+
+                <div className="my-1 border-t border-slate-800/80 px-2 pt-1 pb-0.5">
+                  <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 block">
+                    Şirketler & Masraf Merkezleri
+                  </span>
+                </div>
+
+                {/* Şirket / Merkez Listesi */}
+                {companies.map(comp => {
+                  const isSelected = selectedCompanyIds.includes(comp.id)
+                  return (
+                    <div
+                      key={comp.id}
+                      className={`flex items-center justify-between p-2 rounded-xl text-xs transition-colors group ${
+                        isSelected
+                          ? 'bg-indigo-950/60 border border-indigo-500/40 text-white'
+                          : 'hover:bg-slate-800/50 text-slate-300'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          selectOnlyCompany(comp.id)
+                          setIsCompanyMenuOpen(false)
+                        }}
+                        className="flex items-center gap-2 flex-1 text-left min-w-0 cursor-pointer"
+                        title="Yalnızca bu merkezi çalışma alanı olarak seç"
+                      >
+                        <div className={`p-1 rounded-lg shrink-0 ${comp.is_personal ? 'bg-slate-800 text-slate-400' : 'bg-indigo-950/80 text-indigo-400'}`}>
+                          {comp.is_personal ? <Home size={12} /> : <Building size={12} />}
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-semibold truncate">{comp.name}</span>
+                          <span className="text-[9px] text-slate-400">
+                            {comp.is_personal ? 'Kişisel / Masraf' : 'Ticari Şirket'}
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Çoklu Seçim / Filtre Toggle Kutusu */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleCompanyId(comp.id)
+                        }}
+                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer shrink-0 ml-2 ${
+                          isSelected
+                            ? 'bg-indigo-600 border-indigo-500 text-white'
+                            : 'bg-slate-800 border-slate-700 text-transparent hover:text-slate-400'
+                        }`}
+                        title={isSelected ? 'Seçimi kaldır' : 'Seçime ekle (Çoklu merkez)'}
+                      >
+                        <Check size={11} className={isSelected ? 'text-white' : 'opacity-0 hover:opacity-100'} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Footer Bilgi */}
+              <div className="bg-[#080d19] px-3 py-2 border-t border-slate-800 text-[10px] text-slate-400 flex items-center justify-between">
+                <span>Modüller arası kalıcı filtre</span>
+                {selectedCompanyIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearFilter()
+                      setIsCompanyMenuOpen(false)
+                    }}
+                    className="text-rose-400 hover:text-rose-300 font-semibold cursor-pointer"
+                  >
+                    Filtreyi Sıfırla
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* CANLI KURLAR */}
         <div className="hidden md:flex items-center gap-4 bg-slate-900/60 border border-slate-800 px-3 py-1.5 rounded-xl text-xs">
           <div className="flex items-center gap-1.5">

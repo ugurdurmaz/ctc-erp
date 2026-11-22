@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useCompany } from '@/lib/company-context'
 import { formatMoney, CARD_COLORS, parseAccountColor, formatAccountColor, sortCreditCards } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { CreditCard, Plus, Trash2, X, Edit3, Building, Home, Globe, AlertTriangle, RefreshCw, GripVertical, ChevronLeft, ChevronRight, Search, Calendar as CalendarIcon } from 'lucide-react'
@@ -52,6 +53,7 @@ import { useAuth } from '@/lib/auth-context'
 
 export default function CreditCardsPage() {
   const { profile, isAdmin } = useAuth()
+  const { matchesCompany, selectedCompanyId } = useCompany()
   const isRestricted = !isAdmin && !!profile?.allowed_companies && profile.allowed_companies.length > 0
 
   const [companies, setCompanies] = useState<Company[]>([])
@@ -259,10 +261,28 @@ export default function CreditCardsPage() {
     await supabase.from('bank_accounts').update({ balance: absoluteBal }).eq('id', bankId)
   }
 
+  const companyMatchedCards = useMemo(() => {
+    return cards.filter(c => matchesCompany(c.company_id))
+  }, [cards, matchesCompany])
+
+  useEffect(() => {
+    if (selectedCardId && !companyMatchedCards.some(c => c.id === selectedCardId)) {
+      if (companyMatchedCards.length > 0) {
+        setSelectedCardId(companyMatchedCards[0].id)
+      } else {
+        setSelectedCardId(null)
+      }
+    } else if (!selectedCardId && companyMatchedCards.length > 0) {
+      setSelectedCardId(companyMatchedCards[0].id)
+    }
+  }, [companyMatchedCards, selectedCardId])
+
   function openAddModal() {
     setEditingCardId(null)
     setCardName(''); setCardLimit(''); setCutoffDay('15'); setOpeningDebt(''); setCardColor(CARD_COLORS[0].value)
-    const defaultComp = isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common'
+    const defaultComp = isRestricted && profile?.allowed_companies?.[0] 
+      ? profile.allowed_companies[0] 
+      : ((selectedCompanyId !== 'all' && selectedCompanyId !== 'multiple') ? selectedCompanyId : 'common')
     setCardCompanyId(defaultComp)
     setIsCardModalOpen(true)
   }
@@ -652,17 +672,17 @@ export default function CreditCardsPage() {
       </div>
 
       <div className="flex flex-wrap gap-4">
-        {cards.length === 0 && !loading && (
+        {companyMatchedCards.length === 0 && !loading && (
            <div className="w-full flex flex-col items-center justify-center p-12 border border-dashed border-slate-700/50 rounded-2xl bg-[#0d1322]/50 text-slate-500 animate-in fade-in">
              <CreditCard size={48} className="mb-4 opacity-20 animate-bounce" />
              <p className="text-sm font-bold text-slate-400">
-               {isRestricted ? 'Tanımlı şirketinize ait kredi kartı bulunmuyor' : 'Henüz hiç kredi kartı eklenmemiş'}
+               {isRestricted ? 'Tanımlı şirketinize ait kredi kartı bulunmuyor' : 'Seçili merkeze ait kredi kartı bulunmuyor'}
              </p>
              <p className="text-[11px] mt-1">Sağ üstteki butondan yeni bir kredi kartı oluşturabilirsiniz.</p>
            </div>
         )}
 
-        {cards.map((card, idx) => {
+        {companyMatchedCards.map((card, idx) => {
           const isSelected = card.id === selectedCardId
           const availableLimit = card.card_limit - card.current_debt
           const debtMoney = formatMoney(card.current_debt)

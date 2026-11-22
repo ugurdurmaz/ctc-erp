@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { formatMoney, formatPhoneNumber, convertTxToEntityCurrency } from '@/lib/utils'
 import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
 import { useAuth } from '@/lib/auth-context'
+import { useCompany } from '@/lib/company-context'
 import toast, { Toaster } from 'react-hot-toast'
 import { Users, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, MessageSquare, Copy, Download, ExternalLink, Check, ChevronDown } from 'lucide-react'
 
@@ -65,9 +66,19 @@ import { logActivity } from '@/lib/audit'
 
 export default function CustomersPage() {
   const { profile, isAdmin, hasCompanyAccess } = useAuth()
+  const { selectedCompanyId, matchesCompany } = useCompany()
   const isRestricted = !isAdmin && profile?.allowed_companies && profile.allowed_companies.length > 0
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all')
   const [custCompanyId, setCustCompanyId] = useState<string>('common')
+
+  // Üst bardaki küresel merkez seçimi değiştiğinde müşteri filtresini senkronize et
+  useEffect(() => {
+    if (selectedCompanyId && selectedCompanyId !== 'multiple') {
+      setSelectedCompanyFilter(selectedCompanyId)
+    } else if (selectedCompanyId === 'all') {
+      setSelectedCompanyFilter('all')
+    }
+  }, [selectedCompanyId])
 
   const [companies, setCompanies] = useState<Company[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -448,7 +459,9 @@ export default function CustomersPage() {
     setTaxId('')
     setAddress('')
     setOpeningBalance('')
-    const defaultComp = isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common'
+    const defaultComp = (selectedCompanyId && selectedCompanyId !== 'all' && selectedCompanyId !== 'multiple')
+      ? selectedCompanyId
+      : (isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common')
     setCustCompanyId(defaultComp)
     setOpeningCompanyId(defaultComp)
     setOpeningCurrency('TRY')

@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { logActivity } from '@/lib/audit'
 import { useAuth } from '@/lib/auth-context'
+import { useCompany } from '@/lib/company-context'
 
 export type CategoryType = 'fixed' | 'variable'
 
@@ -199,7 +200,17 @@ export default function ExpensesPage() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [expenses, setExpenses] = useState<ExpenseTransaction[]>([])
   const [searchTerm, setSearchTerm] = useState('')
+  const { selectedCompanyId, matchesCompany } = useCompany()
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all')
+
+  // Üst bardaki küresel merkez seçimi değiştiğinde gider filtresini senkronize et
+  useEffect(() => {
+    if (selectedCompanyId && selectedCompanyId !== 'multiple') {
+      setSelectedCompanyFilter(selectedCompanyId)
+    } else if (selectedCompanyId === 'all') {
+      setSelectedCompanyFilter('all')
+    }
+  }, [selectedCompanyId])
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all')
   const [datePeriodFilter, setDatePeriodFilter] = useState<ExpenseDateFilter>('all')
   const [customStartDate, setCustomStartDate] = useState<string>('')

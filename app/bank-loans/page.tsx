@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { useCompany } from '@/lib/company-context'
 import { formatMoney } from '@/lib/utils'
 import { logActivity } from '@/lib/audit'
 import toast, { Toaster } from 'react-hot-toast'
@@ -140,7 +141,17 @@ export default function BankLoansPage() {
   const [isTableMissing, setIsTableMissing] = useState(false)
 
   // Şirket Filtresi
+  const { selectedCompanyId, matchesCompany } = useCompany()
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<'all' | 'common' | string>('all')
+
+  // Üst bardaki küresel merkez seçimi değiştiğinde kredi filtresini senkronize et
+  useEffect(() => {
+    if (selectedCompanyId && selectedCompanyId !== 'multiple') {
+      setSelectedCompanyFilter(selectedCompanyId)
+    } else if (selectedCompanyId === 'all') {
+      setSelectedCompanyFilter('all')
+    }
+  }, [selectedCompanyId])
 
   // Kredi Ekle / Düzenle Modal State
   const [isLoanModalOpen, setIsLoanModalOpen] = useState(false)
@@ -373,7 +384,10 @@ export default function BankLoansPage() {
     setFormReferenceNo('')
     setFormBankName('')
     setFormBankAccountId('')
-    setFormCompanyId(isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common')
+    const defaultComp = (selectedCompanyId && selectedCompanyId !== 'all' && selectedCompanyId !== 'multiple')
+      ? selectedCompanyId
+      : (isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common')
+    setFormCompanyId(defaultComp)
     setFormLoanType('commercial')
     setFormTaxType('commercial_bsmv')
     setFormPrincipal('')

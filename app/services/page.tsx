@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { logActivity } from '@/lib/audit'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
+import { useCompany } from '@/lib/company-context'
 import { Briefcase, Plus, Trash2, X, Edit3, Search, Building, Home, Globe, AlertTriangle } from 'lucide-react'
 
 type Company = { id: string; name: string; is_personal: boolean }
@@ -13,6 +14,7 @@ type ServiceItem = { id: string; name: string; unit_price: number; vat_rate: num
 
 
 export default function ServicesPage() {
+  const { matchesCompany, selectedCompanyId } = useCompany()
   const [companies, setCompanies] = useState<Company[]>([])
   const [services, setServices] = useState<ServiceItem[]>([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -35,7 +37,16 @@ export default function ServicesPage() {
   async function fetchCompanies() { const { data } = await supabase.from('companies').select('*').order('name', { ascending: true }); setCompanies(data || []) }
   async function fetchServices() { const { data } = await supabase.from('services').select('*, company:companies(name, is_personal)').order('name', { ascending: true }); setServices(data || []) }
 
-  function openAddModal() { setEditingId(null); setName(''); setUnitPrice(''); setVatRate('20'); setCurrency('TRY'); setCompanyId('common'); setIsModalOpen(true) }
+  function openAddModal() {
+    setEditingId(null)
+    setName('')
+    setUnitPrice('')
+    setVatRate('20')
+    setCurrency('TRY')
+    const initComp = (selectedCompanyId && selectedCompanyId !== 'all' && selectedCompanyId !== 'multiple') ? selectedCompanyId : 'common'
+    setCompanyId(initComp)
+    setIsModalOpen(true)
+  }
   
   function openEditModal(srv: ServiceItem) {
     setEditingId(srv.id); setName(srv.name); setUnitPrice(srv.unit_price.toString()); setVatRate(srv.vat_rate?.toString() || '0'); setCurrency(srv.currency as any); setCompanyId(srv.company_id || 'common'); setIsModalOpen(true)
@@ -92,7 +103,7 @@ export default function ServicesPage() {
     })
   }
 
-  const filteredServices = services.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  const filteredServices = services.filter(s => matchesCompany(s.company_id) && s.name.toLowerCase().includes(searchTerm.toLowerCase()))
 
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] relative">

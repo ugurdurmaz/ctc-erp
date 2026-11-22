@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useCompany } from '@/lib/company-context'
 import { formatMoney, CARD_COLORS, parseAccountColor, formatAccountColor, sortBankAccounts, sortCreditCards } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { Landmark, Plus, Trash2, X, Edit3, Search, Hash, ArrowRightLeft, Wallet, Building, Home, Globe, AlertTriangle, RefreshCw, CheckCircle, Percent, Calendar as CalendarIcon, Clock, TrendingUp, TrendingDown, Calculator, Sparkles, CreditCard, FileSpreadsheet, FileDown, Palette, GripVertical, ChevronUp, ChevronDown } from 'lucide-react'
@@ -19,6 +20,7 @@ function formatDateTR(dateStr: string) { if (!dateStr) return ''; const parts = 
 import { logActivity } from '@/lib/audit'
 
 export default function BankAccountsPage() {
+  const { matchesCompany, selectedCompanyId } = useCompany()
   const [companies, setCompanies] = useState<Company[]>([])
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [cashes, setCashes] = useState<CashRegister[]>([])
@@ -261,7 +263,8 @@ export default function BankAccountsPage() {
 
   function openAddModal() { 
     setEditingId(null); setBankName(''); setAccountName(''); setIban('TR'); setCurrency('TRY'); 
-    setBankCompanyId('common'); setOpeningBalance(''); setOldOpeningSigned(0); setKmhLimit(''); setAvailableKmhInput(''); setOpeningDate(todayISO); setIsInvestment(false); setIsModalOpen(true) 
+    const defaultComp = (selectedCompanyId !== 'all' && selectedCompanyId !== 'multiple') ? selectedCompanyId : 'common';
+    setBankCompanyId(defaultComp); setOpeningBalance(''); setOldOpeningSigned(0); setKmhLimit(''); setAvailableKmhInput(''); setOpeningDate(todayISO); setIsInvestment(false); setIsModalOpen(true) 
   }
 
   async function openEditModal(bank: BankAccount, e: React.MouseEvent) { 
@@ -1097,8 +1100,24 @@ export default function BankAccountsPage() {
     }
   }
 
-  const filteredBanks = banks.filter(b => b.bank_name.toLowerCase().includes(searchTerm.toLowerCase()) || b.account_name.toLowerCase().includes(searchTerm.toLowerCase()))
+  const companyMatchedBanks = useMemo(() => {
+    return banks.filter(b => matchesCompany(b.company_id))
+  }, [banks, matchesCompany])
+
+  const filteredBanks = companyMatchedBanks.filter(b => b.bank_name.toLowerCase().includes(searchTerm.toLowerCase()) || b.account_name.toLowerCase().includes(searchTerm.toLowerCase()))
   const selectedBank = banks.find(b => b.id === selectedBankId)
+
+  useEffect(() => {
+    if (selectedBankId && !companyMatchedBanks.some(b => b.id === selectedBankId)) {
+      if (companyMatchedBanks.length > 0) {
+        setSelectedBankId(companyMatchedBanks[0].id)
+      } else {
+        setSelectedBankId(null)
+      }
+    } else if (!selectedBankId && companyMatchedBanks.length > 0) {
+      setSelectedBankId(companyMatchedBanks[0].id)
+    }
+  }, [companyMatchedBanks, selectedBankId])
 
   let currentRunningBalance = selectedBank ? selectedBank.balance : 0
   const allTransactionsWithBalance = transactions.map((t) => {
@@ -1137,10 +1156,10 @@ export default function BankAccountsPage() {
     return true;
   })
 
-  const totalTry = banks.filter(b => b.currency === 'TRY').reduce((acc, b) => acc + b.balance, 0)
-  const totalUsd = banks.filter(b => b.currency === 'USD').reduce((acc, b) => acc + b.balance, 0)
-  const totalEur = banks.filter(b => b.currency === 'EUR').reduce((acc, b) => acc + b.balance, 0)
-  const totalAvailKmhTry = banks
+  const totalTry = companyMatchedBanks.filter(b => b.currency === 'TRY').reduce((acc, b) => acc + b.balance, 0)
+  const totalUsd = companyMatchedBanks.filter(b => b.currency === 'USD').reduce((acc, b) => acc + b.balance, 0)
+  const totalEur = companyMatchedBanks.filter(b => b.currency === 'EUR').reduce((acc, b) => acc + b.balance, 0)
+  const totalAvailKmhTry = companyMatchedBanks
     .filter(b => b.currency === 'TRY' && Number(b.kmh_limit || 0) > 0)
     .reduce((acc, b) => {
       const lim = Number(b.kmh_limit || 0)

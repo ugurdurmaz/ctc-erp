@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useCompany } from '@/lib/company-context'
 import { formatMoney } from '@/lib/utils'
 import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
 import toast, { Toaster } from 'react-hot-toast'
@@ -344,9 +345,22 @@ export function calculateCompositeCost(
 
 export default function StocksPage() {
   const { profile, isAdmin } = useAuth()
+  const { matchesCompany, selectedCompanyId } = useCompany()
   const [companies, setCompanies] = useState<Company[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null)
+
+  const companyMatchedWarehouses = useMemo(() => {
+    return warehouses.filter(w => matchesCompany(w.company_id))
+  }, [warehouses, matchesCompany])
+
+  useEffect(() => {
+    if (companyMatchedWarehouses.length > 0) {
+      if (!selectedWarehouseId || !companyMatchedWarehouses.some(w => w.id === selectedWarehouseId)) {
+        setSelectedWarehouseId(companyMatchedWarehouses[0].id)
+      }
+    }
+  }, [companyMatchedWarehouses, selectedWarehouseId])
 
   const [categories, setCategories] = useState<StockCategory[]>([])
   const [subCategories, setSubCategories] = useState<{ id: string; category: string; name: string }[]>([])
@@ -2145,7 +2159,14 @@ export default function StocksPage() {
     })
   }
 
-  function openAddWh() { setEditingWhId(null); setWhName(''); setWhColor(WAREHOUSE_THEMES[0].value); setWhCompanyId('common'); setIsWarehouseModalOpen(true) }
+  function openAddWh() { 
+    setEditingWhId(null); 
+    setWhName(''); 
+    setWhColor(WAREHOUSE_THEMES[0].value); 
+    const defaultComp = (selectedCompanyId !== 'all' && selectedCompanyId !== 'multiple') ? selectedCompanyId : 'common';
+    setWhCompanyId(defaultComp); 
+    setIsWarehouseModalOpen(true);
+  }
 
   function openEditWh(wh: Warehouse, e: React.MouseEvent) {
     e.stopPropagation()
@@ -3069,7 +3090,9 @@ export default function StocksPage() {
           </div>
 
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar flex-1">
-            {warehouses.map((wh, index) => {
+            {companyMatchedWarehouses.length === 0 ? (
+              <span className="text-[11px] text-slate-500 italic py-1 px-1">Bu merkeze tanımlı depo bulunmuyor</span>
+            ) : companyMatchedWarehouses.map((wh, index) => {
               const totals = getWarehouseTotals(wh.id)
               const isSelected = selectedWarehouseId === wh.id
               const theme = getWarehouseTheme(wh.color)
@@ -6543,17 +6566,25 @@ export default function StocksPage() {
                                                     >
                                                       <div className="flex-1 min-w-0 pr-3">
                                                         <div className="flex items-center gap-1.5">
-                                                          <span className={`font-normal truncate ${stock.quantity <= 0 ? 'text-slate-400 line-through decoration-slate-600' : 'text-slate-100'}`}>
+                                                          <span className={`font-normal text-[12px] leading-tight truncate ${stock.quantity <= 0 ? 'text-slate-400 line-through decoration-slate-600' : 'text-slate-100'}`} title={stock.name}>
                                                             {stock.name}
                                                           </span>
                                                           {stock.sku && (
-                                                            <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 font-mono shrink-0">
+                                                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700/80 font-mono shrink-0">
                                                               {stock.sku}
                                                             </span>
                                                           )}
                                                         </div>
-                                                        <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
-                                                          <span>Birim Alış: <strong className="text-slate-300 font-mono">{formatMoney(stock.unit_price, stock.currency).formatted}</strong></span>
+                                                        <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-1 flex-wrap">
+                                                          {stock.category && (
+                                                            <span className="px-1.5 py-0.2 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40">
+                                                              {stock.category}
+                                                            </span>
+                                                          )}
+                                                          <span className="text-slate-600">•</span>
+                                                          <span>
+                                                            Birim Maliyet: <strong className="text-slate-300 font-normal">{formatMoney(stock.unit_price, stock.currency || 'TRY').formatted}</strong>
+                                                          </span>
                                                         </div>
                                                       </div>
                                                       <div className="text-right shrink-0">

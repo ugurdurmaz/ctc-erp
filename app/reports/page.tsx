@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, Fragment } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatMoney } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
+import { useCompany } from '@/lib/company-context'
 import toast, { Toaster } from 'react-hot-toast'
 import {
   Printer, Calendar, Filter, Wallet, Landmark, CreditCard, Activity,
@@ -59,7 +60,17 @@ export default function AdvancedReportsPage() {
 
   const [activeTab, setActiveTab] = useState<'mizan' | 'retail_profit'>('retail_profit')
   const [companies, setCompanies] = useState<Company[]>([])
+  const { selectedCompanyId } = useCompany()
   const [selectedCompany, setSelectedCompany] = useState<string>('all')
+
+  // Üst bardaki küresel merkez seçimi değiştiğinde rapor şirketini senkronize et
+  useEffect(() => {
+    if (selectedCompanyId && selectedCompanyId !== 'multiple') {
+      setSelectedCompany(selectedCompanyId)
+    } else if (selectedCompanyId === 'all') {
+      setSelectedCompany('all')
+    }
+  }, [selectedCompanyId])
   const [dateFilter, setDateFilter] = useState<DateFilterType>('thisMonth')
   const [includeChartInPrint, setIncludeChartInPrint] = useState<boolean>(false)
 

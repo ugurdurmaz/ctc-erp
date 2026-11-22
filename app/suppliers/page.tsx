@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { useCompany } from '@/lib/company-context'
 import { formatMoney, formatPhoneNumber, convertTxToEntityCurrency } from '@/lib/utils'
 import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
 import toast, { Toaster } from 'react-hot-toast'
@@ -53,8 +54,18 @@ import { logActivity } from '@/lib/audit'
 
 export default function SuppliersPage() {
   const { profile, isAdmin, hasCompanyAccess } = useAuth()
+  const { selectedCompanyId, matchesCompany } = useCompany()
   const isRestricted = !isAdmin && profile?.allowed_companies && profile.allowed_companies.length > 0
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all')
+
+  // Üst bardaki küresel merkez seçimi değiştiğinde tedarikçi filtresini senkronize et
+  useEffect(() => {
+    if (selectedCompanyId && selectedCompanyId !== 'multiple') {
+      setSelectedCompanyFilter(selectedCompanyId)
+    } else if (selectedCompanyId === 'all') {
+      setSelectedCompanyFilter('all')
+    }
+  }, [selectedCompanyId])
 
   const [companies, setCompanies] = useState<Company[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -390,7 +401,9 @@ export default function SuppliersPage() {
     setTaxId('')
     setAddress('')
     setOpeningBalance('')
-    const defaultComp = isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common'
+    const defaultComp = (selectedCompanyId && selectedCompanyId !== 'all' && selectedCompanyId !== 'multiple')
+      ? selectedCompanyId
+      : (isRestricted && profile?.allowed_companies?.[0] ? profile.allowed_companies[0] : 'common')
     setSuppCompanyId(defaultComp)
     setOpeningCompanyId(defaultComp)
     setOpeningCurrency('TRY')
