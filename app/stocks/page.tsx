@@ -2697,15 +2697,21 @@ export default function StocksPage() {
       setAssemblyStock(stock)
       setAssemblyCustomName(stock.name)
     } else {
-      const composites = allStocks.filter(s => s.is_composite && s.recipe_components && s.recipe_components.length > 0)
-      if (composites.length === 0) {
-        toast.error('Henüz tanımlı bir reçeteli ürün bulunmuyor. Önce "Reçete Oluştur" butonu ile bir ürün reçetesi oluşturun.')
+      const targetWhId = selectedWarehouseId || (warehouses.length > 0 ? warehouses[0].id : null)
+      if (!targetWhId) {
+        toast.error('Lütfen önce bir depo seçin.')
         return
       }
-      const inCurrentWh = composites.filter(s => s.warehouse_id === selectedWarehouseId)
-      const target = inCurrentWh.length > 0 ? inCurrentWh[0] : composites[0]
-      setAssemblyStock(target)
-      setAssemblyCustomName(target.name)
+      const targetWh = warehouses.find(w => w.id === targetWhId)
+      const inCurrentWh = allStocks.filter(
+        s => s.is_composite && s.recipe_components && s.recipe_components.length > 0 && s.warehouse_id === targetWhId
+      )
+      if (inCurrentWh.length === 0) {
+        toast.error(`"${targetWh?.name || 'Seçili Depo'}" deposunda henüz tanımlı bir reçeteli ürün bulunmuyor. Önce "Reçete Oluştur" butonu ile bu depoya ait bir reçete tanımlayın.`)
+        return
+      }
+      setAssemblyStock(inCurrentWh[0])
+      setAssemblyCustomName(inCurrentWh[0].name)
     }
     setAssemblyQuantity('1')
     setAssemblyDate(getLocalTodayISO())
@@ -6770,15 +6776,12 @@ export default function StocksPage() {
                     className="w-full bg-[#0a0f1d] border border-slate-700 rounded-lg px-3 py-2 text-white text-xs font-semibold focus:outline-none focus:border-emerald-500 transition-colors"
                   >
                     {allStocks
-                      .filter(s => s.is_composite && s.recipe_components && s.recipe_components.length > 0)
-                      .map(cs => {
-                        const wh = warehouses.find(w => w.id === cs.warehouse_id)
-                        return (
-                          <option key={cs.id} value={cs.id}>
-                            {cs.name} ({wh?.name || 'Depo'}) - Maliyet: {formatMoney(cs.unit_price, cs.currency).formatted}
-                          </option>
-                        )
-                      })}
+                      .filter(s => s.is_composite && s.recipe_components && s.recipe_components.length > 0 && s.warehouse_id === assemblyStock.warehouse_id)
+                      .map(cs => (
+                        <option key={cs.id} value={cs.id}>
+                          {cs.name} - Maliyet: {formatMoney(cs.unit_price, cs.currency).formatted}
+                        </option>
+                      ))}
                   </select>
                 </div>
 
