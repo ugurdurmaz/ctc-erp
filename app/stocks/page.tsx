@@ -2667,8 +2667,6 @@ export default function StocksPage() {
           unit_price: calculatedUnitPrice,
           currency: effectiveCurr,
           quantity: 0,
-          min_quantity: 0,
-          critical_quantity: 0,
           vat_rate: 20,
           is_composite: recipeIsComposite,
           recipe_components: recipeComponents,
