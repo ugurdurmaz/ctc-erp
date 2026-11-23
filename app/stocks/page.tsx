@@ -2670,7 +2670,13 @@ export default function StocksPage() {
           vat_rate: 20,
           is_composite: recipeIsComposite,
           recipe_components: recipeComponents,
-          recipe_additional_cost: addCost
+          recipe_additional_cost: addCost,
+          web_visible: false,
+          web_category: null,
+          web_sub_category: null,
+          web_price: null,
+          web_currency: effectiveCurr,
+          web_updated_at: new Date().toISOString()
         }
 
         let { data: newStock, error } = await supabase.from('stocks').insert([insertPayload]).select().single()
