@@ -421,6 +421,7 @@ export default function StocksPage() {
   const [recipeProductSku, setRecipeProductSku] = useState<string>('')
   const [recipeProductCurrency, setRecipeProductCurrency] = useState<'TRY' | 'USD' | 'EUR'>('TRY')
   const [recipeProductUnit, setRecipeProductUnit] = useState<string>('Adet')
+  const [recipeProductVatRate, setRecipeProductVatRate] = useState<string>('20')
   const [recipeIsComposite, setRecipeIsComposite] = useState(true)
   const [recipeComponents, setRecipeComponents] = useState<RecipeComponent[]>([])
   const [recipeAdditionalCost, setRecipeAdditionalCost] = useState<string>('0')
@@ -2443,6 +2444,7 @@ export default function StocksPage() {
       setRecipeProductSku(stock.sku || '')
       setRecipeProductCurrency((stock.currency as any) || 'TRY')
       setRecipeProductUnit(stock.unit || 'Adet')
+      setRecipeProductVatRate((stock.vat_rate ?? 20).toString())
       setRecipeIsComposite(stock.is_composite ?? true)
       setRecipeComponents(Array.isArray(stock.recipe_components) ? [...stock.recipe_components] : [])
       setRecipeAdditionalCost((stock.recipe_additional_cost ?? 0).toString())
@@ -2455,6 +2457,7 @@ export default function StocksPage() {
       setRecipeProductSku('')
       setRecipeProductCurrency('TRY')
       setRecipeProductUnit('Adet')
+      setRecipeProductVatRate('20')
       setRecipeIsComposite(true)
       setRecipeComponents([])
       setRecipeAdditionalCost('0')
@@ -2622,6 +2625,7 @@ export default function StocksPage() {
           sub_category: recipeProductSubCategory.trim() || recipeStock.sub_category || null,
           sku: recipeProductSku.trim() || recipeStock.sku || null,
           unit: recipeProductUnit || recipeStock.unit || 'Adet',
+          vat_rate: parseFloat(recipeProductVatRate) || 0,
           is_composite: recipeIsComposite,
           recipe_components: recipeComponents,
           recipe_additional_cost: addCost,
@@ -2667,7 +2671,7 @@ export default function StocksPage() {
           unit_price: calculatedUnitPrice,
           currency: effectiveCurr,
           quantity: 0,
-          vat_rate: 20,
+          vat_rate: parseFloat(recipeProductVatRate) || 0,
           is_composite: recipeIsComposite,
           recipe_components: recipeComponents,
           recipe_additional_cost: addCost,
@@ -6379,8 +6383,8 @@ export default function StocksPage() {
                   </div>
                 </div>
 
-                {/* 3. Satır: Kategori & SKU */}
-                <div className="grid grid-cols-2 gap-2.5">
+                {/* 3. Satır: Kategori, SKU & Satış KDV Oranı */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
                   <div>
                     <label className="block text-slate-400 text-[10px] mb-1 font-semibold">Kategori</label>
                     <input
@@ -6400,6 +6404,22 @@ export default function StocksPage() {
                       placeholder="Örn: TBL-P153-01"
                       className="w-full bg-[#0a0f1d] border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs font-mono focus:outline-none focus:border-amber-500"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[10px] mb-1 font-semibold flex items-center justify-between">
+                      <span>Satış KDV Oranı</span>
+                      <span className="text-[9px] text-amber-400 font-normal">Fatura / Çıkış</span>
+                    </label>
+                    <select
+                      value={recipeProductVatRate}
+                      onChange={(e) => setRecipeProductVatRate(e.target.value)}
+                      className="w-full bg-[#0a0f1d] border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs font-semibold focus:outline-none focus:border-amber-500 font-mono"
+                    >
+                      <option value="20">%20 (Standart KDV)</option>
+                      <option value="10">%10 (İndirimli KDV)</option>
+                      <option value="1">%1 (Özel KDV)</option>
+                      <option value="0">%0 (KDV'siz / İstisna)</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -6640,6 +6660,7 @@ export default function StocksPage() {
                   <div className="border border-slate-800 rounded-lg overflow-hidden divide-y divide-slate-800/80">
                     {currentRecipeCalculation.itemsDetail.map((item, idx) => {
                       const effectiveCurr = recipeStock?.currency || recipeProductCurrency
+                      const partStock = allStocks.find(s => s.id === item.component.stock_id)
                       return (
                         <div key={idx} className="p-2.5 flex items-center justify-between gap-3 hover:bg-slate-900/30 transition-colors">
                           <div className="flex-1 min-w-0">
@@ -6649,9 +6670,17 @@ export default function StocksPage() {
                                 <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 font-mono">{item.component.sku}</span>
                               )}
                             </div>
-                            <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                            <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5 flex-wrap">
                               <span>Güncel Alış: <strong className="text-slate-300">{formatMoney(item.unitCost, effectiveCurr).formatted}</strong></span>
-                              <span className="text-slate-500">•</span>
+                              {partStock && (
+                                <>
+                                  <span className="text-slate-600">•</span>
+                                  <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono ${partStock.vat_rate && partStock.vat_rate > 0 ? 'bg-cyan-950/60 text-cyan-300 border border-cyan-800/40' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
+                                    {partStock.vat_rate && partStock.vat_rate > 0 ? `%${partStock.vat_rate} KDV'li Alış` : "KDV'siz Alış (%0)"}
+                                  </span>
+                                </>
+                              )}
+                              <span className="text-slate-600">•</span>
                               <span>Mevcut Depo Stoğu: <strong className={item.inStockQty > 0 ? 'text-emerald-400' : 'text-rose-400'}>{item.inStockQty} {item.component.unit || 'ad.'}</strong></span>
                             </div>
                           </div>
@@ -6721,14 +6750,25 @@ export default function StocksPage() {
               </div>
 
               {/* Dinamik Canlı Maliyet Kartı */}
-              <div className="bg-gradient-to-r from-amber-950/40 via-amber-900/20 to-slate-900 border border-amber-500/40 p-3.5 rounded-xl flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">Otomatik Hesaplanan Birim Maliyet</span>
+              <div className="bg-gradient-to-r from-amber-950/40 via-amber-900/20 to-slate-900 border border-amber-500/40 p-3.5 rounded-xl flex items-center justify-between gap-3">
+                <div className="flex-1">
+                  <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
+                    Otomatik Hesaplanan Net Birim Maliyet (KDV Hariç SMM)
+                  </span>
                   <div className="text-[11px] text-slate-400 mt-0.5">
                     Parçalar ({formatMoney(currentRecipeCalculation.componentsCost, recipeStock?.currency || recipeProductCurrency).formatted}) + Ek Masraf ({formatMoney(parseFloat(recipeAdditionalCost) || 0, recipeStock?.currency || recipeProductCurrency).formatted})
                   </div>
+                  <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1.5">
+                    <span className="text-emerald-400 font-semibold">💡 Satış Kurgusu:</span>
+                    <span>
+                      {parseFloat(recipeProductVatRate) > 0 
+                        ? `Parçalar KDV'li veya KDV'siz alınsa da net üretim maliyeti ${formatMoney(currentRecipeCalculation.totalCost, recipeStock?.currency || recipeProductCurrency).formatted}'dir. Müşteriye satılırken + %${recipeProductVatRate} KDV faturaya otomatik eklenir.`
+                        : `Bu ürün KDV'siz (%0) satış olarak tanımlıdır. İsterseniz faturada KDV oranını her zaman değiştirebilirsiniz.`
+                      }
+                    </span>
+                  </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   <div className="text-lg font-bold text-amber-200 font-mono">
                     {formatMoney(currentRecipeCalculation.totalCost, recipeStock?.currency || recipeProductCurrency).formatted}
                   </div>
