@@ -2717,6 +2717,41 @@ export default function StocksPage() {
     }
   }
 
+  async function handleRemoveRecipe(stock: StockItem) {
+    if (!confirm(`"${stock.name}" ürününün reçetesi kaldırılacak ve tekil stok kartına dönüştürülecektir. Onaylıyor musunuz?`)) return
+    try {
+      const { data: lastInTx } = await supabase
+        .from('stock_transactions')
+        .select('unit_price')
+        .eq('stock_id', stock.id)
+        .eq('tx_type', 'in')
+        .order('tx_date', { ascending: false })
+        .limit(1)
+
+      const restoredPrice = lastInTx && lastInTx.length > 0 ? lastInTx[0].unit_price : stock.unit_price
+
+      const payload = {
+        is_composite: false,
+        recipe_components: [],
+        recipe_additional_cost: 0,
+        unit_price: restoredPrice
+      }
+
+      const { error } = await supabase.from('stocks').update(payload).eq('id', stock.id)
+      if (error) throw error
+
+      await logActivity('stock', 'UPDATE', `Reçete kaldırıldı, tekil ürüne dönüştürüldü: ${stock.name}`, stock.id, restoredPrice, stock.currency || 'TRY', stock, payload, null)
+
+      toast.success(`"${stock.name}" reçetesi kaldırıldı ve tekil ürün haline getirildi.`)
+      await fetchAllStocks()
+      if (selectedStockId === stock.id) {
+        fetchTransactions(stock.id)
+      }
+    } catch (err: any) {
+      toast.error('Reçete kaldırılamadı: ' + err.message)
+    }
+  }
+
   function openAssemblyModal(stock?: StockItem) {
     if (stock) {
       if (!stock.recipe_components || stock.recipe_components.length === 0) {
@@ -4116,6 +4151,14 @@ export default function StocksPage() {
                         </button>
                         <button
                           type="button"
+                          onClick={() => handleRemoveRecipe(selectedStock)}
+                          className="px-2 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white border border-rose-800/40 text-[10px] font-semibold flex items-center gap-1 transition-all"
+                          title="Bu ürünün reçetesini kaldırıp tekil stok kartına çevirir"
+                        >
+                          <Trash2 size={11} /> Reçeteyi Kaldır
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => openAssemblyModal(selectedStock)}
                           className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold flex items-center gap-1 transition-all shadow-sm shadow-emerald-900/40"
                         >
@@ -4197,13 +4240,16 @@ export default function StocksPage() {
                       <Layers size={13} className="text-slate-500" />
                       <span className="text-[11px] text-slate-400">Bu ürün tekil bir stok kartıdır.</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => openRecipeModal(selectedStock)}
-                      className="text-[10px] text-amber-400 hover:text-amber-300 bg-amber-950/30 hover:bg-amber-950/50 border border-amber-600/30 px-2 py-1 rounded font-semibold transition flex items-center gap-1"
-                    >
-                      <Plus size={11} /> Reçeteli Ürüne Dönüştür (Tabela / Montaj)
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openRecipeModal()}
+                        className="text-[10px] text-amber-400 hover:text-amber-300 bg-amber-950/30 hover:bg-amber-950/50 border border-amber-600/30 px-2 py-1 rounded font-semibold transition flex items-center gap-1"
+                        title="Bu depodan parçaları birleştirerek sıfırdan yeni bir reçeteli ürün oluşturur"
+                      >
+                        <Plus size={11} /> Yeni Reçeteli Ürün Oluştur
+                      </button>
+                    </div>
                   </div>
                 )}
                 <form onSubmit={handleAddTransaction} style={{ animation: 'fadeInUp 0.4s both 0.3s' }} className={`grid grid-cols-1 md:grid-cols-11 gap-2 mb-4 p-3 rounded-lg border shrink-0 transition-colors ${isQuickActionActive ? 'bg-indigo-900/10 border-indigo-500/40 shadow-inner shadow-indigo-500/10' : 'bg-[#070b14] border-slate-800'}`}>
