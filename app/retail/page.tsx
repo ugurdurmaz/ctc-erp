@@ -5,6 +5,7 @@ import { Calendar, ChevronLeft, ChevronRight, ChevronDown, Plus, Save, Wallet, C
 import { formatMoney } from '@/lib/utils'
 import { recalculateAbsoluteStock as recalculateStockLedger, recalculateAbsoluteSupplierBalance as recalculateSupplierLedger } from '@/lib/stock-ledger'
 import { supabase } from '@/lib/supabase'
+import { fetchAllRows } from '@/lib/fetch-all'
 import { logActivity } from '@/lib/audit'
 import { useAuth } from '@/lib/auth-context'
 import toast, { Toaster } from 'react-hot-toast'
@@ -432,7 +433,7 @@ export default function RetailPOSPage() {
       const { data: wData } = await supabase.from('warehouses').select('*').order('name')
       if (wData) setWarehouses(wData)
 
-      const { data: sData } = await supabase.from('stocks').select('id, name, sku, quantity, unit_price, vat_rate, currency, warehouse_id')
+      const { data: sData } = await fetchAllRows((from, to) => supabase.from('stocks').select('id, name, sku, quantity, unit_price, vat_rate, currency, warehouse_id').order('id').range(from, to))
       if (sData) setStocks(sData)
 
       const { data: cdData } = await supabase.from('credit_cards').select('*').order('name')
@@ -814,7 +815,7 @@ export default function RetailPOSPage() {
   }
 
   const syncForwardBalances = async () => {
-    const { data: days } = await supabase.from('pos_daily_summaries').select('date').order('date', { ascending: true })
+    const { data: days } = await fetchAllRows((from, to) => supabase.from('pos_daily_summaries').select('date').order('date', { ascending: true }).order('id').range(from, to))
     if (!days || days.length === 0) return
 
     let firstDayOpening = 0;

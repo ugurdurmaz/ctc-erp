@@ -727,7 +727,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 - **Y-1** Kredi kartı ekranı, `EXP-`/`SUPP-` ön ekli hareketleri silmeye izin verir; gider/tedarikçi kaydı ise yerinde kalır → tutarsızlık.
 - **Y-2** Varlık silme (kasa, banka, kart, depo, tedarikçi, müşteri) yalnız ana satırı siler; alt hareketlerin temizliği DB cascade'ine bağlı. Cascade yoksa yetim hareket, varsa çapraz modül hareketleri (örn. gider kaydının `EXP-` bacağı) kaybolur ve gider ekranı hâlâ kaynağı gösterir.
 - **Y-3** Silinen kasa/banka/kart, `expense_transactions.payment_source_id` gibi alanlarda referans olarak kalır; yeniden "iade" denenince `modifyPaymentSourceBalance` sessizce `return` eder.
-- **Y-4** Bank/kasa `recalculate*` fonksiyonları tüm hareketleri çeker; PostgREST varsayılan **1000 satır limiti** aşılırsa bakiye eksik hesaplanır. Aynı limit dashboard/rapor sorgularında da geçerli (`.limit()` yok).
+- **Y-4** Bank/kasa `recalculate*` fonksiyonları tüm hareketleri çeker; PostgREST varsayılan **1000 satır limiti** aşılırsa bakiye eksik hesaplanır. Dashboard/rapor/liste sorguları 2026-11-24'ten beri `lib/fetch-all.ts` `fetchAllRows` ile sayfalı çekilir (1000'lik sayfalar, `.order('id')` ile kararlı sıra); hesap başı `recalculate*` sorguları hâlâ sayfasız.
 - **Y-5** Abonelik tahsilatı silinirken hareket **açıklama metniyle** aranır (`limit(1)`, en yeni). Aynı kullanıcı için iki tahsilat varsa yanlış kayıt silinebilir.
 - **Y-6** POS `syncForwardBalances` her kayıtta tüm günleri gezer (gün sayısı × 4 sorgu). Bir yıl sonra kayıt süresi ciddi uzar.
 - **Y-7** Sabit yedek kur (34.25 / 37.80) güncel değil; API erişilemezse dashboard değerleri fark edilmeden sapar.

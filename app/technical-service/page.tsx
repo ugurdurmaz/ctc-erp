@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAllRows } from '@/lib/fetch-all'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import { recalculateAbsoluteStock as recalculateStockLedger, recalculateAbsoluteSupplierBalance as recalculateSupplierLedger } from '@/lib/stock-ledger'
@@ -308,7 +309,7 @@ export default function TechnicalServicePage() {
       setCustomers(custData || [])
 
       // 3. Stoklar (Arama ve filtreleme için sku, category dahil)
-      const { data: stData } = await supabase.from('stocks').select('id, name, sku, category, quantity, unit_price, currency, warehouse_id').order('name')
+      const { data: stData } = await fetchAllRows((from, to) => supabase.from('stocks').select('id, name, sku, category, quantity, unit_price, currency, warehouse_id').order('name').order('id').range(from, to))
       setStocks(stData || [])
 
       // 4. Hizmetler
@@ -322,10 +323,10 @@ export default function TechnicalServicePage() {
       setBanks(bData || [])
 
       // 6. Servis Biletleri
-      const { data: tData, error: tErr } = await supabase
+      const { data: tData, error: tErr } = await fetchAllRows((from, to) => supabase
         .from('technical_service_tickets')
         .select('*, company:companies(name, is_personal)')
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: false }).order('id').range(from, to))
 
       if (tErr) {
         if (tErr.message?.includes('technical_service_tickets') && tErr.message?.includes('schema cache')) {

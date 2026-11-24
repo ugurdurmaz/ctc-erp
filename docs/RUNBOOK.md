@@ -380,7 +380,9 @@ Sistemde Supabase Auth ve kullanıcı profilleri devrededir. Güncel politika se
 - `/api/admin/users` için Vercel'de `SUPABASE_SERVICE_ROLE_KEY` tanımlı olmalı; uç yalnız `Authorization: Bearer <access_token>` taşıyan aktif admin isteğini kabul eder.
 
 ### 3.4 PostgREST satır limiti
-Varsayılan `max_rows = 1000`. Uygulama `.limit()` kullanmaz; herhangi bir hesabın hareket sayısı 1000'i aşınca **bakiye eksik hesaplanır** [HB Y-4]. Supabase Dashboard → Settings → API → "Max rows" değerini beklenen hacme göre yükseltin (örn. 10000) ve §8.2 kontrolünü aylık çalıştırın.
+Canlıda `max_rows = 1000` (2026-11-24 doğrulandı). Tablo geneli okumalar (dashboard, raporlar, stok/gider/POS listeleri) `lib/fetch-all.ts` ile sayfalıdır ve bu limitten etkilenmez. **Hâlâ etkilenen:** hesap/stok başı `recalculate*` sorguları — tek bir kasa/banka/kartın hareket sayısı 1000'i aşınca **bakiye eksik hesaplanır** [HB Y-4]. Kontrol: `select bank_account_id, count(*) from bank_transactions group by 1 order by 2 desc limit 5` (kasa/kart/stok için eşdeğeri); 800'e yaklaşan varsa Supabase Dashboard → Settings → API → "Max rows" değerini yükseltin (örn. 10000) ve §8.2 kontrolünü aylık çalıştırın.
+
+Yeni kod kuralı: filtresiz veya büyüyebilen bir tabloyu okuyan her sorgu `fetchAllRows((from, to) => supabase.from('t').select('...').order('id').range(from, to))` ile yazılır.
 
 ---
 

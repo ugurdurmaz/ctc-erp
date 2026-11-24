@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { fetchAllRows } from '@/lib/fetch-all'
 import { useAuth } from '@/lib/auth-context'
 import { useCompany } from '@/lib/company-context'
 import { formatMoney } from '@/lib/utils'
@@ -197,13 +198,13 @@ export default function Home() {
       const { data: custData } = await supabase.from('customers').select('id, name, balance, currency')
       setCustomers(custData || [])
 
-      const { data: custTxData } = await supabase.from('customer_transactions').select('id, tx_date, description, customer_id, tx_type, amount, currency, exchange_rate, company_id, invoice_lines, created_at')
+      const { data: custTxData } = await fetchAllRows((from, to) => supabase.from('customer_transactions').select('id, tx_date, description, customer_id, tx_type, amount, currency, exchange_rate, company_id, invoice_lines, created_at').order('id').range(from, to))
       setCustomerTxs(custTxData || [])
 
       const { data: suppData } = await supabase.from('suppliers').select('id, company_name, balance, currency')
       setSuppliers(suppData || [])
 
-      const { data: suppTxData } = await supabase.from('supplier_transactions').select('id, tx_date, description, supplier_id, tx_type, amount, currency, exchange_rate, company_id, created_at')
+      const { data: suppTxData } = await fetchAllRows((from, to) => supabase.from('supplier_transactions').select('id, tx_date, description, supplier_id, tx_type, amount, currency, exchange_rate, company_id, created_at').order('id').range(from, to))
       setSupplierTxs(suppTxData || [])
 
       const { data: bankData } = await supabase.from('bank_accounts').select('id, bank_name, account_name, balance, currency, company_id')
@@ -227,7 +228,7 @@ export default function Home() {
       const { data: cardData } = await supabase.from('credit_cards').select('id, name, current_debt, card_limit, company_id, cutoff_day')
       setCards(cardData || [])
 
-      const { data: cTxData } = await supabase.from('card_transactions').select('id, card_id, company_id, tx_date, description, tx_type, amount')
+      const { data: cTxData } = await fetchAllRows((from, to) => supabase.from('card_transactions').select('id, card_id, company_id, tx_date, description, tx_type, amount').order('id').range(from, to))
       setCardTxs(cTxData || [])
 
       const { data: settleBankData } = await supabase.from('bank_transactions').select('transfer_id').ilike('transfer_id', 'EXP-SETTLE-%')
@@ -253,25 +254,25 @@ export default function Home() {
       const { data: whData } = await supabase.from('warehouses').select('id, name, company_id')
       setWarehouses(whData || [])
 
-      const { data: stockData } = await supabase.from('stocks').select('id, name, quantity, unit_price, vat_rate, currency, warehouse_id')
+      const { data: stockData } = await fetchAllRows((from, to) => supabase.from('stocks').select('id, name, quantity, unit_price, vat_rate, currency, warehouse_id').order('id').range(from, to))
       setRawStocks(stockData || [])
 
-      const { data: expData } = await supabase.from('expense_transactions').select('id, amount, currency, exchange_rate, company_id, tx_date, description, created_at, transfer_id, category_id, payment_source_type, payment_source_id, category:expense_categories(name)')
+      const { data: expData } = await fetchAllRows((from, to) => supabase.from('expense_transactions').select('id, amount, currency, exchange_rate, company_id, tx_date, description, created_at, transfer_id, category_id, payment_source_type, payment_source_id, category:expense_categories(name)').order('id').range(from, to))
       setExpenses(expData || [])
 
       const { data: compData } = await supabase.from('companies').select('id, name, is_personal')
       setCompanies(compData || [])
 
-      const { data: stxData } = await supabase.from('stock_transactions').select('id, stock_id, tx_date, tx_type, quantity, unit_price, currency, vat_rate, description, company_id')
+      const { data: stxData } = await fetchAllRows((from, to) => supabase.from('stock_transactions').select('id, stock_id, tx_date, tx_type, quantity, unit_price, currency, vat_rate, description, company_id').order('id').range(from, to))
       setStockTxs(stxData || [])
 
       const { data: subData } = await supabase.from('credit_subscriptions').select('id, username, full_name, reference_note, start_date, cost_price, sale_price, currency, company_id')
       setSubscriptions(subData || [])
 
-      const { data: posData } = await supabase.from('pos_transactions').select('id, date, category_id, cash, card, cost, stock_id, company_id, description')
+      const { data: posData } = await fetchAllRows((from, to) => supabase.from('pos_transactions').select('id, date, category_id, cash, card, cost, stock_id, company_id, description').order('id').range(from, to))
       setPosTxs(posData || [])
 
-      const { data: srvData } = await supabase.from('technical_service_tickets').select('id, ticket_no, brand_model, customer_name, status, total_cost, parts_cost, labor_cost, payment_method, delivered_at, company_id, created_at')
+      const { data: srvData } = await fetchAllRows((from, to) => supabase.from('technical_service_tickets').select('id, ticket_no, brand_model, customer_name, status, total_cost, parts_cost, labor_cost, payment_method, delivered_at, company_id, created_at').order('id').range(from, to))
       setTechTickets(srvData || [])
 
       // Sabit Gider Şablonlarını expense_categories'den çekme

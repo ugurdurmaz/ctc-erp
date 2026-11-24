@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAllRows } from '@/lib/fetch-all'
 import { formatMoney } from '@/lib/utils'
 import toast, { Toaster } from 'react-hot-toast'
 import { 
@@ -220,6 +221,7 @@ export default function ExpensesPage() {
   const [cashes, setCashes] = useState<CashRegister[]>([])
   const [cards, setCards] = useState<CreditCardItem[]>([])
   const [allCards, setAllCards] = useState<CreditCardItem[]>([])
+  // card_transactions'ta transfer_id kolonu yok; EXP-SETTLE eşleşmesi açıklamadaki [EXP-SETTLE-<id>] etiketiyle yapılır
   const [cardTxs, setCardTxs] = useState<{ id: string; card_id: string; amount: number; tx_type: string; transfer_id?: string; tx_date: string; description?: string }[]>([])
   const [rates, setRates] = useState<{ USD: number; EUR: number }>({ USD: 34.25, EUR: 37.80 })
 
@@ -425,7 +427,7 @@ export default function ExpensesPage() {
   }
 
   async function fetchCardTransactions() {
-    const { data } = await supabase.from('card_transactions').select('id, card_id, amount, tx_type, tx_date, description, transfer_id')
+    const { data } = await fetchAllRows((from, to) => supabase.from('card_transactions').select('id, card_id, amount, tx_type, tx_date, description').order('id').range(from, to))
     setCardTxs(data || [])
 
     const { data: settleBankData } = await supabase.from('bank_transactions').select('transfer_id').ilike('transfer_id', 'EXP-SETTLE-%')
@@ -437,10 +439,10 @@ export default function ExpensesPage() {
   }
 
   async function fetchExpenses() {
-    const { data } = await supabase.from('expense_transactions')
+    const { data } = await fetchAllRows((from, to) => supabase.from('expense_transactions')
       .select('*, category:expense_categories(name), company:companies(name, is_personal)')
       .order('tx_date', { ascending: false })
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }).order('id').range(from, to))
     
     let exps = data || []
     if (isRestricted) {

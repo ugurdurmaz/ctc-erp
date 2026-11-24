@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAllRows } from '@/lib/fetch-all'
 import { useCompany } from '@/lib/company-context'
 import { formatMoney } from '@/lib/utils'
 import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
@@ -639,7 +640,7 @@ export default function StocksPage() {
 
   async function fetchAllStocks() {
     try {
-      const { data, error } = await supabase.from('stocks').select('*').order('name', { ascending: true })
+      const { data, error } = await fetchAllRows((from, to) => supabase.from('stocks').select('*').order('name', { ascending: true }).order('id').range(from, to))
       if (error) throw error
       setAllStocks(data || [])
     } catch (err) { console.error(err) }
@@ -647,10 +648,10 @@ export default function StocksPage() {
 
   async function fetchAllTransactions() {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await fetchAllRows((from, to) => supabase
         .from('stock_transactions')
         .select('id, stock_id, tx_date, tx_type, quantity, unit_price, currency')
-        .order('tx_date', { ascending: false })
+        .order('tx_date', { ascending: false }).order('id').range(from, to))
       if (error) throw error
       setAllStockTxs(data || [])
     } catch (err) { console.error('Error fetching all stock txs:', err) }

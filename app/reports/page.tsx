@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, Fragment } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAllRows } from '@/lib/fetch-all'
 import { formatMoney } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import { useCompany } from '@/lib/company-context'
@@ -165,20 +166,20 @@ export default function AdvancedReportsPage() {
       setSuppliers(suppList || [])
 
       // Cari Hareket Tabloları
-      const { data: cTxs } = await supabase.from('customer_transactions')
-        .select('id, tx_date, tx_type, amount, currency, exchange_rate, company_id, payment_source_type, payment_source_id, description, customer_id, invoice_lines, created_at')
+      const { data: cTxs } = await fetchAllRows((from, to) => supabase.from('customer_transactions')
+        .select('id, tx_date, tx_type, amount, currency, exchange_rate, company_id, payment_source_type, payment_source_id, description, customer_id, invoice_lines, created_at').order('id').range(from, to))
       setCustomerTxs(cTxs || [])
 
-      const { data: sTxs } = await supabase.from('supplier_transactions')
-        .select('id, tx_date, tx_type, amount, currency, exchange_rate, company_id, payment_source_type, payment_source_id, description, supplier_id')
+      const { data: sTxs } = await fetchAllRows((from, to) => supabase.from('supplier_transactions')
+        .select('id, tx_date, tx_type, amount, currency, exchange_rate, company_id, payment_source_type, payment_source_id, description, supplier_id').order('id').range(from, to))
       setSupplierTxs(sTxs || [])
 
-      const { data: exps } = await supabase.from('expense_transactions')
-        .select('id, tx_date, amount, currency, exchange_rate, company_id, payment_source_type, payment_source_id, created_at, category_id, description, category:expense_categories(name)')
+      const { data: exps } = await fetchAllRows((from, to) => supabase.from('expense_transactions')
+        .select('id, tx_date, amount, currency, exchange_rate, company_id, payment_source_type, payment_source_id, created_at, category_id, description, category:expense_categories(name)').order('id').range(from, to))
       setExpenseTxs(exps || [])
 
-      const { data: stTxs } = await supabase.from('stock_transactions')
-        .select('id, tx_date, tx_type, quantity, unit_price, currency, vat_rate, description, company_id, stock_id')
+      const { data: stTxs } = await fetchAllRows((from, to) => supabase.from('stock_transactions')
+        .select('id, tx_date, tx_type, quantity, unit_price, currency, vat_rate, description, company_id, stock_id').order('id').range(from, to))
       setStockTxs(stTxs || [])
 
       const { data: cData } = await supabase.from('cash_registers')
@@ -197,31 +198,31 @@ export default function AdvancedReportsPage() {
         .select('id, name, company_id')
       setWarehouses(wData || [])
 
-      const { data: stkData } = await supabase.from('stocks')
-        .select('id, product_name, quantity, unit_price, currency, vat_rate, warehouse_id')
+      const { data: stkData } = await fetchAllRows((from, to) => supabase.from('stocks')
+        .select('id, name, quantity, unit_price, currency, vat_rate, warehouse_id').order('id').range(from, to))
       setStocks(stkData || [])
 
       // Nakit ve Banka Hareket Tabloları
-      const { data: cashTransactions } = await supabase.from('cash_transactions')
-        .select('id, cash_register_id, company_id, tx_date, description, tx_type, amount, currency, exchange_rate, is_transfer, transfer_id')
+      const { data: cashTransactions } = await fetchAllRows((from, to) => supabase.from('cash_transactions')
+        .select('id, cash_register_id, company_id, tx_date, description, tx_type, amount, currency, exchange_rate, is_transfer, transfer_id').order('id').range(from, to))
       setCashTxs(cashTransactions || [])
 
-      const { data: bankTransactions } = await supabase.from('bank_transactions')
-        .select('id, bank_account_id, company_id, tx_date, description, tx_type, amount, currency, exchange_rate, is_transfer, transfer_id, status')
+      const { data: bankTransactions } = await fetchAllRows((from, to) => supabase.from('bank_transactions')
+        .select('id, bank_account_id, company_id, tx_date, description, tx_type, amount, currency, exchange_rate, is_transfer, transfer_id, status').order('id').range(from, to))
       setBankTxs(bankTransactions || [])
 
-      const { data: cardTransactions } = await supabase.from('card_transactions')
-        .select('id, credit_card_id, company_id, tx_date, description, tx_type, amount, currency')
+      const { data: cardTransactions } = await fetchAllRows((from, to) => supabase.from('card_transactions')
+        .select('id, card_id, company_id, tx_date, description, tx_type, amount').order('id').range(from, to))
       setCardTxs(cardTransactions || [])
 
       // Mağaza (POS) Satış ve Z-Raporu Hareketleri
-      const { data: posTransactions } = await supabase.from('pos_transactions')
-        .select('id, date, category_id, description, cash, card, cost, stock_id, company_id')
+      const { data: posTransactions } = await fetchAllRows((from, to) => supabase.from('pos_transactions')
+        .select('id, date, category_id, description, cash, card, cost, stock_id, company_id').order('id').range(from, to))
       setPosTxs(posTransactions || [])
 
       // Teknik Servis Fişleri (Mağaza ve Servis P&L dengesi için)
-      const { data: techData } = await supabase.from('technical_service_tickets')
-        .select('id, ticket_no, customer_name, brand_model, total_cost, parts_cost, payment_method, status, delivered_at, created_at, company_id')
+      const { data: techData } = await fetchAllRows((from, to) => supabase.from('technical_service_tickets')
+        .select('id, ticket_no, customer_name, brand_model, total_cost, parts_cost, payment_method, status, delivered_at, created_at, company_id').order('id').range(from, to))
       setTechTickets(techData || [])
 
       // Kredili Abonelikler ve Banka Kredileri
@@ -230,7 +231,7 @@ export default function AdvancedReportsPage() {
       setSubscriptions(subData || [])
 
       const { data: loanData } = await supabase.from('bank_loans')
-        .select('id, bank_name, loan_name, principal_amount, total_repayment, remaining_principal, monthly_installment, total_installments, paid_installments, status, company_id')
+        .select('id, bank_name, loan_name, principal_amount, total_payment, remaining_principal, monthly_installment, total_installments, paid_installments, status, company_id')
       setLoans(loanData || [])
 
     } catch (err) {

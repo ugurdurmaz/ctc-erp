@@ -40,7 +40,7 @@ Detay `docs/` altında. En yakın konuyu bul, o dosyayı oku; burada tekrar etme
 - **Açılış bakiyeleri hareket olarak yaşar** ve açıklama metniyle tanınır (`Açılış Bakiyesi / Devir`, `Dönem Başı Devir Borcu`, `Açılış Stoğu`). Bu string'leri değiştirme.
 - **POS kart cirosu bankaya `status='pending'` yazılır**, bakiyeye girmez; onay bankadan yapılır. Tüm banka toplamları `status !== 'pending'` filtresi taşır.
 - **`company_id = NULL` = Ortak.** Formda `'common'` seçeneği → DB'ye `null`. Dashboard/rapor filtresi `'all' | 'common' | uuid`.
-- **PostgREST 1000 satır limiti** `.limit()` kullanılmayan tüm toplamları etkiler; büyük hesaplarda `max_rows` yükseltilmeli (RUNBOOK §3.4).
+- **PostgREST 1000 satır limiti** (canlıda `max_rows=1000` doğrulandı): tüm tabloyu okuyan her sorgu `lib/fetch-all.ts` `fetchAllRows((from, to) => supabase.from(...).select(...).order('id').range(from, to))` ile çekilir; düz `.select()` 1000'de sessizce keser. Hesap başı `recalculate*` sorguları henüz sayfalı değil (RUNBOOK §3.4).
 - **"Geri Al" gerçek geri alma değildir**; yalnız log satırı ekler. Kullanıcıya böyle sunulmalı veya kaldırılmalı.
 - **Türkçe küçük harf:** aramalarda `toLocaleLowerCase('tr-TR')` tercih et (mevcut kod bare `.toLowerCase()` kullanıyor; dokunduğun yerde düzelt).
 - **Tarih:** yerel tarih için `getLocalTodayISO()`; `new Date().toISOString().split('T')[0]` UTC kaydırır, yeni kodda kullanma.

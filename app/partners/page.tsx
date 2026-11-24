@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAllRows } from '@/lib/fetch-all'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
 import { logActivity } from '@/lib/audit'
@@ -238,7 +239,7 @@ export default function PartnersPage() {
   }
 
   async function fetchStocks() {
-    const { data } = await supabase.from('stocks').select('id, name, sku, category, quantity, unit_price, currency, warehouse_id').order('name')
+    const { data } = await fetchAllRows((from, to) => supabase.from('stocks').select('id, name, sku, category, quantity, unit_price, currency, warehouse_id').order('name').order('id').range(from, to))
     setStocks(data || [])
   }
 
