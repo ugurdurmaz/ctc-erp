@@ -1048,9 +1048,15 @@ export default function RetailPOSPage() {
             const isTitleMatch = storeRecTemplateTitles.some(t => descLower.includes(t));
             const isCompMatch = !tx.company_id || (activeStoreCompanyId && tx.company_id === activeStoreCompanyId);
 
-            if ((isRecTrf || isTmplMatch || isTitleMatch) && (isCompMatch || isTmplMatch)) {
-              // 1. Bu gider zaten Step 1'de bağlı kasadan nakit çekilmiş mi?
-              const isPaidFromActiveCash = tx.payment_source_type === 'cash' && activeCashId && tx.payment_source_id === activeCashId;
+            // 1. Bu gider zaten Step 1'de bağlı kasadan nakit çekilmiş mi?
+            const isPaidFromActiveCash = tx.payment_source_type === 'cash' && activeCashId && tx.payment_source_id === activeCashId;
+            const isRecurring = isRecTrf || isTmplMatch || isTitleMatch;
+            // Tek seferlik mağaza giderleri: kart/banka ile ödenenler de günün gider listesinde görünür.
+            // Başka kasadan nakit ödenenler alınmaz; nakit sütununa düşerse mağaza kasasını yanlış azaltır.
+            const isOneOffStoreExpense = !isRecurring && isCompMatch &&
+              (tx.payment_source_type === 'card' || tx.payment_source_type === 'bank' || isPaidFromActiveCash);
+
+            if ((isRecurring && (isCompMatch || isTmplMatch)) || isOneOffStoreExpense) {
 
               // 2. externalCashTxs içinde zaten bu gider mevcut mu?
               const existingIdx = externalCashTxs.findIndex(e => {
