@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { requireAdmin } from '@/lib/require-admin'
+
+const VALID_ROLES = ['admin', 'finance', 'cashier', 'warehouse', 'custom']
 
 // 1. YENİ KULLANICI OLUŞTURMA (POST)
 export async function POST(req: NextRequest) {
@@ -31,6 +34,13 @@ export async function POST(req: NextRequest) {
         },
         { status: 500 }
       )
+    }
+
+    const auth = await requireAdmin(req, adminClient)
+    if (!auth.ok) return auth.response
+
+    if (role !== undefined && !VALID_ROLES.includes(role)) {
+      return NextResponse.json({ error: 'Geçersiz rol.' }, { status: 400 })
     }
 
     // 1. auth.users içinde kullanıcıyı oluştur
@@ -100,6 +110,13 @@ export async function DELETE(req: NextRequest) {
       )
     }
 
+    const auth = await requireAdmin(req, adminClient)
+    if (!auth.ok) return auth.response
+
+    if (userId === auth.userId) {
+      return NextResponse.json({ error: 'Kendi yönetici hesabınızı silemezsiniz.' }, { status: 400 })
+    }
+
     // auth.users üzerinden sil (on delete cascade ile profile da silinir)
     const { error } = await adminClient.auth.admin.deleteUser(userId)
     if (error) {
@@ -129,6 +146,16 @@ export async function PATCH(req: NextRequest) {
         { error: 'SUPABASE_SERVICE_ROLE_KEY tanımlanmamış.' },
         { status: 500 }
       )
+    }
+
+    const auth = await requireAdmin(req, adminClient)
+    if (!auth.ok) return auth.response
+
+    if (role !== undefined && !VALID_ROLES.includes(role)) {
+      return NextResponse.json({ error: 'Geçersiz rol.' }, { status: 400 })
+    }
+    if (userId === auth.userId && ((role !== undefined && role !== 'admin') || is_active === false)) {
+      return NextResponse.json({ error: 'Kendi yönetici yetkinizi düşüremez veya hesabınızı pasife alamazsınız.' }, { status: 400 })
     }
 
     // Şifre güncellenmek isteniyorsa

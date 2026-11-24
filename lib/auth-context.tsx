@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { useRouter } from 'next/navigation'
 import { Session, User } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import { UserProfile, ROLE_DEFAULT_MODULES } from '../types/auth'
+import { UserProfile } from '../types/auth'
 import toast from 'react-hot-toast'
 
 interface AuthContextType {
@@ -21,6 +21,18 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+function buildRestrictedProfile(userId: string, userEmail?: string): UserProfile {
+  return {
+    id: userId,
+    email: userEmail || '',
+    full_name: userEmail?.split('@')[0] || 'Kullanıcı',
+    role: 'custom',
+    allowed_modules: [],
+    allowed_companies: null,
+    is_active: false,
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -43,48 +55,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return data as UserProfile
       }
 
-      // Veritabanında profil yoksa otomatik olarak oluştur (ilk kullanıcı veya trigger gecikmesi)
-      const initialProfile: UserProfile = {
-        id: userId,
-        email: userEmail || '',
-        full_name: userEmail?.split('@')[0] || 'Yönetici',
-        role: 'admin',
-        allowed_modules: ROLE_DEFAULT_MODULES.admin,
-        allowed_companies: null,
-        is_active: true,
-      }
-
-      // Tabloya da yazmayı dene
-      try {
-        await supabase.from('user_profiles').upsert({
-          id: initialProfile.id,
-          email: initialProfile.email,
-          full_name: initialProfile.full_name,
-          role: initialProfile.role,
-          allowed_modules: initialProfile.allowed_modules,
-          allowed_companies: initialProfile.allowed_companies,
-          is_active: initialProfile.is_active,
-          updated_at: new Date().toISOString()
-        })
-      } catch (saveErr) {
-        console.warn('Profil kaydedilemedi, yerel profil kullanılıyor:', saveErr)
-      }
-
-      setProfile(initialProfile)
-      return initialProfile
+      // Profil yoksa veya okunamadıysa ASLA yetki verme: profilleri yalnız yönetici (/api/admin/users) açar.
+      if (error) console.error('Profil okunamadı:', error)
+      const restricted = buildRestrictedProfile(userId, userEmail)
+      setProfile(restricted)
+      return restricted
     } catch (err) {
       console.error('Profil çekilirken beklenmedik hata:', err)
-      const fallback: UserProfile = {
-        id: userId,
-        email: userEmail || '',
-        full_name: userEmail?.split('@')[0] || 'Yönetici',
-        role: 'admin',
-        allowed_modules: ROLE_DEFAULT_MODULES.admin,
-        allowed_companies: null,
-        is_active: true,
-      }
-      setProfile(fallback)
-      return fallback
+      const restricted = buildRestrictedProfile(userId, userEmail)
+      setProfile(restricted)
+      return restricted
     }
   }, [])
 
@@ -167,7 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Pasif kullanıcı engeli
         if (userProfile && !userProfile.is_active) {
           await supabase.auth.signOut()
-          return { success: false, error: 'Hesabınız yönetici tarafından pasife alınmıştır.' }
+          return { success: false, error: 'Hesabınız pasif veya henüz yönetici tarafından tanımlanmamış.' }
         }
       }
 
@@ -203,16 +183,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Modül yetki kontrolü
   const hasModuleAccess = (moduleKey: string): boolean => {
     if (!profile) return false
-    // Süper Admin her yere girebilir
-    if (profile.role === 'admin') return true
-    // Hesabı pasifse erişemez
+    // Pasif veya profili tanımsız hesap (admin dahil) hiçbir modüle erişemez
     if (!profile.is_active) return false
+    if (profile.role === 'admin') return true
     return profile.allowed_modules?.includes(moduleKey) ?? false
   }
 
   // Şirket / Masraf Merkezi yetki kontrolü
   const hasCompanyAccess = (companyId: string | null): boolean => {
-    if (!profile) return false
+    if (!profile || !profile.is_active) return false
     if (profile.role === 'admin') return true
     // allowed_companies null ise veya boşsa tüm şirketleri görebilir
     if (!profile.allowed_companies || profile.allowed_companies.length === 0) return true
@@ -221,7 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return profile.allowed_companies.includes(companyId)
   }
 
-  const isAdmin = profile?.role === 'admin'
+  const isAdmin = profile?.role === 'admin' && profile.is_active
 
   return (
     <AuthContext.Provider

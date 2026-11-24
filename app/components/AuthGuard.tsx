@@ -55,7 +55,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   // Modül bazlı erişim denetimi (Admin her zaman tüm modüllere erişir)
   const moduleKey = getModuleKeyFromPath(pathname)
-  const isAllowed = profile?.role === 'admin' 
+  const isAllowed = profile?.role === 'admin' && profile.is_active
     ? true 
     : (moduleKey ? hasModuleAccess(moduleKey) : true)
 

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { adminFetch } from '@/lib/admin-fetch'
 import { UserProfile, UserRole, SYSTEM_MODULES, ROLE_DEFAULT_MODULES, ROLE_LABELS, ModuleKey } from '@/types/auth'
 import { 
   Users, UserPlus, Shield, Key, Edit2, Trash2, CheckCircle2, 
@@ -136,9 +137,8 @@ export default function UsersPage() {
 
     setSubmitting(true)
     try {
-      const res = await fetch('/api/admin/users', {
+      const res = await adminFetch('/api/admin/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           full_name: fullName.trim(),
           email: email.trim(),
@@ -173,9 +173,8 @@ export default function UsersPage() {
 
     setSubmitting(true)
     try {
-      const res = await fetch('/api/admin/users', {
+      const res = await adminFetch('/api/admin/users', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: selectedUser.id,
           full_name: fullName.trim(),
@@ -210,9 +209,8 @@ export default function UsersPage() {
 
     setSubmitting(true)
     try {
-      const res = await fetch('/api/admin/users', {
+      const res = await adminFetch('/api/admin/users', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: selectedUser.id,
           password: password.trim(),
@@ -244,9 +242,8 @@ export default function UsersPage() {
 
     try {
       const newStatus = !user.is_active
-      const res = await fetch('/api/admin/users', {
+      const res = await adminFetch('/api/admin/users', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: user.id,
           is_active: newStatus,
@@ -277,7 +274,7 @@ export default function UsersPage() {
     }
 
     try {
-      const res = await fetch(`/api/admin/users?userId=${user.id}`, {
+      const res = await adminFetch(`/api/admin/users?userId=${user.id}`, {
         method: 'DELETE',
       })
 

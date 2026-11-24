@@ -370,10 +370,14 @@ Yukarıdaki SQL şu politikayı uygular:
 - `expense_categories` ve `services` kullanımdaysa silme engellenir; uygulama bu hatayı yakalar.
 
 ### 3.3 Row Level Security (RLS)
-Sistemde Supabase Auth ve kullanıcı profilleri devrededir (`ugurdurmaz@gmail.com` ve `gopservis@gmail.com`). 
-Tüm veritabanı tablolarında RLS'yi açmak ve anonim (`anon`) erişimi tamamen kapatarak yalnız `authenticated` rolüne izin vermek için `supabase/enable_rls_all_tables.sql` betiği Supabase Dashboard -> SQL Editor alanında çalıştırılır:
-- `anon` → Erişim SIFIR (Okuma, yazma, silme engelli).
-- `authenticated` → Tam CRUD yetkisi.
+Sistemde Supabase Auth ve kullanıcı profilleri devrededir. Güncel politika seti `supabase/migration_harden_auth_rls.sql` ile kurulur (eski `enable_rls_all_tables.sql`'in yerini alır; onu tekrar çalıştırmayın):
+- `anon` → erişim yok.
+- `authenticated` + aktif profil (`public.is_active_user()`) → iş tablolarında CRUD.
+- `user_profiles` → herkes kendi satırını okur; yazma yalnız aktif admin (`public.is_admin()`).
+- `audit_logs` → aktif kullanıcı okur/ekler; güncelleme ve silme yok.
+- Yeni auth kullanıcısı trigger ile **pasif, rol `custom`, modülsüz** açılır; yetkiyi yalnız `/users` ekranı (`/api/admin/users`, service role) verir.
+- Supabase Dashboard → Authentication → Sign In / Providers → **Allow new users to sign up = kapalı** tutulmalıdır. Kontrol: `GET <url>/auth/v1/settings` yanıtında `"disable_signup": true`.
+- `/api/admin/users` için Vercel'de `SUPABASE_SERVICE_ROLE_KEY` tanımlı olmalı; uç yalnız `Authorization: Bearer <access_token>` taşıyan aktif admin isteğini kabul eder.
 
 ### 3.4 PostgREST satır limiti
 Varsayılan `max_rows = 1000`. Uygulama `.limit()` kullanmaz; herhangi bir hesabın hareket sayısı 1000'i aşınca **bakiye eksik hesaplanır** [HB Y-4]. Supabase Dashboard → Settings → API → "Max rows" değerini beklenen hacme göre yükseltin (örn. 10000) ve §8.2 kontrolünü aylık çalıştırın.

@@ -10,9 +10,9 @@
 
 - **Framework**: Next.js 16 App Router + React 19 + TypeScript strict — `AGENTS.md`'nin uyarısı geçerli: kod yazmadan önce `node_modules/next/dist/docs/` oku, eğitim verisindeki API'lere güvenme.
 - **Stil**: Tailwind v4 (`@tailwindcss/postcss`), koyu tema sabit; ikon `lucide-react`; bildirim `react-hot-toast`. Başka UI kütüphanesi ekleme.
-- **Veri**: Supabase Postgres, **doğrudan tarayıcıdan** `supabase-js` ile (`lib/supabase.ts`). Sunucu katmanı, API route, ORM yok. Şema repo'da değil — koddan çıkarılmış referans `docs/HANDBOOK.md §5`, kurulum SQL'i `docs/RUNBOOK.md §3`.
+- **Veri**: Supabase Postgres, **doğrudan tarayıcıdan** `supabase-js` ile (`lib/supabase.ts`). Tek sunucu ucu `app/api/admin/users` (service role, `lib/require-admin.ts` korumalı); başka API route veya ORM yok. Şema repo'da değil — koddan çıkarılmış referans `docs/HANDBOOK.md §5`, kurulum SQL'i `docs/RUNBOOK.md §3`.
 - **Kur**: `open.er-api.com/v6/latest/USD`, yedek sabitler `34.25 / 37.80`. Kayıt anında `exchange_rate` sabitlenir.
-- **Kimlik**: Yok. Anon anahtar tarayıcıya gömülü; güvenlik RLS + ağ katmanına bağlı (`docs/AUDIT-2026-09-16.md` S-1/S-2).
+- **Kimlik**: Supabase Auth + `user_profiles` (rol, modül, merkez). RLS yalnız aktif profili olan kullanıcıya izin verir; modül/merkez kısıtı henüz yalnız arayüzde (`docs/AUDIT-2026-09-16.md` S-10/S-11, `docs/RUNBOOK.md §3.3`). Profil yoksa istemci asla yetki uydurmaz.
 - **Dil**: İletişim, açıklamalar, kod içi yorumlar, UI metinleri ve commit gövdeleri her zaman Türkçe; kod tanımlayıcıları İngilizce; tablo/kolon adları `snake_case`.
 - **Ekip**: solo dev + Claude. Kod ilk sürümünde başka bir yapay zeka ile yazıldı; bilinen yapısal sorunlar denetim raporunda sınıflandırıldı.
 
