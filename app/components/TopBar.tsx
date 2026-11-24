@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { fetchAllRows } from '@/lib/fetch-all'
 import { useAuth } from '@/lib/auth-context'
 import { useCompany } from '@/lib/company-context'
 import { ROLE_LABELS } from '@/types/auth'
@@ -103,33 +104,39 @@ export default function TopBar() {
         const newNotifs: Notification[] = []
 
         // 1. Kritik Stok Kontrolü
-        const { data: stocks } = await supabase.from('stocks').select('id, name, current_stock, critical_level')
-        if (stocks) {
-          stocks.forEach(st => {
-            if (st.critical_level && st.current_stock <= st.critical_level) {
-              newNotifs.push({
-                id: `stock-${st.id}`,
-                type: 'danger',
-                title: 'Kritik Stok Uyarısı',
-                message: `${st.name} ürünü kritik eşiğin altına indi (${st.current_stock} adet kaldı).`,
-                time: 'Şimdi',
-                link: '/stocks'
-              })
-            }
-          })
-        }
+        // Yalnız ürüne özel eşik (stocks.critical_level) tanımlanmış kartlar bildirim üretir
+        const { data: stocks, error: stockErr } = await fetchAllRows((from, to) => supabase
+          .from('stocks')
+          .select('id, name, quantity, unit, critical_level')
+          .not('critical_level', 'is', null)
+          .order('id')
+          .range(from, to))
+        if (stockErr) console.error('Kritik stok bildirimleri okunamadı:', stockErr)
+        stocks.forEach(st => {
+          const qty = Number(st.quantity) || 0
+          if (qty <= Number(st.critical_level)) {
+            newNotifs.push({
+              id: `stock-${st.id}`,
+              type: 'danger',
+              title: qty <= 0 ? 'Stok Tükendi' : 'Kritik Stok Uyarısı',
+              message: `${st.name}: ${qty} ${st.unit || 'Adet'} kaldı (eşik ${Number(st.critical_level)}).`,
+              time: 'Şimdi',
+              link: '/stocks'
+            })
+          }
+        })
 
         // 2. Kredi Kartı Limit ve Hesap Kesim Kontrolü
-        const { data: cards } = await supabase.from('credit_cards').select('id, card_name, current_debt, credit_limit, cutoff_day')
+        const { data: cards } = await supabase.from('credit_cards').select('id, name, current_debt, card_limit, cutoff_day')
         if (cards) {
           const todayDay = new Date().getDate()
           cards.forEach(c => {
-            if (c.credit_limit && (c.current_debt / c.credit_limit) >= 0.85) {
+            if (c.card_limit && (c.current_debt / c.card_limit) >= 0.85) {
               newNotifs.push({
                 id: `card-limit-${c.id}`,
                 type: 'warning',
                 title: 'Yüksek Kart Limiti',
-                message: `${c.card_name} kartının limitinin %85'i kullanıldı.`,
+                message: `${c.name} kartının limitinin %85'i kullanıldı.`,
                 time: 'Şimdi',
                 link: '/credit-cards'
               })
@@ -139,7 +146,7 @@ export default function TopBar() {
                 id: `card-cutoff-${c.id}`,
                 type: 'info',
                 title: 'Hesap Kesim Yaklaştı',
-                message: `${c.card_name} kartının hesap kesim tarihine az kaldı (Gün: ${c.cutoff_day}).`,
+                message: `${c.name} kartının hesap kesim tarihine az kaldı (Gün: ${c.cutoff_day}).`,
                 time: 'Bu Hafta',
                 link: '/credit-cards'
               })

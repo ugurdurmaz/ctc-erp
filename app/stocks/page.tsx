@@ -37,6 +37,7 @@ type StockItem = {
   currency: 'TRY' | 'USD' | 'EUR'
   unit: string
   quantity: number
+  critical_level?: number | null
   unit_price: number
   vat_rate: number
   stock_color: string
@@ -288,6 +289,7 @@ function formatDateTR(dateStr: string) {
 
 import { logActivity } from '@/lib/audit'
 import { useAuth } from '@/lib/auth-context'
+import { isStockCritical, isStockOut, hasCustomCriticalLevel, DEFAULT_CRITICAL_QTY } from '@/lib/stock-status'
 
 export function convertCurrency(
   amount: number,
@@ -475,6 +477,7 @@ export default function StocksPage() {
   const [quantity, setQuantity] = useState('')
   const [unitPrice, setUnitPrice] = useState('')
   const [vatRate, setVatRate] = useState('20')
+  const [criticalLevel, setCriticalLevel] = useState('')
   const [stockColor, setStockColor] = useState(THEME_COLORS[0].value)
 
   // ctcmarket.com Form Alanları
@@ -1081,8 +1084,8 @@ export default function StocksPage() {
       const valTry = getTryEquivalent(item.quantity * unitPriceWithVat, item.currency)
       const valUsd = getUsdEquivalent(valTry)
 
-      const isCritical = item.quantity > 0 && item.quantity <= 2
-      const isOutOfStock = item.quantity <= 0
+      const isCritical = isStockCritical(item)
+      const isOutOfStock = isStockOut(item)
 
       const stat = stockTxStatsMap.get(item.id)
       const outCount = stat ? stat.outCount : 0
@@ -1573,6 +1576,12 @@ export default function StocksPage() {
       }
     }
 
+    const parsedCritical = criticalLevel.trim() === '' ? null : parseFloat(criticalLevel)
+    if (parsedCritical !== null && (isNaN(parsedCritical) || parsedCritical < 0)) {
+      toast.error('Kritik seviye 0 veya daha büyük bir sayı olmalıdır (boş bırakılabilir).')
+      return
+    }
+
     const parsedWebPrice = webPrice && !isNaN(parseFloat(webPrice)) ? parseFloat(webPrice) : null
     const webFields = {
       web_visible: webVisible,
@@ -1595,6 +1604,7 @@ export default function StocksPage() {
           unit,
           unit_price: priceNum,
           vat_rate: vatNum,
+          critical_level: parsedCritical,
           stock_color: stockColor,
           ...webFields
         }
@@ -1664,6 +1674,7 @@ export default function StocksPage() {
           quantity: 0,
           unit_price: priceNum,
           vat_rate: vatNum,
+          critical_level: parsedCritical,
           stock_color: stockColor,
           ...webFields
         }
@@ -2873,7 +2884,7 @@ export default function StocksPage() {
 
   function openAddStock() {
     if (!selectedWarehouseId) { toast.error('Lütfen önce bir depo seçin.'); return }
-    setEditingStockId(null); setName(''); setSku(''); setCategory(''); setSubCategory(''); setIsCustomSubCat(false); setQuantity(''); setUnitPrice(''); setVatRate('20')
+    setEditingStockId(null); setName(''); setSku(''); setCategory(''); setSubCategory(''); setIsCustomSubCat(false); setQuantity(''); setUnitPrice(''); setVatRate('20'); setCriticalLevel('')
     setWebVisible(false); setWebCategory(''); setWebSubCategory(''); setWebPrice(''); setWebCurrency('TRY')
     setIsStockModalOpen(true)
   }
@@ -2891,6 +2902,7 @@ export default function StocksPage() {
     setUnit(item.unit || 'Adet')
     setUnitPrice(item.unit_price.toString())
     setVatRate(item.vat_rate?.toString() || '0')
+    setCriticalLevel(hasCustomCriticalLevel(item) ? String(item.critical_level) : '')
     setStockColor(item.stock_color || THEME_COLORS[0].value)
 
     // ctcmarket.com Web Alanları
@@ -2978,7 +2990,7 @@ export default function StocksPage() {
 
   const statusFilteredStocks = webFilteredStocks.filter(s => {
     if (statusFilter === 'in_stock') return s.quantity > 0;
-    if (statusFilter === 'critical') return s.quantity > 0 && s.quantity <= 2;
+    if (statusFilter === 'critical') return isStockCritical(s);
     if (statusFilter === 'out_of_stock') return s.quantity <= 0;
     return true;
   });
@@ -3407,7 +3419,7 @@ export default function StocksPage() {
                   onClick={() => setStatusFilter('critical')}
                   className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors border select-none cursor-pointer ${statusFilter === 'critical' ? 'bg-amber-600 border-amber-500 text-white font-bold' : 'bg-slate-800/50 hover:bg-slate-700/50 border-slate-700 text-amber-400/80 hover:text-amber-300'}`}
                 >
-                  Kritik ({warehouseStocks.filter(s => s.quantity > 0 && s.quantity <= 2).length})
+                  Kritik ({warehouseStocks.filter(s => isStockCritical(s)).length})
                 </button>
                 <button
                   type="button"
@@ -3805,7 +3817,7 @@ export default function StocksPage() {
                                               <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">
                                                 0 {displayUnit}
                                               </span>
-                                            ) : item.quantity <= 2 ? (
+                                            ) : isStockCritical(item) ? (
                                               <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
                                                 {item.quantity} {displayUnit}
                                               </span>
@@ -5628,6 +5640,20 @@ export default function StocksPage() {
                         <option value="20">20</option><option value="10">10</option><option value="1">1</option><option value="0">0</option>
                       </select>
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1">Kritik Seviye ({unit || 'Adet'})</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder={`Boş = bildirim yok (liste ≤ ${DEFAULT_CRITICAL_QTY} kuralını kullanır)`}
+                      value={criticalLevel}
+                      onChange={(e) => setCriticalLevel(e.target.value)}
+                      className="w-full bg-[#070b14] border border-slate-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Miktar bu değere veya altına inince üst bardaki bildirimlerde uyarı çıkar.</p>
                   </div>
 
                   {unitPrice && parseFloat(vatRate) >= 0 && (

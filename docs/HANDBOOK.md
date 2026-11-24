@@ -239,7 +239,7 @@ Bazı kayıtlar **açıklama string'i ile** tanınır. Bu metinler değiştirili
 
 **`stock_categories`** — `name`, `warehouse_id` (kategori depoya özeldir; stoklarda isim olarak saklanır, FK değil)
 
-**`stocks`** — `warehouse_id`, `name`, `sku?`, `category?` (string), `sub_category?`, `currency`, `unit` (Adet/Kg/Metre/Lt/Paket/Kutu), `quantity` (türev), `unit_price` (net, son giriş fiyatıyla güncellenir), `vat_rate`, `stock_color`
+**`stocks`** — `warehouse_id`, `name`, `sku?`, `category?` (string), `sub_category?`, `currency`, `unit` (Adet/Kg/Metre/Lt/Paket/Kutu), `quantity` (türev), `unit_price` (net, son giriş fiyatıyla güncellenir), `vat_rate`, `critical_level?` (numeric, NULL = eşik yok; 2026-11-24, `supabase/migration_stocks_critical_level.sql`), `stock_color`
 
 **`services`** — `name`, `unit_price`, `vat_rate`, `currency`, `company_id?`
 
@@ -509,7 +509,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
   - **Ürün Seçili Olduğunda:** Hızlı Arama & İşlem (ürün seçince form otomatik dolar), seçili ürün başlığı, hareket formu (tarih, merkez, Giriş/Çıkış, açıklama, miktar, net fiyat, döviz, KDV), hareket tablosu ve üstte "Analize Dön" butonu.
   - **Kategori & Alt Kategori Analiz Panosu:** Ürün seçilmediğinde veya sekme tıklandığında açılır; 4'lü KPI sayaçları (Toplam Sermaye, 💤 Hareketsiz/Uyuyan Stok Sermayesi, ⚠️ Kritik/Tükenen Seviyeler, 🏷️ Çeşitlilik), oransal görsel sermaye dağılım şeridi ve 3 odak sekmesi sunar:
     1. *Sermaye & Dağılım:* Kategori ve alt kategori hiyerarşik matrisi, KDV dahil bağlı sermaye (TRY/USD), sermaye payı (%), kritik ve hareketsiz ürün rozetleri, sol listeyi filtreleme butonları.
-    2. *Kritik & Tükenen Seviyeler:* Acil sipariş/tedarik gerektiren tükenen (0) ve kritik (1-2) ürünlerin kategori kırılımı, ürün kartına hızlı geçiş.
+    2. *Kritik & Tükenen Seviyeler:* Acil sipariş/tedarik gerektiren tükenen (≤0) ve kritik ürünlerin (kartta `critical_level` varsa `0 < miktar ≤ critical_level`, yoksa varsayılan `0 < miktar ≤ 2`; kural `lib/stock-status.ts` `isStockCritical`) kategori kırılımı, ürün kartına hızlı geçiş.
     3. *Hareketsiz / Ölü Stok:* Seçilebilir gün eşiğine (30/60/90 gün veya hiç çıkış olmayan) göre son hareket ve çıkış tarihlerini inceleyerek atıl yatan sermaye tutarı ve ürünlerin detaylı dökümü.
 - Depo silme: "içindeki stok kartları da silinir" (cascade'e bağlı). Kategori silme: stokların `category` alanı `NULL` yapılır.
 - Kategori adı değişince aynı depodaki stokların `category` string'i toplu güncellenir.
@@ -639,7 +639,7 @@ Her modül için: **amaç → ekran düzeni → yapılabilen işlemler → tetik
 
 ### 7.15 Ortak Kabuk: Sidebar ve TopBar
 - Sidebar: 14 menü + altta "İşlem Geçmişi (Log)". Daralt/genişlet (state, kalıcı değil). `print:hidden`.
-- TopBar: rota → başlık eşlemesi (`/activity` için eşleme yok, varsayılan başlık çıkar), tarih, USD/EUR (saatlik yenileme), Bildirim Merkezi (ödenmemiş abonelikler = "Kritik", 15 gün içinde bitenler = "Uyarı"; her rota değişiminde yenilenir), dinamik profil ve çıkış menüsü.
+- TopBar: rota → başlık eşlemesi (`/activity` için eşleme yok, varsayılan başlık çıkar), tarih, USD/EUR (saatlik yenileme), Bildirim Merkezi (yalnız `critical_level` girilmiş stok kartlarında `miktar ≤ critical_level` → "Kritik Stok"/"Stok Tükendi"; kredi kartı borcu limitin %85'ini aşınca ve hesap kesimine ±2 gün kala uyarı; ödenmemiş abonelikler = "Kritik", 15 gün içinde bitenler = "Uyarı"; her rota değişiminde yenilenir), dinamik profil ve çıkış menüsü.
 
 ### 7.16 Teknik Servis & Cihaz Takip `/technical-service`
 - **Amaç:** Cihaz kabul (laptop, PC, telefon vb.), arıza teşhisi, aşama takibi, parça & işçilik maliyeti hesaplama, kabul fişi basımı ve teslimat/tahsilat yönetimi.
