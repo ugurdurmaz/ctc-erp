@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { logActivity } from '@/lib/audit'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
+import { recalculateAbsoluteSupplierBalance as recalculateSupplierLedger } from '@/lib/stock-ledger'
 import toast, { Toaster } from 'react-hot-toast'
 import { Key, Plus, Trash2, X, Edit3, Search, Building, Globe, CheckCircle2, AlertCircle, RefreshCw, Wallet, Download, Landmark, Check, ChevronDown, ChevronUp, Clock, CreditCard, Inbox, AlertTriangle, Home, ArrowUpDown, ArrowDownNarrowWide, ArrowUpNarrowWide, Calendar } from 'lucide-react'
 
@@ -170,14 +171,7 @@ export default function SubscriptionsPage() {
   }
 
   async function recalculateAbsoluteSupplierBalance(supplierId: string) {
-    const { data: txs } = await supabase.from('supplier_transactions').select('amount, tx_type, exchange_rate').eq('supplier_id', supplierId)
-    let absoluteBal = 0
-    txs?.forEach(t => {
-      const tryEquivalent = Number(t.amount) * (Number(t.exchange_rate) || 1)
-      if (t.tx_type === 'debt') absoluteBal += tryEquivalent
-      else absoluteBal -= tryEquivalent
-    })
-    await supabase.from('suppliers').update({ balance: absoluteBal }).eq('id', supplierId)
+    return await recalculateSupplierLedger(supabase, supplierId, rates)
   }
 
   async function recalculateAbsoluteWalletBalance(walletId: string) {

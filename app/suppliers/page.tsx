@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { useCompany } from '@/lib/company-context'
 import { formatMoney, formatPhoneNumber, convertTxToEntityCurrency } from '@/lib/utils'
-import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
+import { recalculateAbsoluteStock as recalculateStockLedger, recalculateAbsoluteSupplierBalance as recalculateSupplierLedger } from '@/lib/stock-ledger'
 import toast, { Toaster } from 'react-hot-toast'
 import { Building2, Plus, Trash2, X, Edit3, Search, Phone, Mail, FileText, MapPin, ListPlus, CheckSquare, Square, ScrollText, Landmark, Wallet, CreditCard, Building, Home, Globe, AlertTriangle, RefreshCw, ArrowUpRight, Store, Check, ChevronDown, Package, Tag } from 'lucide-react'
 
@@ -340,24 +340,7 @@ export default function SuppliersPage() {
   // --- MUTLAK HESAPLAMA MOTORLARI (ABSOLUTE LEDGER RECALCULATORS) ---
   // =========================================================================================
   async function recalculateAbsoluteSupplierBalance(supplierId: string) {
-    const { data: supp } = await supabase.from('suppliers').select('currency').eq('id', supplierId).single()
-    const suppCurr = supp?.currency || 'TRY'
-
-    const { data: txs } = await supabase.from('supplier_transactions').select('amount, tx_type, currency, exchange_rate').eq('supplier_id', supplierId)
-    let absoluteBal = 0
-    txs?.forEach(t => {
-      const val = convertTxToEntityCurrency(
-        t.amount,
-        t.currency || 'TRY',
-        suppCurr,
-        Number(t.exchange_rate) || 1,
-        rates
-      )
-
-      if (t.tx_type === 'debt') absoluteBal += val
-      else absoluteBal -= val
-    })
-    await supabase.from('suppliers').update({ balance: Number(absoluteBal.toFixed(2)) }).eq('id', supplierId)
+    return await recalculateSupplierLedger(supabase, supplierId, rates)
   }
 
   async function recalculateAbsoluteBankBalance(bankId: string) {
@@ -1303,8 +1286,8 @@ export default function SuppliersPage() {
         await logActivity('supplier_invoice', 'INSERT', `Yeni Alım Faturası: ${invDesc}`, finalTxId, totalGross, invCurrency, null, insData, finalCompId)
       }
 
-      for (const sId of Array.from(affectedStocks)) { await recalculateAbsoluteStock(sId) }
       await recalculateAbsoluteSupplierBalance(selectedSupplierId)
+      for (const sId of Array.from(affectedStocks)) { await recalculateAbsoluteStock(sId) }
 
       toast.success(editingTxId ? 'Detaylı fatura başarıyla güncellendi.' : 'Detaylı fatura kaydedildi ve stoklar güncellendi.')
       closeInvoiceModal(); fetchTransactions(selectedSupplierId); fetchSuppliers(); fetchStocks()

@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
+import { convertTxToEntityCurrency } from './utils'
 
 export interface ExchangeRates {
   USD: number
@@ -100,3 +101,59 @@ export async function recalculateAbsoluteStock(
     return { quantity: 0, unit_price: 0 }
   }
 }
+
+/**
+ * Mutlak Tedarikçi Cari Bakiye Hesaplama Motoru (Multi-Currency Absolute Supplier Ledger Engine)
+ * Tüm borç ve ödeme hareketlerini tedarikçinin kendi para birimine (entity currency)
+ * işlem anındaki kuru ve canlı kurları gözeterek dönüştürür ve mutlak bakiyeyi günceller.
+ */
+export async function recalculateAbsoluteSupplierBalance(
+  supabase: SupabaseClient,
+  supplierId: string,
+  rates: ExchangeRates = DEFAULT_RATES
+): Promise<number> {
+  try {
+    const { data: supp } = await supabase
+      .from('suppliers')
+      .select('currency')
+      .eq('id', supplierId)
+      .maybeSingle()
+    const suppCurr = supp?.currency || 'TRY'
+
+    const { data: txs, error: txError } = await supabase
+      .from('supplier_transactions')
+      .select('amount, tx_type, currency, exchange_rate')
+      .eq('supplier_id', supplierId)
+
+    if (txError) {
+      console.error(`[recalculateAbsoluteSupplierBalance] Hareketler çekilemedi (${supplierId}):`, txError)
+      return 0
+    }
+
+    let absoluteBal = 0
+    txs?.forEach(t => {
+      const val = convertTxToEntityCurrency(
+        t.amount,
+        t.currency || 'TRY',
+        suppCurr,
+        Number(t.exchange_rate) || 1,
+        rates
+      )
+
+      if (t.tx_type === 'debt') absoluteBal += val
+      else absoluteBal -= val
+    })
+
+    const finalBal = Number(absoluteBal.toFixed(2))
+    await supabase
+      .from('suppliers')
+      .update({ balance: finalBal })
+      .eq('id', supplierId)
+
+    return finalBal
+  } catch (err) {
+    console.error(`[recalculateAbsoluteSupplierBalance] Hata (${supplierId}):`, err)
+    return 0
+  }
+}
+

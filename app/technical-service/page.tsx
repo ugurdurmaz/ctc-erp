@@ -4,7 +4,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney, formatPhoneNumber } from '@/lib/utils'
-import { recalculateAbsoluteStock as recalculateStockLedger } from '@/lib/stock-ledger'
+import { recalculateAbsoluteStock as recalculateStockLedger, recalculateAbsoluteSupplierBalance as recalculateSupplierLedger } from '@/lib/stock-ledger'
 import toast, { Toaster } from 'react-hot-toast'
 import { 
   Wrench, Plus, Search, Filter, RefreshCw, Printer, MessageSquare, 
@@ -371,18 +371,8 @@ export default function TechnicalServicePage() {
 
   // Tedarikçi Mutlak Bakiyesini Güncelleme Fonksiyonu
   async function recalculateAbsoluteSupplierBalance(supplierId: string) {
-    const { data: txs } = await supabase
-      .from('supplier_transactions')
-      .select('amount, tx_type, exchange_rate')
-      .eq('supplier_id', supplierId)
-    let absoluteBal = 0
-    txs?.forEach(t => {
-      const tryEquivalent = Number(t.amount) * (Number(t.exchange_rate) || 1)
-      if (t.tx_type === 'debt') absoluteBal += tryEquivalent
-      else absoluteBal -= tryEquivalent
-    })
-    await supabase.from('suppliers').update({ balance: absoluteBal }).eq('id', supplierId)
-    setSuppliers(prev => prev.map(s => s.id === supplierId ? { ...s, balance: absoluteBal } : s))
+    const finalBal = await recalculateSupplierLedger(supabase, supplierId, rates)
+    setSuppliers(prev => prev.map(s => s.id === supplierId ? { ...s, balance: finalBal } : s))
   }
 
   async function recalculateAbsoluteCashBalance(cashId: string) {
