@@ -324,6 +324,10 @@ export default function ComprehensiveAnalysisReportModal({
       const techRevTotal = periodTechTickets.reduce((a, t) => a + t.revTry, 0)
       const techCashTotal = periodTechTickets.filter(t => !t.isFree && t.payment_method === 'cash').reduce((a, t) => a + t.revTry, 0)
       const techCardTotal = periodTechTickets.filter(t => !t.isFree && t.payment_method === 'card').reduce((a, t) => a + t.revTry, 0)
+      const techBankTotal = periodTechTickets.filter(t => !t.isFree && t.payment_method === 'bank').reduce((a, t) => a + t.revTry, 0)
+      // "Kart / Banka / Cari" sütunu: nakit dışındaki tüm tahsilatlar (kart, havale, veresiye)
+      const techNonCashTotal = techRevTotal - techCashTotal
+      const techDebtTotal = Math.max(0, techNonCashTotal - techCardTotal - techBankTotal)
       const techPartsTotal = stockOutSrv > 0 ? stockOutSrv : periodTechTickets.reduce((a, t) => a + t.partsCostTry, 0)
 
       // 6. Banka Faiz Gelirleri ve POS Komisyonları
@@ -408,6 +412,9 @@ export default function ComprehensiveAnalysisReportModal({
         techRevTotal,
         techCashTotal,
         techCardTotal,
+        techBankTotal,
+        techNonCashTotal,
+        techDebtTotal,
         techPartsTotal,
         stockOutInvoice,
         periodBankInterest,
@@ -2050,7 +2057,16 @@ ${printEl.innerHTML}
                               <td><strong>Teknik Servis Teslimatları</strong></td>
                               <td className="center">{cr.periodTechTickets.length} Fiş</td>
                               <td className="num">{fmt(cr.techCashTotal)}</td>
-                              <td className="num">{fmt(cr.techCardTotal)}</td>
+                              <td className="num">
+                                {fmt(cr.techNonCashTotal)}
+                                {(cr.techBankTotal > 0 || cr.techDebtTotal > 0) && (
+                                  <div className="muted" style={{ fontSize: '8px', lineHeight: 1.3 }}>
+                                    Kart {fmt(cr.techCardTotal)}
+                                    {cr.techBankTotal > 0 && <> · Havale {fmt(cr.techBankTotal)}</>}
+                                    {cr.techDebtTotal > 0 && <> · Cari {fmt(cr.techDebtTotal)}</>}
+                                  </div>
+                                )}
+                              </td>
                               <td className="num">{fmt(cr.techRevTotal)}</td>
                               <td className={`num ${cr.techPartsTotal > 0 ? 'neg' : 'muted'}`}>{cr.techPartsTotal > 0 ? `-${fmt(cr.techPartsTotal)}` : '0,00 ₺'}</td>
                               <td className="num pos">+{fmt(cr.techRevTotal - cr.techPartsTotal)}</td>
