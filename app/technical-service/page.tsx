@@ -213,7 +213,7 @@ export default function TechnicalServicePage() {
   const [editProblemDescription, setEditProblemDescription] = useState('')
 
   // Teslimat & Tahsilat State'leri
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'customer_debt' | 'free'>('cash')
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'bank' | 'customer_debt' | 'free'>('cash')
   const [paymentTargetId, setPaymentTargetId] = useState('')
   const [deductPartsFromStock, setDeductPartsFromStock] = useState(true)
   const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().substring(0, 10))
@@ -920,7 +920,7 @@ export default function TechnicalServicePage() {
       }
     } catch {}
 
-    if ((t.payment_method as any) === 'card') {
+    if (t.payment_method === 'card' || t.payment_method === 'bank') {
       setPaymentTargetId(isTargetBankValid ? (t.payment_target_id || '') : defaultPosBankId)
     } else {
       setPaymentTargetId(isTargetCashValid ? (t.payment_target_id || '') : fallbackCashId)
@@ -1232,7 +1232,22 @@ export default function TechnicalServicePage() {
         .like('description', `${debtDescPrefix}%`)
         .maybeSingle()
 
+      // Havale/EFT tahsilatı: provizyona girmeyen, onaylı (completed) doğrudan banka girişi
+      const bankTransferId = `SRV-BANK-${selectedTicket.ticket_no}`
+      const { data: existingTransferTx } = await supabase
+        .from('bank_transactions')
+        .select('id, bank_account_id')
+        .eq('transfer_id', bankTransferId)
+        .maybeSingle()
+      const removeTransferTx = async () => {
+        if (!existingTransferTx) return
+        await supabase.from('bank_transactions').delete().eq('id', existingTransferTx.id)
+        await recalculateAbsoluteBankBalance(existingTransferTx.bank_account_id)
+      }
+
       if (detailStatus === 'delivered') {
+        if (paymentMethod !== 'bank') await removeTransferTx()
+
         if (paymentMethod === 'free') {
           updates.payment_status = 'paid'
           updates.payment_method = 'free'
@@ -1319,6 +1334,52 @@ export default function TechnicalServicePage() {
               updates.payment_method = 'card'
               updates.payment_target_id = targetBank.id
             }
+          } else if (paymentMethod === 'bank') {
+            const targetBank = availableBanks.find(b => b.id === paymentTargetId) || availableBanks[0]
+            if (!targetBank) throw new Error('Havale için bir banka hesabı bulunamadı.')
+
+            if (existingCashTx) {
+              await supabase.from('cash_transactions').delete().eq('id', existingCashTx.id)
+              await recalculateAbsoluteCashBalance(existingCashTx.cash_register_id)
+            }
+            if (existingCustTx) {
+              await supabase.from('customer_transactions').delete().eq('id', existingCustTx.id)
+              await recalculateAbsoluteCustomerBalance(existingCustTx.customer_id)
+            }
+            if (existingBankTx) {
+              await supabase.from('bank_transactions').delete().eq('id', existingBankTx.id)
+              await recalculateAbsoluteBankBalance(existingBankTx.bank_account_id)
+            }
+
+            const transferPayload = {
+              bank_account_id: targetBank.id,
+              company_id: selectedTicket.company_id || targetBank.company_id || null,
+              tx_date: finalDeliveryDate,
+              description: `Teknik Servis Havale Tahsilatı: ${selectedTicket.ticket_no} - ${updates.customer_name || selectedTicket.customer_name}`,
+              tx_type: 'in',
+              amount: calcTotalCost,
+              currency: targetBank.currency || 'TRY',
+              exchange_rate: 1,
+              is_transfer: false,
+              transfer_id: bankTransferId,
+              status: 'completed'
+            }
+
+            if (existingTransferTx) {
+              const { error: trfErr } = await supabase.from('bank_transactions').update(transferPayload).eq('id', existingTransferTx.id)
+              if (trfErr) throw trfErr
+              if (existingTransferTx.bank_account_id !== targetBank.id) {
+                await recalculateAbsoluteBankBalance(existingTransferTx.bank_account_id)
+              }
+            } else {
+              const { error: trfErr } = await supabase.from('bank_transactions').insert([transferPayload])
+              if (trfErr) throw trfErr
+            }
+            await recalculateAbsoluteBankBalance(targetBank.id)
+
+            updates.payment_status = 'paid'
+            updates.payment_method = 'bank'
+            updates.payment_target_id = targetBank.id
           } else if (paymentMethod === 'customer_debt' && selectedTicket.customer_id) {
             if (existingCashTx) {
               await supabase.from('cash_transactions').delete().eq('id', existingCashTx.id)
@@ -1364,6 +1425,7 @@ export default function TechnicalServicePage() {
         }
       } else if (selectedTicket.status === 'delivered') {
         // Cihaz teslim edilme aşamasından geri alındıysa tahsilat işlemlerini temizle
+        await removeTransferTx()
         if (existingCashTx) {
           await supabase.from('cash_transactions').delete().eq('id', existingCashTx.id)
           await recalculateAbsoluteCashBalance(existingCashTx.cash_register_id)
@@ -3179,7 +3241,7 @@ export default function TechnicalServicePage() {
                           setPaymentMethod(newMethod)
                           if (newMethod === 'cash') {
                             setPaymentTargetId(availableCashes[0]?.id || '')
-                          } else if (newMethod === 'card') {
+                          } else if (newMethod === 'card' || newMethod === 'bank') {
                             let defaultBankId = availableBanks[0]?.id || ''
                             try {
                               const cfg = localStorage.getItem('ctc_pos_config')
@@ -3199,6 +3261,7 @@ export default function TechnicalServicePage() {
                       >
                         <option value="cash">Nakit Kasa ile Tahsil Et</option>
                         <option value="card">Kredi Kartı / POS (Banka Hesabı)</option>
+                        <option value="bank">Havale / EFT (Bankaya Doğrudan)</option>
                         <option value="customer_debt">Müşterinin Cari Hesabına Borç Yaz</option>
                         <option value="free">Ücretsiz / Garanti Kapsamı (0 ₺)</option>
                       </select>
@@ -3228,6 +3291,26 @@ export default function TechnicalServicePage() {
                         <label className="block text-slate-300 font-bold mb-1">
                           POS / Banka Hesabı <span className="text-emerald-400 font-normal">({bilgisayarHastanesiCompany?.name || 'Bilgisayar Hastanesi'})</span>
                           <span className="text-[10px] text-purple-300 block font-normal">💡 Mağaza POS cihazı ile birleştirilip gün sonunda tek komisyonla hesaba aktarılır.</span>
+                        </label>
+                        <select
+                          value={paymentTargetId}
+                          onChange={(e) => setPaymentTargetId(e.target.value)}
+                          className="w-full px-3 py-2 bg-[#070b14] border border-slate-800 rounded-xl text-white font-medium focus:border-emerald-500"
+                        >
+                          {availableBanks.map(b => (
+                            <option key={b.id} value={b.id}>
+                              {b.bank_name} {b.account_name ? `- ${b.account_name}` : ''} ({formatMoney(b.balance, (b.currency as any) || 'TRY').formatted})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {paymentMethod === 'bank' && (
+                      <div>
+                        <label className="block text-slate-300 font-bold mb-1">
+                          Havalenin Geldiği Banka Hesabı <span className="text-emerald-400 font-normal">({bilgisayarHastanesiCompany?.name || 'Bilgisayar Hastanesi'})</span>
+                          <span className="text-[10px] text-sky-300 block font-normal">💡 Komisyonsuz, onaylı giriş olarak bakiyeye hemen eklenir; POS provizyonuna girmez.</span>
                         </label>
                         <select
                           value={paymentTargetId}

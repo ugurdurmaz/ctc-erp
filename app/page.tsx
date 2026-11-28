@@ -1151,7 +1151,7 @@ export default function Home() {
             id: `srv_${ticket.id}`,
             category: 'Teknik Servis',
             title: `${ticket.ticket_no} — ${ticket.customer_name || 'Müşteri'} (${ticket.brand_model || 'Cihaz'})`,
-            subtitle: `${ticket.payment_method === 'card' ? 'Kredi Kartı' : 'Nakit'}${dStr ? ` • ${formatDateTR(dStr.substring(0, 10))}` : ''}`,
+            subtitle: `${ticket.payment_method === 'card' ? 'Kredi Kartı' : ticket.payment_method === 'bank' ? 'Havale / EFT' : 'Nakit'}${dStr ? ` • ${formatDateTR(dStr.substring(0, 10))}` : ''}`,
             companyName: getCompLabel(ticket.company_id),
             amount: val
           })

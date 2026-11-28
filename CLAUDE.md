@@ -35,7 +35,7 @@ Detay `docs/` altında. En yakın konuyu bul, o dosyayı oku; burada tekrar etme
 
 ### Always-on cross-cutting truths
 
-- **Çapraz modül hareketleri `transfer_id` ön ekiyle işaretlenir** (`EXP-`, `SUPP-`, `CUST-`, `POS-*`, `TRF-`). Kasa/banka ekranları bu ön ekleri silmeyi reddeder; yeni ön ek eklersen etiket + koruma listesini de güncelle (`app/cash-registers/page.tsx`, `app/bank-accounts/page.tsx`). Not: `supplier_transactions` tablosunda `transfer_id` kolonu yoktur; POS tedarikçi maliyetleri sihirli açıklama (`Mağaza Hizmet Alımı (POS-<tarih>)`) ve `invoice_lines` ile bağlanır, cari ekranından silme engellenir.
+- **Çapraz modül hareketleri `transfer_id` ön ekiyle işaretlenir** (`EXP-`, `SUPP-`, `CUST-`, `POS-*`, `TRF-`, `LOAN-`, `PARTNER-`, `SRV-`). Kasa/banka ekranları bu ön ekleri silmeyi reddeder; yeni ön ek eklersen etiket + koruma listesini de güncelle (`app/cash-registers/page.tsx`, `app/bank-accounts/page.tsx`). Not: `supplier_transactions` tablosunda `transfer_id` kolonu yoktur; POS tedarikçi maliyetleri sihirli açıklama (`Mağaza Hizmet Alımı (POS-<tarih>)`) ve `invoice_lines` ile bağlanır, cari ekranından silme engellenir.
 - **Kredi kartı hareketleri `card_transactions` / `card_id` / `expense|payment`'tır.** `credit_card_transactions` tablosu POS'ta kalmış bir hatadır (AUDIT C-1); yeni kod ona yazmaz.
 - **Açılış bakiyeleri hareket olarak yaşar** ve açıklama metniyle tanınır (`Açılış Bakiyesi / Devir`, `Dönem Başı Devir Borcu`, `Açılış Stoğu`). Bu string'leri değiştirme.
 - **POS kart cirosu bankaya `status='pending'` yazılır**, bakiyeye girmez; onay bankadan yapılır. Tüm banka toplamları `status !== 'pending'` filtresi taşır.

@@ -2604,11 +2604,13 @@ export default function RetailPOSPage() {
                         <span className={`text-[8px] px-1.5 py-0.5 rounded font-sans font-medium border ${
                           t.payment_method === 'cash' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
                           t.payment_method === 'card' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' :
+                          t.payment_method === 'bank' ? 'bg-sky-500/15 text-sky-300 border-sky-500/30' :
                           (t.payment_method === 'customer_debt' || t.payment_method === 'customer_account') ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' :
                           'bg-slate-800 text-slate-400 border-slate-700'
                         }`}>
                           {t.payment_method === 'cash' ? 'Nakit' :
                            t.payment_method === 'card' ? 'K.Kartı' :
+                           t.payment_method === 'bank' ? 'Havale' :
                            (t.payment_method === 'customer_debt' || t.payment_method === 'customer_account') ? 'Veresiye' : 'Ücretsiz'}
                         </span>
                         <span className="text-slate-100 font-bold text-[10px]">

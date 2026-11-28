@@ -2415,7 +2415,7 @@ ${printEl.innerHTML}
                               <td>{t.customer_name || '-'}</td>
                               <td>{t.brand_model || '-'}</td>
                               <td className="center">
-                                {t.isFree ? 'Ücretsiz/Garanti' : t.payment_method === 'card' ? 'Kredi Kartı' : 'Nakit'}
+                                {t.isFree ? 'Ücretsiz/Garanti' : t.payment_method === 'card' ? 'Kredi Kartı' : t.payment_method === 'bank' ? 'Havale / EFT' : 'Nakit'}
                               </td>
                               <td className="num">{fmt(t.revTry)}</td>
                               <td className={`num ${t.partsCostTry > 0 ? 'neg' : 'muted'}`}>
